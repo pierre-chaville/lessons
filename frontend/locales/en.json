@@ -1,0 +1,36 @@
+{
+  "app": {
+    "title": "Lessons Manager"
+  },
+  "lessons": {
+    "title": "Your Lessons",
+    "addNew": "New Lesson",
+    "loading": "Loading lessons...",
+    "noLessons": "No lessons yet. Create your first lesson!",
+    "hasAudio": "Audio available",
+    "hasTranscription": "Transcription available",
+    "filters": "Filters",
+    "allCourses": "All Courses",
+    "allThemes": "All Themes",
+    "clearFilters": "Clear filters",
+    "backToList": "Back to lessons",
+    "date": "Date",
+    "duration": "Duration",
+    "noDuration": "N/A",
+    "course": "Course",
+    "file": "File",
+    "summary": "Summary",
+    "correctedTranscript": "Corrected Transcript",
+    "initialTranscript": "Initial Transcript",
+    "noTranscripts": "No transcripts available for this lesson.",
+    "noContent": "No content available for this lesson.",
+    "play": "Play",
+    "pause": "Pause",
+    "playSegment": "Play from this segment"
+  },
+  "theme": {
+    "light": "Switch to light mode",
+    "dark": "Switch to dark mode"
+  }
+}
+

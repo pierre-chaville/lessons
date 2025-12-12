@@ -1,0 +1,36 @@
+{
+  "app": {
+    "title": "Gestionnaire de Leçons"
+  },
+  "lessons": {
+    "title": "Vos Leçons",
+    "addNew": "Nouvelle Leçon",
+    "loading": "Chargement des leçons...",
+    "noLessons": "Aucune leçon pour le moment. Créez votre première leçon !",
+    "hasAudio": "Audio disponible",
+    "hasTranscription": "Transcription disponible",
+    "filters": "Filtres",
+    "allCourses": "Tous les cours",
+    "allThemes": "Tous les thèmes",
+    "clearFilters": "Effacer les filtres",
+    "backToList": "Retour aux leçons",
+    "date": "Date",
+    "duration": "Durée",
+    "noDuration": "N/D",
+    "course": "Cours",
+    "file": "Fichier",
+    "summary": "Résumé",
+    "correctedTranscript": "Transcription Corrigée",
+    "initialTranscript": "Transcription Initiale",
+    "noTranscripts": "Aucune transcription disponible pour cette leçon.",
+    "noContent": "Aucun contenu disponible pour cette leçon.",
+    "play": "Lecture",
+    "pause": "Pause",
+    "playSegment": "Lire depuis ce segment"
+  },
+  "theme": {
+    "light": "Passer en mode clair",
+    "dark": "Passer en mode sombre"
+  }
+}
+

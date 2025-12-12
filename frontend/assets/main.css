@@ -1,0 +1,45 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Enhanced prose styles for markdown rendering */
+@layer components {
+  /* Custom link colors */
+  .prose-indigo :where(a):not(:where([class~="not-prose"] *)) {
+    @apply text-indigo-600 dark:text-indigo-400 no-underline hover:underline;
+  }
+  
+  /* Custom code styling */
+  .prose-indigo :where(code):not(:where([class~="not-prose"] *)):not(:where(pre *)) {
+    @apply bg-gray-100 dark:bg-gray-800 text-indigo-600 dark:text-indigo-400 px-1.5 py-0.5 rounded text-sm font-normal;
+  }
+  
+  .prose-indigo :where(code):not(:where([class~="not-prose"] *)):not(:where(pre *))::before,
+  .prose-indigo :where(code):not(:where([class~="not-prose"] *)):not(:where(pre *))::after {
+    content: none;
+  }
+  
+  /* Custom pre/code block styling */
+  .prose-indigo :where(pre):not(:where([class~="not-prose"] *)) {
+    @apply bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700;
+  }
+  
+  .prose-indigo :where(pre code):not(:where([class~="not-prose"] *)) {
+    @apply bg-transparent text-gray-800 dark:text-gray-200 p-0;
+  }
+  
+  /* Custom blockquote styling */
+  .prose-indigo :where(blockquote):not(:where([class~="not-prose"] *)) {
+    @apply border-l-indigo-600 dark:border-l-indigo-400;
+  }
+}
+

@@ -1,0 +1,46 @@
+{
+  "name": "lessons-manager",
+  "version": "1.0.0",
+  "description": "Lessons manager with audio transcription and summaries",
+  "main": "electron/main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\" \"npm run dev:electron\"",
+    "dev:frontend": "vite",
+    "dev:electron": "electron .",
+    "dev:backend": "cd backend && python -m uvicorn main:app --reload --port 8000",
+    "build:frontend": "vite build",
+    "build": "npm run build:frontend && electron-builder",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@headlessui/vue": "^1.7.16",
+    "@heroicons/vue": "^2.0.18",
+    "axios": "^1.6.2",
+    "marked": "^11.2.0",
+    "vue": "^3.3.10",
+    "vue-i18n": "^9.8.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/typography": "^0.5.10",
+    "@vitejs/plugin-vue": "^6.0.3",
+    "autoprefixer": "^10.4.16",
+    "concurrently": "^8.2.2",
+    "electron": "^39.2.6",
+    "electron-builder": "^24.9.1",
+    "postcss": "^8.4.32",
+    "tailwindcss": "^3.3.6",
+    "vite": "^7.2.7"
+  },
+  "build": {
+    "appId": "com.lessonsmanager.app",
+    "productName": "Lessons Manager",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "electron/**/*",
+      "dist/**/*"
+    ]
+  }
+}
