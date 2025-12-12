@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, watch, nextTick } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { marked } from 'marked';
 import { 
@@ -29,6 +29,9 @@ const audioPlayer = ref(null);
 const isPlaying = ref(false);
 const currentTime = ref(0);
 const currentSegment = ref(null);
+
+// Toggle between summary, corrected transcript, and initial transcript
+const activeView = ref('summary');
 
 // Configure marked options
 marked.setOptions({
@@ -170,8 +173,34 @@ const isSegmentActive = (segment) => {
   return currentTime.value >= segment.start && currentTime.value <= segment.end;
 };
 
-// Toggle between summary, corrected transcript, and initial transcript
-const activeView = ref('summary');
+// Get currently active segment
+const activeSegmentIndex = computed(() => {
+  const segments = activeView.value === 'corrected' 
+    ? props.lesson.corrected_transcript?.segments 
+    : props.lesson.transcript?.segments;
+  
+  if (!segments) return -1;
+  
+  return segments.findIndex(segment => 
+    currentTime.value >= segment.start && currentTime.value <= segment.end
+  );
+});
+
+// Auto-scroll to active segment
+watch(activeSegmentIndex, (newIndex) => {
+  if (newIndex === -1 || !isPlaying.value) return;
+  
+  nextTick(() => {
+    const segmentElement = document.querySelector(`[data-segment-index="${newIndex}"]`);
+    if (segmentElement) {
+      segmentElement.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+        inline: 'nearest'
+      });
+    }
+  });
+});
 
 const formatDate = (dateString) => {
   if (!dateString) return '';
@@ -362,10 +391,11 @@ if (availableViews.value.length > 0) {
           <!-- Corrected Transcript View -->
           <div v-else-if="activeView === 'corrected'">
             <!-- Segmented View -->
-            <div v-if="hasSegments(lesson.corrected_transcript)" class="space-y-4 max-h-[600px] overflow-auto">
+            <div v-if="hasSegments(lesson.corrected_transcript)" class="space-y-4 max-h-[600px] overflow-auto scroll-smooth">
               <div
                 v-for="(segment, index) in lesson.corrected_transcript.segments"
                 :key="index"
+                :data-segment-index="index"
                 :class="[
                   'flex gap-3 p-4 rounded-lg border transition-all',
                   isSegmentActive(segment)
@@ -396,10 +426,11 @@ if (availableViews.value.length > 0) {
           <!-- Initial Transcript View -->
           <div v-else-if="activeView === 'initial'">
             <!-- Segmented View -->
-            <div v-if="hasSegments(lesson.transcript)" class="space-y-4 max-h-[600px] overflow-auto">
+            <div v-if="hasSegments(lesson.transcript)" class="space-y-4 max-h-[600px] overflow-auto scroll-smooth">
               <div
                 v-for="(segment, index) in lesson.transcript.segments"
                 :key="index"
+                :data-segment-index="index"
                 :class="[
                   'flex gap-3 p-4 rounded-lg border transition-all',
                   isSegmentActive(segment)
