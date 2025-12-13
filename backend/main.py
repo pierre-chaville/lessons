@@ -1,9 +1,11 @@
 from datetime import datetime
 from typing import List, Optional, Dict, Any
-from fastapi import FastAPI, Depends, HTTPException, Query, Request
+from fastapi import FastAPI, Depends, HTTPException, Query, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session
 from pydantic import BaseModel
+import shutil
+from pathlib import Path
 
 from database import create_db_and_tables, get_session
 from models import Lesson, Course, Theme
@@ -301,6 +303,20 @@ def create_lesson(lesson_data: LessonCreate, session: Session = Depends(get_sess
         theme_ids=lesson_data.theme_ids
     )
     
+    # Rename audio file to include lesson ID
+    audio_dir = Path(__file__).parent / "data" / "audio"
+    temp_file = audio_dir / lesson_data.filename
+    if temp_file.exists():
+        new_filename = f"{lesson.id}_{lesson_data.filename.replace('temp_', '').split('_', 1)[-1]}"
+        new_path = audio_dir / new_filename
+        temp_file.rename(new_path)
+        
+        # Update lesson with new filename
+        lesson.filename = new_filename.split('_', 1)[-1]  # Store without the ID prefix
+        session.add(lesson)
+        session.commit()
+        session.refresh(lesson)
+    
     # Return with enriched data
     theme_ids = lesson.get_themes()
     themes = crud.get_themes_by_ids(session, theme_ids) if theme_ids else []
@@ -392,6 +408,237 @@ def delete_lesson(lesson_id: int, session: Session = Depends(get_session)):
     if not crud.delete_lesson(session, lesson_id):
         raise HTTPException(status_code=404, detail="Lesson not found")
     return None
+
+
+@app.get("/lessons/{lesson_id}/pdf/summary", tags=["Lessons"])
+def get_lesson_summary_pdf(lesson_id: int, session: Session = Depends(get_session)):
+    """Generate and download PDF of the lesson summary"""
+    from pathlib import Path
+    from fastapi.responses import Response
+    from weasyprint import HTML, CSS
+    from io import BytesIO
+    import markdown
+    
+    lesson = crud.get_lesson(session, lesson_id)
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+    
+    if not lesson.summary:
+        raise HTTPException(status_code=404, detail="No summary available")
+    
+    # Convert markdown to HTML
+    md = markdown.Markdown(extensions=['extra', 'nl2br'])
+    summary_html = md.convert(lesson.summary)
+    
+    # Create HTML document with proper styling
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>{lesson.title} - Summary</title>
+        <style>
+            @page {{
+                size: A4;
+                margin: 2cm;
+            }}
+            body {{
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                line-height: 1.6;
+                color: #333;
+            }}
+            h1 {{
+                color: #4f46e5;
+                border-bottom: 2px solid #4f46e5;
+                padding-bottom: 10px;
+                margin-bottom: 20px;
+            }}
+            h2 {{
+                color: #6366f1;
+                margin-top: 20px;
+            }}
+            h3 {{
+                color: #818cf8;
+            }}
+            code {{
+                background-color: #f3f4f6;
+                padding: 2px 6px;
+                border-radius: 3px;
+                font-family: 'Courier New', monospace;
+            }}
+            pre {{
+                background-color: #f3f4f6;
+                padding: 15px;
+                border-radius: 5px;
+                overflow-x: auto;
+            }}
+            blockquote {{
+                border-left: 4px solid #4f46e5;
+                padding-left: 15px;
+                margin-left: 0;
+                font-style: italic;
+                color: #666;
+            }}
+            ul, ol {{
+                margin-left: 20px;
+            }}
+            .metadata {{
+                font-size: 12px;
+                color: #666;
+                margin-bottom: 20px;
+                padding: 10px;
+                background-color: #f9fafb;
+                border-radius: 5px;
+            }}
+        </style>
+    </head>
+    <body>
+        <h1>{lesson.title}</h1>
+        <div class="metadata">
+            <p><strong>Date:</strong> {lesson.date.strftime('%Y-%m-%d %H:%M') if lesson.date else 'N/A'}</p>
+            {f'<p><strong>Course:</strong> {lesson.course.name}</p>' if lesson.course else ''}
+        </div>
+        <div class="content">
+            {summary_html}
+        </div>
+    </body>
+    </html>
+    """
+    
+    # Generate PDF
+    pdf_buffer = BytesIO()
+    HTML(string=html_content).write_pdf(pdf_buffer)
+    pdf_buffer.seek(0)
+    
+    # Create safe filename
+    safe_title = "".join(c for c in lesson.title if c.isalnum() or c in (' ', '-', '_')).rstrip()
+    filename = f"{safe_title}_summary.pdf"
+    
+    return Response(
+        content=pdf_buffer.getvalue(),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        }
+    )
+
+
+@app.get("/lessons/{lesson_id}/pdf/transcript", tags=["Lessons"])
+def get_lesson_transcript_pdf(
+    lesson_id: int, 
+    transcript_type: str = Query("corrected", regex="^(corrected|initial)$"),
+    session: Session = Depends(get_session)
+):
+    """Generate and download PDF of the lesson transcript (without timestamps)"""
+    from pathlib import Path
+    from fastapi.responses import Response
+    from weasyprint import HTML
+    from io import BytesIO
+    
+    lesson = crud.get_lesson(session, lesson_id)
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+    
+    # Get the appropriate transcript
+    transcript = lesson.corrected_transcript if transcript_type == "corrected" else lesson.transcript
+    
+    if not transcript or not transcript.get('segments'):
+        raise HTTPException(status_code=404, detail=f"No {transcript_type} transcript available")
+    
+    # Extract text from segments (without timestamps)
+    segments_text = "\n\n".join(segment['text'] for segment in transcript['segments'])
+    
+    # Create HTML document
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>{lesson.title} - {transcript_type.capitalize()} Transcript</title>
+        <style>
+            @page {{
+                size: A4;
+                margin: 2cm;
+            }}
+            body {{
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                line-height: 1.8;
+                color: #333;
+            }}
+            h1 {{
+                color: #4f46e5;
+                border-bottom: 2px solid #4f46e5;
+                padding-bottom: 10px;
+                margin-bottom: 20px;
+            }}
+            .metadata {{
+                font-size: 12px;
+                color: #666;
+                margin-bottom: 20px;
+                padding: 10px;
+                background-color: #f9fafb;
+                border-radius: 5px;
+            }}
+            .transcript {{
+                text-align: justify;
+                white-space: pre-wrap;
+            }}
+        </style>
+    </head>
+    <body>
+        <h1>{lesson.title}</h1>
+        <div class="metadata">
+            <p><strong>Date:</strong> {lesson.date.strftime('%Y-%m-%d %H:%M') if lesson.date else 'N/A'}</p>
+            {f'<p><strong>Course:</strong> {lesson.course.name}</p>' if lesson.course else ''}
+            <p><strong>Transcript Type:</strong> {transcript_type.capitalize()}</p>
+        </div>
+        <div class="transcript">
+            {segments_text}
+        </div>
+    </body>
+    </html>
+    """
+    
+    # Generate PDF
+    pdf_buffer = BytesIO()
+    HTML(string=html_content).write_pdf(pdf_buffer)
+    pdf_buffer.seek(0)
+    
+    # Create safe filename
+    safe_title = "".join(c for c in lesson.title if c.isalnum() or c in (' ', '-', '_')).rstrip()
+    filename = f"{safe_title}_{transcript_type}_transcript.pdf"
+    
+    return Response(
+        content=pdf_buffer.getvalue(),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        }
+    )
+
+
+@app.post("/upload/audio", tags=["Lessons"])
+async def upload_audio(file: UploadFile = File(...), session: Session = Depends(get_session)):
+    """Upload an audio file for a lesson"""
+    # Validate file type
+    if not file.content_type or not file.content_type.startswith('audio/'):
+        raise HTTPException(status_code=400, detail="File must be an audio file")
+    
+    # Create audio directory if it doesn't exist
+    audio_dir = Path(__file__).parent / "data" / "audio"
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Save file with temporary name (will be renamed when lesson is created)
+    temp_filename = f"temp_{datetime.now().strftime('%Y%m%d%H%M%S')}_{file.filename}"
+    temp_path = audio_dir / temp_filename
+    
+    try:
+        with open(temp_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
+    
+    return {"filename": temp_filename, "original_filename": file.filename}
 
 
 @app.get("/lessons/{lesson_id}/audio", tags=["Lessons"])

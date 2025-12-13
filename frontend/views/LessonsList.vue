@@ -11,6 +11,7 @@ import {
 import { Listbox, ListboxButton, ListboxOptions, ListboxOption } from '@headlessui/vue';
 import { ChevronUpDownIcon, CheckIcon } from '@heroicons/vue/20/solid';
 import LessonDetail from './LessonDetail.vue';
+import CreateLessonModal from '../components/CreateLessonModal.vue';
 
 const { t } = useI18n();
 const lessons = ref([]);
@@ -22,6 +23,7 @@ const selectedLessonDetail = ref(null);
 
 const selectedCourse = ref(null);
 const selectedTheme = ref(null);
+const showCreateModal = ref(false);
 
 const API_URL = 'http://localhost:8000';
 
@@ -85,7 +87,11 @@ onMounted(async () => {
 
 const formatDate = (dateString) => {
   if (!dateString) return '';
-  return new Date(dateString).toLocaleDateString();
+  const date = new Date(dateString);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 };
 
 const openLesson = async (lesson) => {
@@ -104,13 +110,33 @@ const closeLesson = () => {
   selectedLessonDetail.value = null;
 };
 
+const openCreateModal = () => {
+  showCreateModal.value = true;
+};
+
+const closeCreateModal = () => {
+  showCreateModal.value = false;
+};
+
+const onLessonCreated = () => {
+  fetchLessons(); // Refresh the list
+};
+
 // Expose whether we're viewing a lesson detail
 defineExpose({
-  isViewingDetail: computed(() => selectedLessonDetail.value !== null)
+  isViewingDetail: computed(() => selectedLessonDetail.value !== null),
+  openCreateModal
 });
 </script>
 
 <template>
+  <!-- Create Lesson Modal -->
+  <CreateLessonModal
+    :is-open="showCreateModal"
+    @close="closeCreateModal"
+    @created="onLessonCreated"
+  />
+  
   <!-- Show lesson detail if a lesson is selected -->
   <LessonDetail
     v-if="selectedLessonDetail"

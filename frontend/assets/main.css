@@ -11,6 +11,48 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Print styles */
+@media print {
+  body {
+    background: white !important;
+  }
+  
+  /* Hide navigation and UI elements */
+  header,
+  .print\:hidden {
+    display: none !important;
+  }
+  
+  /* Remove backgrounds and borders for print */
+  .dark\:bg-gray-900,
+  .dark\:bg-gray-800,
+  .bg-gray-50 {
+    background: white !important;
+  }
+  
+  /* Ensure good contrast */
+  .dark\:text-gray-300,
+  .dark\:text-white,
+  .text-gray-700 {
+    color: black !important;
+  }
+  
+  /* Remove max height constraints */
+  .max-h-\[600px\] {
+    max-height: none !important;
+  }
+  
+  /* Better page breaks */
+  .rounded-lg {
+    page-break-inside: avoid;
+  }
+  
+  /* Print title */
+  h1 {
+    page-break-after: avoid;
+  }
+}
+
 /* Enhanced prose styles for markdown rendering */
 @layer components {
   /* Custom link colors */

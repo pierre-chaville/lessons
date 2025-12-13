@@ -9,9 +9,17 @@ import {
   DocumentTextIcon,
   BookOpenIcon,
   PlayIcon,
-  PauseIcon
+  PauseIcon,
+  PencilIcon,
+  CheckIcon,
+  XMarkIcon,
+  PrinterIcon,
+  TrashIcon,
+  ExclamationTriangleIcon
 } from '@heroicons/vue/24/outline';
 import { SpeakerWaveIcon } from '@heroicons/vue/24/solid';
+import { Dialog, DialogPanel, DialogTitle } from '@headlessui/vue';
+import axios from 'axios';
 
 const props = defineProps({
   lesson: {
@@ -32,6 +40,27 @@ const currentSegment = ref(null);
 
 // Toggle between summary, corrected transcript, and initial transcript
 const activeView = ref('summary');
+
+// Edit summary state
+const isEditingSummary = ref(false);
+const editedSummary = ref('');
+const isSavingSummary = ref(false);
+
+// Edit lesson state
+const isEditingLesson = ref(false);
+const editedLesson = ref({
+  title: '',
+  date: '',
+  course_id: null,
+  theme_ids: []
+});
+const isSavingLesson = ref(false);
+
+// Delete confirmation state
+const showDeleteConfirm = ref(false);
+const isDeleting = ref(false);
+
+const API_URL = 'http://localhost:8000';
 
 // Configure marked options
 marked.setOptions({
@@ -204,7 +233,11 @@ watch(activeSegmentIndex, (newIndex) => {
 
 const formatDate = (dateString) => {
   if (!dateString) return '';
-  return new Date(dateString).toLocaleString();
+  const date = new Date(dateString);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 };
 
 const formatDuration = (seconds) => {
@@ -241,33 +274,260 @@ const availableViews = computed(() => {
 if (availableViews.value.length > 0) {
   activeView.value = availableViews.value[0].key;
 }
+
+// Edit summary functions
+const startEditSummary = () => {
+  editedSummary.value = props.lesson.summary || '';
+  isEditingSummary.value = true;
+};
+
+const cancelEditSummary = () => {
+  isEditingSummary.value = false;
+  editedSummary.value = '';
+};
+
+const saveSummary = async () => {
+  if (isSavingSummary.value) return;
+  
+  try {
+    isSavingSummary.value = true;
+    
+    await axios.patch(`${API_URL}/lessons/${props.lesson.id}`, {
+      summary: editedSummary.value
+    });
+    
+    // Update the lesson object
+    props.lesson.summary = editedSummary.value;
+    isEditingSummary.value = false;
+  } catch (error) {
+    console.error('Failed to save summary:', error);
+    alert(t('lessons.saveFailed'));
+  } finally {
+    isSavingSummary.value = false;
+  }
+};
+
+// Download PDF functions
+const downloadSummaryPDF = async () => {
+  try {
+    const response = await axios.get(`${API_URL}/lessons/${props.lesson.id}/pdf/summary`, {
+      responseType: 'blob'
+    });
+    
+    // Create download link
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `${props.lesson.title}_summary.pdf`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  } catch (error) {
+    console.error('Failed to download PDF:', error);
+    alert(t('lessons.downloadFailed'));
+  }
+};
+
+const downloadTranscriptPDF = async () => {
+  try {
+    const transcriptType = activeView.value === 'corrected' ? 'corrected' : 'initial';
+    const response = await axios.get(
+      `${API_URL}/lessons/${props.lesson.id}/pdf/transcript?transcript_type=${transcriptType}`,
+      { responseType: 'blob' }
+    );
+    
+    // Create download link
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `${props.lesson.title}_${transcriptType}_transcript.pdf`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  } catch (error) {
+    console.error('Failed to download PDF:', error);
+    alert(t('lessons.downloadFailed'));
+  }
+};
+
+// Edit lesson functions
+const startEditLesson = async () => {
+  // Fetch courses and themes for the dropdowns if not already loaded
+  if (!courses.value || courses.value.length === 0) {
+    await fetchCourses();
+  }
+  if (!themes.value || themes.value.length === 0) {
+    await fetchThemes();
+  }
+  
+  editedLesson.value = {
+    title: props.lesson.title,
+    date: props.lesson.date ? new Date(props.lesson.date).toISOString().slice(0, 10) : '',
+    course_id: props.lesson.course_id,
+    theme_ids: props.lesson.theme_ids || []
+  };
+  isEditingLesson.value = true;
+};
+
+const cancelEditLesson = () => {
+  isEditingLesson.value = false;
+};
+
+const saveLesson = async () => {
+  if (isSavingLesson.value) return;
+  
+  try {
+    isSavingLesson.value = true;
+    
+    const updateData = {
+      title: editedLesson.value.title,
+      date: editedLesson.value.date ? new Date(editedLesson.value.date).toISOString() : null,
+      course_id: editedLesson.value.course_id,
+      theme_ids: editedLesson.value.theme_ids
+    };
+    
+    const response = await axios.patch(`${API_URL}/lessons/${props.lesson.id}`, updateData);
+    
+    // Update the lesson object
+    Object.assign(props.lesson, response.data);
+    isEditingLesson.value = false;
+  } catch (error) {
+    console.error('Failed to save lesson:', error);
+    alert(t('lessons.saveFailed'));
+  } finally {
+    isSavingLesson.value = false;
+  }
+};
+
+const courses = ref([]);
+const themes = ref([]);
+
+const fetchCourses = async () => {
+  try {
+    const response = await axios.get(`${API_URL}/courses`);
+    courses.value = response.data;
+  } catch (error) {
+    console.error('Failed to fetch courses:', error);
+  }
+};
+
+const fetchThemes = async () => {
+  try {
+    const response = await axios.get(`${API_URL}/themes`);
+    themes.value = response.data;
+  } catch (error) {
+    console.error('Failed to fetch themes:', error);
+  }
+};
+
+const toggleTheme = (themeId) => {
+  const index = editedLesson.value.theme_ids.indexOf(themeId);
+  if (index === -1) {
+    editedLesson.value.theme_ids.push(themeId);
+  } else {
+    editedLesson.value.theme_ids.splice(index, 1);
+  }
+};
+
+// Delete lesson functions
+const confirmDelete = () => {
+  showDeleteConfirm.value = true;
+};
+
+const cancelDelete = () => {
+  showDeleteConfirm.value = false;
+};
+
+const deleteLesson = async () => {
+  try {
+    isDeleting.value = true;
+    
+    await axios.delete(`${API_URL}/lessons/${props.lesson.id}`);
+    
+    // Close confirmation dialog
+    showDeleteConfirm.value = false;
+    
+    // Navigate back to lessons list
+    emit('close');
+  } catch (error) {
+    console.error('Failed to delete lesson:', error);
+    alert(t('lessons.deleteFailed'));
+  } finally {
+    isDeleting.value = false;
+  }
+};
 </script>
 
 <template>
-  <div class="bg-gray-50 dark:bg-gray-900 min-h-screen transition-colors">
-    <!-- Header with Back Button -->
-    <div class="bg-white dark:bg-gray-800 shadow-sm transition-colors sticky top-0 z-10">
-      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-        <button
-          @click="emit('close')"
-          class="inline-flex items-center gap-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
-        >
-          <ArrowLeftIcon class="h-5 w-5" />
-          {{ t('lessons.backToList') }}
-        </button>
-      </div>
+  <!-- Delete Confirmation Dialog -->
+  <Dialog :open="showDeleteConfirm" @close="cancelDelete" class="relative z-50">
+    <div class="fixed inset-0 bg-black/30 backdrop-blur-sm" aria-hidden="true" />
+    
+    <div class="fixed inset-0 flex items-center justify-center p-4">
+      <DialogPanel class="mx-auto max-w-md w-full bg-white dark:bg-gray-800 rounded-lg shadow-xl">
+        <div class="p-6">
+          <div class="flex items-center gap-4 mb-4">
+            <div class="flex-shrink-0 w-12 h-12 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+              <ExclamationTriangleIcon class="h-6 w-6 text-red-600 dark:text-red-400" />
+            </div>
+            <div>
+              <DialogTitle class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t('lessons.deleteConfirmTitle') }}
+              </DialogTitle>
+              <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                {{ t('lessons.deleteConfirmMessage') }}
+              </p>
+            </div>
+          </div>
+          
+          <p class="text-sm text-gray-700 dark:text-gray-300 mb-6 pl-16">
+            <strong>{{ lesson.title }}</strong>
+          </p>
+          
+          <div class="flex justify-end gap-3">
+            <button
+              @click="cancelDelete"
+              :disabled="isDeleting"
+              class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md transition-colors disabled:opacity-50"
+            >
+              {{ t('lessons.cancel') }}
+            </button>
+            <button
+              @click="deleteLesson"
+              :disabled="isDeleting"
+              class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 disabled:bg-red-400 rounded-md transition-colors"
+            >
+              <TrashIcon class="h-4 w-4" />
+              {{ isDeleting ? t('lessons.deleting') : t('lessons.deleteConfirm') }}
+            </button>
+          </div>
+        </div>
+      </DialogPanel>
     </div>
-
+  </Dialog>
+  
+  <div class="bg-gray-50 dark:bg-gray-900 min-h-screen transition-colors">
     <!-- Main Content -->
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <!-- Back Button (no card, just like home page) -->
+      <button
+        @click="emit('close')"
+        class="inline-flex items-center gap-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 transition-colors mb-6"
+      >
+        <ArrowLeftIcon class="h-5 w-5" />
+        {{ t('lessons.backToList') }}
+      </button>
       <!-- Lesson Header -->
       <div class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-6 mb-6 transition-colors">
-        <div class="flex items-start gap-4 mb-4">
-          <DocumentTextIcon class="h-8 w-8 text-indigo-600 dark:text-indigo-400 flex-shrink-0 mt-1" />
-          <div class="flex-1">
-            <h1 class="text-3xl font-bold text-gray-900 dark:text-white mb-4">
-              {{ lesson.title }}
-            </h1>
+        <div class="flex items-start justify-between gap-4 mb-4">
+          <div class="flex items-start gap-4 flex-1">
+            <DocumentTextIcon class="h-8 w-8 text-indigo-600 dark:text-indigo-400 flex-shrink-0 mt-1" />
+            <div class="flex-1">
+              <h1 class="text-3xl font-bold text-gray-900 dark:text-white mb-4">
+                {{ lesson.title }}
+              </h1>
             
             <!-- Metadata Grid -->
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
@@ -322,6 +582,112 @@ if (availableViews.value.length > 0) {
                 {{ theme.name }}
               </span>
             </div>
+            </div>
+          </div>
+          
+          <!-- Action Buttons -->
+          <div v-if="!isEditingLesson" class="flex gap-2">
+            <button
+              @click="startEditLesson"
+              class="flex-shrink-0 inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
+            >
+              <PencilIcon class="h-4 w-4" />
+              {{ t('lessons.editLesson') }}
+            </button>
+            <button
+              @click="confirmDelete"
+              class="flex-shrink-0 inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-md transition-colors"
+            >
+              <TrashIcon class="h-4 w-4" />
+              {{ t('lessons.delete') }}
+            </button>
+          </div>
+        </div>
+        
+        <!-- Edit Lesson Form -->
+        <div v-if="isEditingLesson" class="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+          <div class="space-y-4">
+            <!-- Title -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                {{ t('lessons.title') }}
+              </label>
+              <input
+                v-model="editedLesson.title"
+                type="text"
+                class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              />
+            </div>
+            
+            <!-- Date -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                {{ t('lessons.date') }}
+              </label>
+              <input
+                v-model="editedLesson.date"
+                type="date"
+                class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              />
+            </div>
+            
+            <!-- Course -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                {{ t('lessons.course') }}
+              </label>
+              <select
+                v-model="editedLesson.course_id"
+                class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              >
+                <option :value="null">{{ t('lessons.noCourse') }}</option>
+                <option v-for="course in courses" :key="course.id" :value="course.id">
+                  {{ course.name }}
+                </option>
+              </select>
+            </div>
+            
+            <!-- Themes -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                {{ t('lessons.themes') }}
+              </label>
+              <div class="flex flex-wrap gap-2">
+                <button
+                  v-for="theme in themes"
+                  :key="theme.id"
+                  @click="toggleTheme(theme.id)"
+                  :class="[
+                    'px-3 py-1.5 rounded-full text-sm font-medium transition-colors',
+                    editedLesson.theme_ids.includes(theme.id)
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                  ]"
+                >
+                  {{ theme.name }}
+                </button>
+              </div>
+            </div>
+            
+            <!-- Action Buttons -->
+            <div class="flex gap-3 pt-4">
+              <button
+                @click="saveLesson"
+                :disabled="isSavingLesson"
+                class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 rounded-md transition-colors"
+              >
+                <CheckIcon class="h-4 w-4" />
+                {{ isSavingLesson ? t('lessons.saving') : t('lessons.save') }}
+              </button>
+              <button
+                @click="cancelEditLesson"
+                :disabled="isSavingLesson"
+                class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 rounded-md transition-colors"
+              >
+                <XMarkIcon class="h-4 w-4" />
+                {{ t('lessons.cancel') }}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -347,20 +713,52 @@ if (availableViews.value.length > 0) {
               </button>
             </div>
             
-            <!-- Audio Player Controls (show for transcript views) -->
-            <div 
-              v-if="(activeView === 'corrected' || activeView === 'initial') && audioUrl"
-              class="flex items-center gap-2"
-            >
-              <SpeakerWaveIcon class="h-5 w-5 text-gray-400 dark:text-gray-500" />
+            <div class="flex items-center gap-3">
+              <!-- Download PDF Button (show for summary view) -->
               <button
-                @click="togglePlayPause"
+                v-if="activeView === 'summary' && !isEditingSummary"
+                @click="downloadSummaryPDF"
                 class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
               >
-                <PlayIcon v-if="!isPlaying" class="h-4 w-4" />
-                <PauseIcon v-else class="h-4 w-4" />
-                {{ isPlaying ? t('lessons.pause') : t('lessons.play') }}
+                <PrinterIcon class="h-4 w-4" />
+                {{ t('lessons.downloadPDF') }}
               </button>
+              
+              <!-- Download Transcript PDF Button (show for transcript views) -->
+              <button
+                v-if="(activeView === 'corrected' || activeView === 'initial') && !isEditingSummary"
+                @click="downloadTranscriptPDF"
+                class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
+              >
+                <PrinterIcon class="h-4 w-4" />
+                {{ t('lessons.downloadPDF') }}
+              </button>
+              
+              <!-- Edit Button (show for summary view) -->
+              <button
+                v-if="activeView === 'summary' && !isEditingSummary"
+                @click="startEditSummary"
+                class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors print:hidden"
+              >
+                <PencilIcon class="h-4 w-4" />
+                {{ t('lessons.edit') }}
+              </button>
+              
+              <!-- Audio Player Controls (show for transcript views) -->
+              <div 
+                v-if="(activeView === 'corrected' || activeView === 'initial') && audioUrl"
+                class="flex items-center gap-2 print:hidden"
+              >
+                <SpeakerWaveIcon class="h-5 w-5 text-gray-400 dark:text-gray-500" />
+                <button
+                  @click="togglePlayPause"
+                  class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
+                >
+                  <PlayIcon v-if="!isPlaying" class="h-4 w-4" />
+                  <PauseIcon v-else class="h-4 w-4" />
+                  {{ isPlaying ? t('lessons.pause') : t('lessons.play') }}
+                </button>
+              </div>
             </div>
           </div>
           
@@ -382,39 +780,69 @@ if (availableViews.value.length > 0) {
         <!-- Content Panels -->
         <div class="p-6">
           <!-- Summary View -->
-          <div 
-            v-if="activeView === 'summary'" 
-            class="prose prose-indigo dark:prose-invert max-w-none"
-            v-html="renderMarkdown(lesson.summary)"
-          ></div>
+          <div v-if="activeView === 'summary'">
+            <!-- Edit Mode -->
+            <div v-if="isEditingSummary" class="space-y-4">
+              <textarea
+                v-model="editedSummary"
+                class="w-full h-96 px-4 py-3 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none font-mono"
+                placeholder="Enter summary in markdown format..."
+              ></textarea>
+              <div class="flex gap-3">
+                <button
+                  @click="saveSummary"
+                  :disabled="isSavingSummary"
+                  class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 rounded-md transition-colors"
+                >
+                  <CheckIcon class="h-4 w-4" />
+                  {{ isSavingSummary ? t('lessons.saving') : t('lessons.save') }}
+                </button>
+                <button
+                  @click="cancelEditSummary"
+                  :disabled="isSavingSummary"
+                  class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 rounded-md transition-colors"
+                >
+                  <XMarkIcon class="h-4 w-4" />
+                  {{ t('lessons.cancel') }}
+                </button>
+              </div>
+            </div>
+            
+            <!-- View Mode -->
+            <div 
+              v-else
+              class="prose prose-indigo dark:prose-invert max-w-none"
+              v-html="renderMarkdown(lesson.summary)"
+            ></div>
+          </div>
           
           <!-- Corrected Transcript View -->
           <div v-else-if="activeView === 'corrected'">
-            <!-- Segmented View -->
-            <div v-if="hasSegments(lesson.corrected_transcript)" class="space-y-4 max-h-[600px] overflow-auto scroll-smooth">
+            <!-- Segmented View (Screen) -->
+            <div v-if="hasSegments(lesson.corrected_transcript)" class="space-y-4 max-h-[600px] overflow-auto scroll-smooth print:max-h-none">
               <div
                 v-for="(segment, index) in lesson.corrected_transcript.segments"
                 :key="index"
                 :data-segment-index="index"
                 :class="[
-                  'flex gap-3 p-4 rounded-lg border transition-all',
+                  'flex gap-3 p-4 rounded-lg border transition-all print:border-0 print:p-2',
                   isSegmentActive(segment)
-                    ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-400 dark:border-indigo-600'
-                    : 'bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700 hover:border-indigo-300 dark:hover:border-indigo-700'
+                    ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-400 dark:border-indigo-600 print:bg-white'
+                    : 'bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700 hover:border-indigo-300 dark:hover:border-indigo-700 print:bg-white'
                 ]"
               >
                 <button
                   v-if="audioUrl"
                   @click="playFromTimestamp(segment.start)"
-                  class="flex-shrink-0 p-1.5 rounded-md hover:bg-indigo-100 dark:hover:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 transition-colors"
+                  class="flex-shrink-0 p-1.5 rounded-md hover:bg-indigo-100 dark:hover:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 transition-colors print:hidden"
                   :title="t('lessons.playSegment')"
                 >
                   <PlayIcon class="h-4 w-4" />
                 </button>
-                <div class="flex-shrink-0 text-xs font-mono text-indigo-600 dark:text-indigo-400 font-semibold pt-0.5">
+                <div class="flex-shrink-0 text-xs font-mono text-indigo-600 dark:text-indigo-400 font-semibold pt-0.5 print:hidden">
                   {{ formatTimestamp(segment.start) }} - {{ formatTimestamp(segment.end) }}
                 </div>
-                <div class="flex-1 text-sm text-gray-700 dark:text-gray-300">
+                <div class="flex-1 text-sm text-gray-700 dark:text-gray-300 print:text-black">
                   {{ segment.text }}
                 </div>
               </div>
@@ -425,31 +853,31 @@ if (availableViews.value.length > 0) {
           
           <!-- Initial Transcript View -->
           <div v-else-if="activeView === 'initial'">
-            <!-- Segmented View -->
-            <div v-if="hasSegments(lesson.transcript)" class="space-y-4 max-h-[600px] overflow-auto scroll-smooth">
+            <!-- Segmented View (Screen) -->
+            <div v-if="hasSegments(lesson.transcript)" class="space-y-4 max-h-[600px] overflow-auto scroll-smooth print:max-h-none">
               <div
                 v-for="(segment, index) in lesson.transcript.segments"
                 :key="index"
                 :data-segment-index="index"
                 :class="[
-                  'flex gap-3 p-4 rounded-lg border transition-all',
+                  'flex gap-3 p-4 rounded-lg border transition-all print:border-0 print:p-2',
                   isSegmentActive(segment)
-                    ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-400 dark:border-indigo-600'
-                    : 'bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700 hover:border-indigo-300 dark:hover:border-indigo-700'
+                    ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-400 dark:border-indigo-600 print:bg-white'
+                    : 'bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700 hover:border-indigo-300 dark:hover:border-indigo-700 print:bg-white'
                 ]"
               >
                 <button
                   v-if="audioUrl"
                   @click="playFromTimestamp(segment.start)"
-                  class="flex-shrink-0 p-1.5 rounded-md hover:bg-indigo-100 dark:hover:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 transition-colors"
+                  class="flex-shrink-0 p-1.5 rounded-md hover:bg-indigo-100 dark:hover:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 transition-colors print:hidden"
                   :title="t('lessons.playSegment')"
                 >
                   <PlayIcon class="h-4 w-4" />
                 </button>
-                <div class="flex-shrink-0 text-xs font-mono text-indigo-600 dark:text-indigo-400 font-semibold pt-0.5">
+                <div class="flex-shrink-0 text-xs font-mono text-indigo-600 dark:text-indigo-400 font-semibold pt-0.5 print:hidden">
                   {{ formatTimestamp(segment.start) }} - {{ formatTimestamp(segment.end) }}
                 </div>
-                <div class="flex-1 text-sm text-gray-700 dark:text-gray-300">
+                <div class="flex-1 text-sm text-gray-700 dark:text-gray-300 print:text-black">
                   {{ segment.text }}
                 </div>
               </div>
