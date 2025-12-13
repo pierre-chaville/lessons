@@ -53,6 +53,7 @@ class Lesson(SQLModel, table=True):
     duration: Optional[float] = None  # Duration in seconds
     transcript: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))  # JSON object
     corrected_transcript: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))  # JSON object
+    brief: Optional[str] = None  # Short 1-3 line summary
     summary: Optional[str] = None
     
     # Metadata for transcript, correction and summary

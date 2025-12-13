@@ -3,6 +3,7 @@ import { ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import {
   BookOpenIcon,
+  MagnifyingGlassIcon,
   AcademicCapIcon,
   TagIcon,
   DocumentTextIcon,
@@ -34,6 +35,12 @@ const navigationItems = [
     label: 'nav.lessons',
     icon: BookOpenIcon,
     route: '/lessons'
+  },
+  {
+    key: 'search',
+    label: 'nav.search',
+    icon: MagnifyingGlassIcon,
+    route: '/search'
   },
   {
     key: 'courses',

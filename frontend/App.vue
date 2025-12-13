@@ -12,7 +12,9 @@ import {
 } from '@heroicons/vue/24/outline';
 import NavigationSidebar from './components/NavigationSidebar.vue';
 import LessonsList from './views/LessonsList.vue';
+import SearchLessons from './views/SearchLessons.vue';
 import CoursesList from './views/CoursesList.vue';
+import ThemesList from './views/ThemesList.vue';
 
 const { locale, t } = useI18n();
 
@@ -22,6 +24,7 @@ const currentRoute = ref('/lessons');
 // Reference to components
 const lessonsListRef = ref(null);
 const coursesListRef = ref(null);
+const themesListRef = ref(null);
 
 // Check if we're viewing a lesson detail
 const isViewingDetail = computed(() => {
@@ -38,10 +41,12 @@ const pageTitle = computed(() => {
   switch (currentRoute.value) {
     case '/lessons':
       return t('lessons.title');
+    case '/search':
+      return t('search.title');
     case '/courses':
       return t('courses.title');
     case '/themes':
-      return t('nav.themes');
+      return t('themes.title');
     case '/processing':
       return t('nav.processing');
     case '/preferences':
@@ -173,10 +178,26 @@ onMounted(() => {
         </div>
       </header>
 
-      <!-- Main Content -->
-      <main v-if="!isViewingDetail && currentRoute !== '/lessons'" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <!-- Courses View -->
-        <template v-if="currentRoute === '/courses'">
+      <!-- Search View -->
+      <div v-if="currentRoute === '/search'">
+        <!-- Header -->
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-0">
+          <div class="mb-6 flex justify-between items-center">
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">
+              {{ t('search.title') }}
+            </h2>
+          </div>
+        </div>
+        <!-- Content -->
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8">
+          <SearchLessons />
+        </div>
+      </div>
+
+      <!-- Courses View -->
+      <div v-else-if="currentRoute === '/courses'">
+        <!-- Header -->
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-0">
           <div class="mb-6 flex justify-between items-center">
             <h2 class="text-xl font-semibold text-gray-900 dark:text-white">
               {{ t('courses.title') }}
@@ -189,11 +210,39 @@ onMounted(() => {
               {{ t('courses.addNew') }}
             </button>
           </div>
+        </div>
+        <!-- Content -->
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8">
           <CoursesList ref="coursesListRef" />
-        </template>
+        </div>
+      </div>
 
-        <!-- Placeholder for other views -->
-        <div v-else class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-8 text-center transition-colors">
+      <!-- Themes View -->
+      <div v-else-if="currentRoute === '/themes'">
+        <!-- Header -->
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-0">
+          <div class="mb-6 flex justify-between items-center">
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">
+              {{ t('themes.title') }}
+            </h2>
+            <button
+              @click="themesListRef?.openCreateModal()"
+              class="inline-flex items-center gap-x-2 rounded-md bg-indigo-600 dark:bg-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 dark:hover:bg-indigo-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:focus-visible:outline-indigo-500 transition-colors"
+            >
+              <PlusIcon class="h-5 w-5" />
+              {{ t('themes.addNew') }}
+            </button>
+          </div>
+        </div>
+        <!-- Content -->
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8">
+          <ThemesList ref="themesListRef" />
+        </div>
+      </div>
+
+      <!-- Placeholder for other views -->
+      <main v-else-if="!isViewingDetail && currentRoute !== '/lessons' && currentRoute !== '/search' && currentRoute !== '/courses' && currentRoute !== '/themes'" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-8 text-center transition-colors">
           <h2 class="text-2xl font-bold text-gray-900 dark:text-white mb-4">
             {{ pageTitle }}
           </h2>

@@ -52,7 +52,8 @@ const editedLesson = ref({
   title: '',
   date: '',
   course_id: null,
-  theme_ids: []
+  theme_ids: [],
+  brief: ''
 });
 const isSavingLesson = ref(false);
 
@@ -366,7 +367,8 @@ const startEditLesson = async () => {
     title: props.lesson.title,
     date: props.lesson.date ? new Date(props.lesson.date).toISOString().slice(0, 10) : '',
     course_id: props.lesson.course_id,
-    theme_ids: props.lesson.theme_ids || []
+    theme_ids: props.lesson.theme_ids || [],
+    brief: props.lesson.brief || ''
   };
   isEditingLesson.value = true;
 };
@@ -385,7 +387,8 @@ const saveLesson = async () => {
       title: editedLesson.value.title,
       date: editedLesson.value.date ? new Date(editedLesson.value.date).toISOString() : null,
       course_id: editedLesson.value.course_id,
-      theme_ids: editedLesson.value.theme_ids
+      theme_ids: editedLesson.value.theme_ids,
+      brief: editedLesson.value.brief || null
     };
     
     const response = await axios.patch(`${API_URL}/lessons/${props.lesson.id}`, updateData);
@@ -528,6 +531,11 @@ const deleteLesson = async () => {
               <h1 class="text-3xl font-bold text-gray-900 dark:text-white mb-4">
                 {{ lesson.title }}
               </h1>
+              
+              <!-- Brief Summary -->
+              <p v-if="lesson.brief" class="text-sm text-gray-600 dark:text-gray-400 mb-4 leading-relaxed">
+                {{ lesson.brief }}
+              </p>
             
             <!-- Metadata Grid -->
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
@@ -629,6 +637,19 @@ const deleteLesson = async () => {
                 type="date"
                 class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
               />
+            </div>
+            
+            <!-- Brief -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                {{ t('lessons.brief') }}
+              </label>
+              <textarea
+                v-model="editedLesson.brief"
+                :placeholder="t('lessons.briefPlaceholder')"
+                rows="3"
+                class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+              ></textarea>
             </div>
             
             <!-- Course -->

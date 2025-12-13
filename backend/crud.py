@@ -141,6 +141,7 @@ def update_lesson(
     duration: Optional[float] = None,
     transcript: Optional[str] = None,
     corrected_transcript: Optional[str] = None,
+    brief: Optional[str] = None,
     summary: Optional[str] = None,
     theme_ids: Optional[List[int]] = None,
     transcript_metadata: Optional[dict] = None,
@@ -164,6 +165,8 @@ def update_lesson(
             lesson.transcript = transcript
         if corrected_transcript is not None:
             lesson.corrected_transcript = corrected_transcript
+        if brief is not None:
+            lesson.brief = brief
         if summary is not None:
             lesson.summary = summary
         if theme_ids is not None:

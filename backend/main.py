@@ -178,6 +178,7 @@ class LessonUpdate(BaseModel):
     duration: Optional[float] = None
     transcript: Optional[Dict[str, Any]] = None
     corrected_transcript: Optional[Dict[str, Any]] = None
+    brief: Optional[str] = None
     summary: Optional[str] = None
     theme_ids: Optional[List[int]] = None
     transcript_metadata: Optional[Dict[str, Any]] = None
@@ -189,10 +190,12 @@ class LessonListResponse(BaseModel):
     """Lightweight lesson response for list view"""
     id: int
     title: str
-    course_id: Optional[int]
     date: datetime
+    duration: Optional[float]
+    brief: Optional[str]
     filename: str
     themes: List[Theme] = []
+    course: Optional[Course] = None
 
     class Config:
         from_attributes = True
@@ -208,6 +211,7 @@ class LessonResponse(BaseModel):
     duration: Optional[float]
     transcript: Optional[Dict[str, Any]]
     corrected_transcript: Optional[Dict[str, Any]]
+    brief: Optional[str]
     summary: Optional[str]
     theme_ids: List[int]
     themes: List[Theme] = []
@@ -237,10 +241,12 @@ def get_lessons(
         result.append(LessonListResponse(
             id=lesson.id,
             title=lesson.title,
-            course_id=lesson.course_id,
             date=lesson.date,
+            duration=lesson.duration,
+            brief=lesson.brief,
             filename=lesson.filename,
-            themes=themes
+            themes=themes,
+            course=lesson.course
         ))
     
     return result
@@ -265,6 +271,7 @@ def get_lesson(lesson_id: int, session: Session = Depends(get_session)):
         duration=lesson.duration,
         transcript=lesson.transcript,
         corrected_transcript=lesson.corrected_transcript,
+        brief=lesson.brief,
         summary=lesson.summary,
         theme_ids=theme_ids,
         themes=themes,
@@ -330,6 +337,7 @@ def create_lesson(lesson_data: LessonCreate, session: Session = Depends(get_sess
         duration=lesson.duration,
         transcript=lesson.transcript,
         corrected_transcript=lesson.corrected_transcript,
+        brief=lesson.brief,
         summary=lesson.summary,
         theme_ids=theme_ids,
         themes=themes,
@@ -369,6 +377,7 @@ def update_lesson(
         duration=lesson_data.duration,
         transcript=lesson_data.transcript,
         corrected_transcript=lesson_data.corrected_transcript,
+        brief=lesson_data.brief,
         summary=lesson_data.summary,
         theme_ids=lesson_data.theme_ids,
         transcript_metadata=lesson_data.transcript_metadata,
@@ -392,6 +401,7 @@ def update_lesson(
         duration=lesson.duration,
         transcript=lesson.transcript,
         corrected_transcript=lesson.corrected_transcript,
+        brief=lesson.brief,
         summary=lesson.summary,
         theme_ids=theme_ids,
         themes=themes_list,

@@ -1,8 +1,9 @@
 <script setup>
-import { ref, onMounted, computed, watch } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import axios from 'axios';
 import { 
+  MagnifyingGlassIcon,
   DocumentTextIcon, 
   ClockIcon, 
   FunnelIcon,
@@ -10,20 +11,15 @@ import {
 } from '@heroicons/vue/24/outline';
 import { Listbox, ListboxButton, ListboxOptions, ListboxOption } from '@headlessui/vue';
 import { ChevronUpDownIcon, CheckIcon } from '@heroicons/vue/20/solid';
-import LessonDetail from './LessonDetail.vue';
-import CreateLessonModal from '../components/CreateLessonModal.vue';
 
 const { t } = useI18n();
 const lessons = ref([]);
 const courses = ref([]);
 const themes = ref([]);
-const loading = ref(true);
-const selectedLesson = ref(null);
-const selectedLessonDetail = ref(null);
-
+const loading = ref(false);
+const searchQuery = ref('');
 const selectedCourse = ref(null);
 const selectedTheme = ref(null);
-const showCreateModal = ref(false);
 
 const API_URL = 'http://localhost:8000';
 
@@ -45,17 +41,26 @@ const fetchThemes = async () => {
   }
 };
 
-const fetchLessons = async () => {
+const searchLessons = async () => {
   try {
     loading.value = true;
     const params = {};
+    
+    // Add search query parameter (to be implemented in backend)
+    if (searchQuery.value.trim()) {
+      params.q = searchQuery.value.trim();
+    }
+    
+    // Add course filter
     if (selectedCourse.value) {
       params.course_id = selectedCourse.value.id;
     }
+    
+    // TODO: Backend will implement search logic
     const response = await axios.get(`${API_URL}/lessons`, { params });
     lessons.value = response.data;
   } catch (error) {
-    console.error('Failed to fetch lessons:', error);
+    console.error('Failed to search lessons:', error);
   } finally {
     loading.value = false;
   }
@@ -67,23 +72,16 @@ const filteredLessons = computed(() => {
     return lessons.value;
   }
   return lessons.value.filter(lesson => 
-    lesson.themes.some(theme => theme.id === selectedTheme.value.id)
+    lesson.themes && lesson.themes.some(theme => theme.id === selectedTheme.value.id)
   );
 });
 
-// Watch for filter changes
-watch([selectedCourse], () => {
-  fetchLessons();
-});
-
 const clearFilters = () => {
+  searchQuery.value = '';
   selectedCourse.value = null;
   selectedTheme.value = null;
+  lessons.value = [];
 };
-
-onMounted(async () => {
-  await Promise.all([fetchCourses(), fetchThemes(), fetchLessons()]);
-});
 
 const formatDate = (dateString) => {
   if (!dateString) return '';
@@ -109,65 +107,50 @@ const formatDuration = (seconds) => {
   }
 };
 
-const openLesson = async (lesson) => {
-  try {
-    // Fetch full lesson details
-    const response = await axios.get(`${API_URL}/lessons/${lesson.id}`);
-    selectedLessonDetail.value = response.data;
-    selectedLesson.value = lesson;
-  } catch (error) {
-    console.error('Failed to fetch lesson details:', error);
-  }
+const openLesson = (lesson) => {
+  // TODO: Navigate to lesson detail
+  console.log('Open lesson:', lesson.id);
 };
 
-const closeLesson = () => {
-  selectedLesson.value = null;
-  selectedLessonDetail.value = null;
-};
-
-const openCreateModal = () => {
-  showCreateModal.value = true;
-};
-
-const closeCreateModal = () => {
-  showCreateModal.value = false;
-};
-
-const onLessonCreated = () => {
-  fetchLessons(); // Refresh the list
-};
-
-// Expose whether we're viewing a lesson detail
-defineExpose({
-  isViewingDetail: computed(() => selectedLessonDetail.value !== null),
-  openCreateModal
+onMounted(async () => {
+  await Promise.all([fetchCourses(), fetchThemes()]);
 });
 </script>
 
 <template>
-  <!-- Create Lesson Modal -->
-  <CreateLessonModal
-    :is-open="showCreateModal"
-    @close="closeCreateModal"
-    @created="onLessonCreated"
-  />
-  
-  <!-- Show lesson detail if a lesson is selected -->
-  <LessonDetail
-    v-if="selectedLessonDetail"
-    :lesson="selectedLessonDetail"
-    @close="closeLesson"
-  />
-  
-  <!-- Show lessons list if no lesson is selected -->
-  <div v-else>
+  <div class="w-full">
+    <!-- Search Bar -->
+    <div class="mb-6 bg-white dark:bg-gray-800 shadow-sm rounded-lg p-6 transition-colors">
+      <div class="flex gap-3">
+        <div class="flex-1 relative">
+          <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+            <MagnifyingGlassIcon class="h-5 w-5 text-gray-400 dark:text-gray-500" />
+          </div>
+          <input
+            v-model="searchQuery"
+            type="text"
+            :placeholder="t('search.placeholder')"
+            class="block w-full pl-10 pr-3 py-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            @keyup.enter="searchLessons"
+          />
+        </div>
+        <button
+          @click="searchLessons"
+          class="inline-flex items-center gap-2 px-6 py-3 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-md transition-colors"
+        >
+          <MagnifyingGlassIcon class="h-5 w-5" />
+          {{ t('search.search') }}
+        </button>
+      </div>
+    </div>
+
     <!-- Filters Section -->
     <div class="mb-6 bg-white dark:bg-gray-800 shadow-sm rounded-lg p-4 transition-colors">
       <div class="flex items-center gap-4 flex-wrap">
         <div class="flex items-center gap-2">
           <FunnelIcon class="h-5 w-5 text-gray-500 dark:text-gray-400" />
           <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
-            {{ t('lessons.filters') }}:
+            {{ t('search.filters') }}:
           </span>
         </div>
 
@@ -176,7 +159,7 @@ defineExpose({
           <div class="relative w-64">
             <ListboxButton class="relative w-full cursor-pointer rounded-md bg-white dark:bg-gray-700 py-2 pl-3 pr-10 text-left shadow-sm ring-1 ring-inset ring-gray-300 dark:ring-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-600 sm:text-sm">
               <span class="block truncate text-gray-900 dark:text-gray-100">
-                {{ selectedCourse ? selectedCourse.name : t('lessons.allCourses') }}
+                {{ selectedCourse ? selectedCourse.name : t('search.allCourses') }}
               </span>
               <span class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
                 <ChevronUpDownIcon class="h-5 w-5 text-gray-400" aria-hidden="true" />
@@ -198,7 +181,7 @@ defineExpose({
                     'relative cursor-pointer select-none py-2 pl-3 pr-9'
                   ]">
                     <span :class="[selected ? 'font-semibold' : 'font-normal', 'block truncate']">
-                      {{ t('lessons.allCourses') }}
+                      {{ t('search.allCourses') }}
                     </span>
                     <span v-if="selected" :class="[
                       active ? 'text-white' : 'text-indigo-600',
@@ -240,7 +223,7 @@ defineExpose({
           <div class="relative w-64">
             <ListboxButton class="relative w-full cursor-pointer rounded-md bg-white dark:bg-gray-700 py-2 pl-3 pr-10 text-left shadow-sm ring-1 ring-inset ring-gray-300 dark:ring-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-600 sm:text-sm">
               <span class="block truncate text-gray-900 dark:text-gray-100">
-                {{ selectedTheme ? selectedTheme.name : t('lessons.allThemes') }}
+                {{ selectedTheme ? selectedTheme.name : t('search.allThemes') }}
               </span>
               <span class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
                 <ChevronUpDownIcon class="h-5 w-5 text-gray-400" aria-hidden="true" />
@@ -262,7 +245,7 @@ defineExpose({
                     'relative cursor-pointer select-none py-2 pl-3 pr-9'
                   ]">
                     <span :class="[selected ? 'font-semibold' : 'font-normal', 'block truncate']">
-                      {{ t('lessons.allThemes') }}
+                      {{ t('search.allThemes') }}
                     </span>
                     <span v-if="selected" :class="[
                       active ? 'text-white' : 'text-indigo-600',
@@ -301,26 +284,33 @@ defineExpose({
 
         <!-- Clear Filters Button -->
         <button
-          v-if="selectedCourse || selectedTheme"
+          v-if="searchQuery || selectedCourse || selectedTheme"
           @click="clearFilters"
           class="inline-flex items-center gap-1 px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
         >
           <XMarkIcon class="h-4 w-4" />
-          {{ t('lessons.clearFilters') }}
+          {{ t('search.clearAll') }}
         </button>
       </div>
     </div>
 
-    <!-- Lessons Grid -->
-    <div v-if="loading" class="p-8 text-center text-gray-500 dark:text-gray-400">
-      {{ t('lessons.loading') }}
+    <!-- Results -->
+    <div v-if="loading" class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-8 text-center text-gray-500 dark:text-gray-400 transition-colors">
+      {{ t('search.searching') }}
     </div>
     
-    <div v-else-if="filteredLessons.length === 0" class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-8 text-center text-gray-500 dark:text-gray-400 transition-colors">
-      {{ t('lessons.noLessons') }}
+    <div v-else-if="lessons.length === 0 && !searchQuery && !selectedCourse && !selectedTheme" class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-8 text-center transition-colors">
+      <MagnifyingGlassIcon class="h-12 w-12 text-gray-400 dark:text-gray-500 mx-auto mb-4" />
+      <p class="text-gray-500 dark:text-gray-400">
+        {{ t('search.enterQuery') }}
+      </p>
     </div>
 
-    <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    <div v-else-if="filteredLessons.length === 0" class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-8 text-center text-gray-500 dark:text-gray-400 transition-colors">
+      {{ t('search.noResults') }}
+    </div>
+
+    <div v-else class="w-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
       <div
         v-for="lesson in filteredLessons"
         :key="lesson.id"
