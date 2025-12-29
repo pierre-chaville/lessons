@@ -52,7 +52,21 @@
     "cancel": "Annuler",
     "saveFailed": "Échec de l'enregistrement. Veuillez réessayer.",
     "downloadPDF": "Télécharger PDF",
-    "downloadFailed": "Échec du téléchargement du PDF. Veuillez réessayer."
+    "downloadFailed": "Échec du téléchargement du PDF. Veuillez réessayer.",
+    "processLesson": "Traiter la Leçon",
+    "processLessonTitle": "Traiter la Leçon",
+    "processLessonDescription": "Sélectionnez les processus à exécuter pour cette leçon",
+    "processTranscribe": "Transcrire",
+    "processTranscribeDesc": "Convertir l'audio en texte transcrit",
+    "processCorrect": "Corriger",
+    "processCorrectDesc": "Corriger les erreurs de transcription avec l'IA",
+    "processSummary": "Résumé",
+    "processSummaryDesc": "Générer un résumé concis",
+    "createTasks": "Créer les Tâches",
+    "creating": "Création...",
+    "selectAtLeastOneProcess": "Veuillez sélectionner au moins un processus",
+    "tasksCreated": "{count} tâche(s) créée(s) avec succès",
+    "tasksCreationFailed": "Échec de la création des tâches. Veuillez réessayer."
   },
   "courses": {
     "title": "Cours",
@@ -117,6 +131,35 @@
   "theme": {
     "light": "Passer en mode clair",
     "dark": "Passer en mode sombre"
+  },
+  "processing": {
+    "title": "Tâches de Traitement",
+    "task": "tâche",
+    "tasks": "tâches",
+    "loading": "Chargement des tâches...",
+    "noTasks": "Aucune tâche trouvée",
+    "delete": "Supprimer",
+    "deleting": "Suppression...",
+    "cancel": "Annuler",
+    "deleteConfirmTitle": "Supprimer la Tâche",
+    "deleteConfirmMessage": "Êtes-vous sûr de vouloir supprimer cette tâche ? Cette action est irréversible.",
+    "created": "Créée",
+    "started": "Démarrée",
+    "completed": "Terminée",
+    "duration": "Durée",
+    "error": "Erreur",
+    "parameters": "Paramètres",
+    "taskTypes": {
+      "transcription": "Transcription",
+      "correction": "Correction",
+      "summary": "Résumé"
+    },
+    "statuses": {
+      "pending": "En attente",
+      "running": "En cours",
+      "completed": "Terminée",
+      "failed": "Échouée"
+    }
   },
   "search": {
     "title": "Rechercher des Leçons",

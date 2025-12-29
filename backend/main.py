@@ -8,8 +8,9 @@ import shutil
 from pathlib import Path
 
 from database import create_db_and_tables, get_session
-from models import Lesson, Course, Theme
+from models import Lesson, Course, Theme, Segment, Task
 import crud
+import config as config_module
 
 app = FastAPI(title="Lessons Manager API", version="1.0.0")
 
@@ -23,10 +24,10 @@ app.add_middleware(
 )
 
 
-@app.on_event("startup")
-def on_startup():
-    """Initialize database on startup"""
-    create_db_and_tables()
+# @app.on_event("startup")
+# def on_startup():
+#     """Initialize database on startup"""
+#     create_db_and_tables()
 
 
 @app.get("/")
@@ -176,8 +177,8 @@ class LessonUpdate(BaseModel):
     course_id: Optional[int] = None
     date: Optional[datetime] = None
     duration: Optional[float] = None
-    transcript: Optional[Dict[str, Any]] = None
-    corrected_transcript: Optional[Dict[str, Any]] = None
+    transcript: Optional[List[Segment]] = None
+    corrected_transcript: Optional[List[Segment]] = None
     brief: Optional[str] = None
     summary: Optional[str] = None
     theme_ids: Optional[List[int]] = None
@@ -209,8 +210,8 @@ class LessonResponse(BaseModel):
     course_id: Optional[int]
     date: datetime
     duration: Optional[float]
-    transcript: Optional[Dict[str, Any]]
-    corrected_transcript: Optional[Dict[str, Any]]
+    transcript: Optional[List[Segment]]
+    corrected_transcript: Optional[List[Segment]]
     brief: Optional[str]
     summary: Optional[str]
     theme_ids: List[int]
@@ -727,3 +728,139 @@ def get_lesson_audio(lesson_id: int, request: Request, session: Session = Depend
         headers=headers,
         media_type="audio/mpeg"
     )
+
+# ============================================================
+# Task Endpoints
+# ============================================================
+
+class TaskCreate(BaseModel):
+    """Schema for creating a task"""
+    task_type: str
+    parameters: Optional[Dict[str, Any]] = None
+
+class TaskResponse(BaseModel):
+    """Schema for task response"""
+    id: int
+    task_type: str
+    status: str
+    start_date: Optional[datetime]
+    end_date: Optional[datetime]
+    duration: Optional[float]
+    parameters: Optional[Dict[str, Any]]
+    result: Optional[Dict[str, Any]]
+    error: Optional[str]
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+@app.post("/tasks", response_model=TaskResponse, tags=["Tasks"])
+def create_task(
+    task: TaskCreate,
+    session: Session = Depends(get_session)
+):
+    """Create and launch a new background task"""
+    new_task = crud.create_task(
+        session=session,
+        task_type=task.task_type,
+        parameters=task.parameters
+    )
+    return new_task
+
+@app.get("/tasks", response_model=List[TaskResponse], tags=["Tasks"])
+def get_tasks(session: Session = Depends(get_session)):
+    """Get all tasks"""
+    tasks = crud.get_all_tasks(session=session)
+    return tasks
+
+@app.get("/tasks/{task_id}", response_model=TaskResponse, tags=["Tasks"])
+def get_task(
+    task_id: int,
+    session: Session = Depends(get_session)
+):
+    """Get a specific task by ID"""
+    task = crud.get_task(session=session, task_id=task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return task
+
+@app.delete("/tasks/{task_id}", tags=["Tasks"])
+def delete_task(
+    task_id: int,
+    session: Session = Depends(get_session)
+):
+    """Delete a task"""
+    success = crud.delete_task(session=session, task_id=task_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return {"message": "Task deleted successfully"}
+
+@app.post("/tasks/test/{task_type}", response_model=TaskResponse, tags=["Tasks"])
+def create_test_task(
+    task_type: str,
+    session: Session = Depends(get_session)
+):
+    """Create a test task for development/testing purposes"""
+    if task_type not in ["transcription", "correction", "summary"]:
+        raise HTTPException(status_code=400, detail="Invalid task type. Must be: transcription, correction, or summary")
+    
+    new_task = crud.create_task(
+        session=session,
+        task_type=task_type,
+        parameters={"test": True, "message": f"Test {task_type} task"}
+    )
+    return new_task
+
+# ============================================================
+# Configuration Endpoints
+# ============================================================
+
+class ConfigUpdate(BaseModel):
+    """Schema for updating configuration"""
+    config: Dict[str, Any]
+
+@app.get("/config", tags=["Configuration"])
+def get_configuration():
+    """Get the current application configuration"""
+    try:
+        config = config_module.load_config()
+        return config
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load configuration: {str(e)}")
+
+@app.put("/config", tags=["Configuration"])
+def update_configuration(config_update: ConfigUpdate):
+    """Update the application configuration"""
+    try:
+        updated_config = config_module.update_config(config_update.config)
+        return {
+            "message": "Configuration updated successfully",
+            "config": updated_config
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update configuration: {str(e)}")
+
+@app.get("/config/{key_path}", tags=["Configuration"])
+def get_configuration_value(key_path: str):
+    """Get a specific configuration value using dot notation (e.g., 'whisper.model_size')"""
+    try:
+        value = config_module.get_config_value(key_path)
+        if value is None:
+            raise HTTPException(status_code=404, detail=f"Configuration key '{key_path}' not found")
+        return {"key": key_path, "value": value}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get configuration value: {str(e)}")
+
+@app.post("/config/reset", tags=["Configuration"])
+def reset_configuration():
+    """Reset configuration to default values"""
+    try:
+        config_module.save_config(config_module.DEFAULT_CONFIG)
+        return {
+            "message": "Configuration reset to defaults",
+            "config": config_module.DEFAULT_CONFIG
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to reset configuration: {str(e)}")

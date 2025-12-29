@@ -2,7 +2,7 @@
 from sqlmodel import Session, select
 from typing import List, Optional
 from datetime import datetime
-from models import Lesson, Course, Theme
+from models import Lesson, Course, Theme, Task
 
 # Course CRUD
 def create_course(session: Session, name: str, description: Optional[str] = None) -> Course:
@@ -192,3 +192,73 @@ def delete_lesson(session: Session, lesson_id: int) -> bool:
         return True
     return False
 
+# Task CRUD
+def create_task(
+    session: Session,
+    task_type: str,
+    parameters: Optional[dict] = None,
+    status: str = "pending"
+) -> Task:
+    """Create a new task"""
+    from datetime import datetime
+    task = Task(
+        task_type=task_type,
+        status=status,
+        parameters=parameters,
+        created_at=datetime.utcnow()
+    )
+    session.add(task)
+    session.commit()
+    session.refresh(task)
+    return task
+
+def get_task(session: Session, task_id: int) -> Optional[Task]:
+    """Get task by ID"""
+    return session.get(Task, task_id)
+
+def get_all_tasks(session: Session) -> List[Task]:
+    """Get all tasks"""
+    statement = select(Task).order_by(Task.created_at.desc())
+    return list(session.exec(statement).all())
+
+def update_task(
+    session: Session,
+    task_id: int,
+    status: Optional[str] = None,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    duration: Optional[float] = None,
+    result: Optional[dict] = None,
+    error: Optional[str] = None
+) -> Optional[Task]:
+    """Update task details"""
+    task = session.get(Task, task_id)
+    if not task:
+        return None
+    
+    if status is not None:
+        task.status = status
+    if start_date is not None:
+        task.start_date = start_date
+    if end_date is not None:
+        task.end_date = end_date
+    if duration is not None:
+        task.duration = duration
+    if result is not None:
+        task.result = result
+    if error is not None:
+        task.error = error
+    
+    session.add(task)
+    session.commit()
+    session.refresh(task)
+    return task
+
+def delete_task(session: Session, task_id: int) -> bool:
+    """Delete a task"""
+    task = session.get(Task, task_id)
+    if task:
+        session.delete(task)
+        session.commit()
+        return True
+    return False

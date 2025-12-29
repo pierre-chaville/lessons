@@ -52,7 +52,21 @@
     "cancel": "Cancel",
     "saveFailed": "Failed to save changes. Please try again.",
     "downloadPDF": "Download PDF",
-    "downloadFailed": "Failed to download PDF. Please try again."
+    "downloadFailed": "Failed to download PDF. Please try again.",
+    "processLesson": "Process Lesson",
+    "processLessonTitle": "Process Lesson",
+    "processLessonDescription": "Select the processes to execute for this lesson",
+    "processTranscribe": "Transcribe",
+    "processTranscribeDesc": "Convert audio to text transcript",
+    "processCorrect": "Correct",
+    "processCorrectDesc": "Correct transcription errors using AI",
+    "processSummary": "Summary",
+    "processSummaryDesc": "Generate a concise summary",
+    "createTasks": "Create Tasks",
+    "creating": "Creating...",
+    "selectAtLeastOneProcess": "Please select at least one process",
+    "tasksCreated": "{count} task(s) created successfully",
+    "tasksCreationFailed": "Failed to create tasks. Please try again."
   },
   "courses": {
     "title": "Courses",
@@ -117,6 +131,35 @@
   "theme": {
     "light": "Switch to light mode",
     "dark": "Switch to dark mode"
+  },
+  "processing": {
+    "title": "Processing Tasks",
+    "task": "task",
+    "tasks": "tasks",
+    "loading": "Loading tasks...",
+    "noTasks": "No tasks found",
+    "delete": "Delete",
+    "deleting": "Deleting...",
+    "cancel": "Cancel",
+    "deleteConfirmTitle": "Delete Task",
+    "deleteConfirmMessage": "Are you sure you want to delete this task? This action cannot be undone.",
+    "created": "Created",
+    "started": "Started",
+    "completed": "Completed",
+    "duration": "Duration",
+    "error": "Error",
+    "parameters": "Parameters",
+    "taskTypes": {
+      "transcription": "Transcription",
+      "correction": "Correction",
+      "summary": "Summary"
+    },
+    "statuses": {
+      "pending": "Pending",
+      "running": "Running",
+      "completed": "Completed",
+      "failed": "Failed"
+    }
   },
   "search": {
     "title": "Search Lessons",

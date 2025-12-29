@@ -6,6 +6,12 @@ from datetime import datetime
 from pydantic import BaseModel
 import json
 
+class Segment(BaseModel):
+    """Transcript segment with timing and text"""
+    start: float  # Start time in seconds
+    end: float    # End time in seconds
+    text: str     # Transcript text
+
 class Metadata(BaseModel):
     """Metadata for LLM processing (correction/summary)"""
     provider: Optional[str] = None
@@ -51,8 +57,8 @@ class Lesson(SQLModel, table=True):
     course_id: Optional[int] = Field(default=None, foreign_key="course.id")
     filename: str  # Audio filename
     duration: Optional[float] = None  # Duration in seconds
-    transcript: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))  # JSON object
-    corrected_transcript: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))  # JSON object
+    transcript: Optional[List[Segment]] = Field(default=None, sa_column=Column(JSON))  # List of segments
+    corrected_transcript: Optional[List[Segment]] = Field(default=None, sa_column=Column(JSON))  # List of segments
     brief: Optional[str] = None  # Short 1-3 line summary
     summary: Optional[str] = None
     
@@ -110,3 +116,17 @@ class Lesson(SQLModel, table=True):
         """Set summary metadata from Metadata object"""
         self.summary_metadata = metadata.model_dump() if metadata else None
 
+class Task(SQLModel, table=True):
+    """Background task tracking"""
+    __tablename__ = "task"
+    __table_args__ = {"extend_existing": True}
+    id: Optional[int] = Field(default=None, primary_key=True)
+    task_type: str  # Type of task (e.g., "transcription", "correction", "summary")
+    status: str = Field(default="pending")  # pending, running, completed, failed
+    start_date: Optional[datetime] = None  # When task started
+    end_date: Optional[datetime] = None  # When task completed/failed
+    duration: Optional[float] = None  # Duration in seconds
+    parameters: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))  # Task parameters
+    result: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))  # Task result
+    error: Optional[str] = None  # Error message if failed
+    created_at: datetime = Field(default_factory=datetime.utcnow)  # When task was created

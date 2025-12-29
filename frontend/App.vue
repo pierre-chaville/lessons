@@ -15,6 +15,7 @@ import LessonsList from './views/LessonsList.vue';
 import SearchLessons from './views/SearchLessons.vue';
 import CoursesList from './views/CoursesList.vue';
 import ThemesList from './views/ThemesList.vue';
+import ProcessingTasks from './views/ProcessingTasks.vue';
 
 const { locale, t } = useI18n();
 
@@ -240,8 +241,24 @@ onMounted(() => {
         </div>
       </div>
 
+      <!-- Processing View -->
+      <div v-else-if="currentRoute === '/processing'">
+        <!-- Header -->
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-0">
+          <div class="mb-6 flex justify-between items-center">
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">
+              {{ t('processing.title') }}
+            </h2>
+          </div>
+        </div>
+        <!-- Content -->
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8">
+          <ProcessingTasks />
+        </div>
+      </div>
+
       <!-- Placeholder for other views -->
-      <main v-else-if="!isViewingDetail && currentRoute !== '/lessons' && currentRoute !== '/search' && currentRoute !== '/courses' && currentRoute !== '/themes'" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main v-else-if="!isViewingDetail && currentRoute !== '/lessons' && currentRoute !== '/search' && currentRoute !== '/courses' && currentRoute !== '/themes' && currentRoute !== '/processing'" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-8 text-center transition-colors">
           <h2 class="text-2xl font-bold text-gray-900 dark:text-white mb-4">
             {{ pageTitle }}

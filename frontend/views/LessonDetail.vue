@@ -15,7 +15,8 @@ import {
   XMarkIcon,
   PrinterIcon,
   TrashIcon,
-  ExclamationTriangleIcon
+  ExclamationTriangleIcon,
+  CogIcon
 } from '@heroicons/vue/24/outline';
 import { SpeakerWaveIcon } from '@heroicons/vue/24/solid';
 import { Dialog, DialogPanel, DialogTitle } from '@headlessui/vue';
@@ -61,6 +62,15 @@ const isSavingLesson = ref(false);
 const showDeleteConfirm = ref(false);
 const isDeleting = ref(false);
 
+// Process tasks modal state
+const showProcessModal = ref(false);
+const selectedProcesses = ref({
+  transcribe: false,
+  correct: false,
+  summary: false
+});
+const isCreatingTasks = ref(false);
+
 const API_URL = 'http://localhost:8000';
 
 // Configure marked options
@@ -85,7 +95,7 @@ const formatTimestamp = (seconds) => {
 
 // Check if transcript has segments structure
 const hasSegments = (transcript) => {
-  return transcript && transcript.segments && Array.isArray(transcript.segments);
+  return transcript && Array.isArray(transcript);
 };
 
 // Audio file URL
@@ -206,8 +216,8 @@ const isSegmentActive = (segment) => {
 // Get currently active segment
 const activeSegmentIndex = computed(() => {
   const segments = activeView.value === 'corrected' 
-    ? props.lesson.corrected_transcript?.segments 
-    : props.lesson.transcript?.segments;
+    ? props.lesson.corrected_transcript
+    : props.lesson.transcript;
   
   if (!segments) return -1;
   
@@ -461,6 +471,73 @@ const deleteLesson = async () => {
     isDeleting.value = false;
   }
 };
+
+// Process tasks modal functions
+const openProcessModal = () => {
+  // Reset selections
+  selectedProcesses.value = {
+    transcribe: false,
+    correct: false,
+    summary: false
+  };
+  showProcessModal.value = true;
+};
+
+const closeProcessModal = () => {
+  showProcessModal.value = false;
+};
+
+const createTasks = async () => {
+  const selectedTasks = Object.keys(selectedProcesses.value).filter(
+    key => selectedProcesses.value[key]
+  );
+  
+  if (selectedTasks.length === 0) {
+    alert(t('lessons.selectAtLeastOneProcess'));
+    return;
+  }
+  
+  try {
+    isCreatingTasks.value = true;
+    
+    // Define the correct order for task execution
+    const taskOrder = ['transcribe', 'correct', 'summary'];
+    
+    // Filter selected tasks and sort them by the defined order
+    const orderedTasks = taskOrder.filter(task => selectedTasks.includes(task));
+    
+    // Create tasks sequentially in the correct order
+    for (const taskType of orderedTasks) {
+      const parameters = {
+        lesson_id: props.lesson.id
+      };
+      
+      // Add specific parameters for each task type
+      if (taskType === 'correct') {
+        parameters.segments_per_group = 100;
+        parameters.max_concurrency = 10;
+      } else if (taskType === 'summary') {
+        parameters.use_corrected = true;
+      }
+      
+      await axios.post(`${API_URL}/tasks`, {
+        task_type: taskType === 'transcribe' ? 'transcription' : taskType === 'correct' ? 'correction' : 'summary',
+        parameters: parameters
+      });
+    }
+    
+    // Show success message
+    alert(t('lessons.tasksCreated', { count: orderedTasks.length }));
+    
+    // Close modal
+    closeProcessModal();
+  } catch (error) {
+    console.error('Failed to create tasks:', error);
+    alert(t('lessons.tasksCreationFailed'));
+  } finally {
+    isCreatingTasks.value = false;
+  }
+};
 </script>
 
 <template>
@@ -504,6 +581,101 @@ const deleteLesson = async () => {
             >
               <TrashIcon class="h-4 w-4" />
               {{ isDeleting ? t('lessons.deleting') : t('lessons.deleteConfirm') }}
+            </button>
+          </div>
+        </div>
+      </DialogPanel>
+    </div>
+  </Dialog>
+
+  <!-- Process Tasks Modal -->
+  <Dialog :open="showProcessModal" @close="closeProcessModal" class="relative z-50">
+    <div class="fixed inset-0 bg-black/30 backdrop-blur-sm" aria-hidden="true" />
+    
+    <div class="fixed inset-0 flex items-center justify-center p-4">
+      <DialogPanel class="mx-auto max-w-md w-full bg-white dark:bg-gray-800 rounded-lg shadow-xl">
+        <div class="p-6">
+          <div class="flex items-center gap-4 mb-6">
+            <div class="flex-shrink-0 w-12 h-12 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center">
+              <CogIcon class="h-6 w-6 text-indigo-600 dark:text-indigo-400" />
+            </div>
+            <div>
+              <DialogTitle class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t('lessons.processLessonTitle') }}
+              </DialogTitle>
+              <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                {{ t('lessons.processLessonDescription') }}
+              </p>
+            </div>
+          </div>
+          
+          <!-- Process Selection -->
+          <div class="space-y-3 mb-6">
+            <label class="flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors">
+              <input
+                type="checkbox"
+                v-model="selectedProcesses.transcribe"
+                class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+              />
+              <div>
+                <div class="text-sm font-medium text-gray-900 dark:text-white">
+                  {{ t('lessons.processTranscribe') }}
+                </div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('lessons.processTranscribeDesc') }}
+                </div>
+              </div>
+            </label>
+            
+            <label class="flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors">
+              <input
+                type="checkbox"
+                v-model="selectedProcesses.correct"
+                class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+              />
+              <div>
+                <div class="text-sm font-medium text-gray-900 dark:text-white">
+                  {{ t('lessons.processCorrect') }}
+                </div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('lessons.processCorrectDesc') }}
+                </div>
+              </div>
+            </label>
+            
+            <label class="flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors">
+              <input
+                type="checkbox"
+                v-model="selectedProcesses.summary"
+                class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+              />
+              <div>
+                <div class="text-sm font-medium text-gray-900 dark:text-white">
+                  {{ t('lessons.processSummary') }}
+                </div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('lessons.processSummaryDesc') }}
+                </div>
+              </div>
+            </label>
+          </div>
+          
+          <!-- Action Buttons -->
+          <div class="flex justify-end gap-3">
+            <button
+              @click="closeProcessModal"
+              :disabled="isCreatingTasks"
+              class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md transition-colors disabled:opacity-50"
+            >
+              {{ t('lessons.cancel') }}
+            </button>
+            <button
+              @click="createTasks"
+              :disabled="isCreatingTasks"
+              class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 rounded-md transition-colors"
+            >
+              <CogIcon class="h-4 w-4" />
+              {{ isCreatingTasks ? t('lessons.creating') : t('lessons.createTasks') }}
             </button>
           </div>
         </div>
@@ -595,6 +767,13 @@ const deleteLesson = async () => {
           
           <!-- Action Buttons -->
           <div v-if="!isEditingLesson" class="flex gap-2">
+            <button
+              @click="openProcessModal"
+              class="flex-shrink-0 inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md transition-colors"
+            >
+              <CogIcon class="h-4 w-4" />
+              {{ t('lessons.processLesson') }}
+            </button>
             <button
               @click="startEditLesson"
               class="flex-shrink-0 inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
@@ -842,7 +1021,7 @@ const deleteLesson = async () => {
             <!-- Segmented View (Screen) -->
             <div v-if="hasSegments(lesson.corrected_transcript)" class="space-y-4 max-h-[600px] overflow-auto scroll-smooth print:max-h-none">
               <div
-                v-for="(segment, index) in lesson.corrected_transcript.segments"
+                v-for="(segment, index) in lesson.corrected_transcript"
                 :key="index"
                 :data-segment-index="index"
                 :class="[
@@ -877,7 +1056,7 @@ const deleteLesson = async () => {
             <!-- Segmented View (Screen) -->
             <div v-if="hasSegments(lesson.transcript)" class="space-y-4 max-h-[600px] overflow-auto scroll-smooth print:max-h-none">
               <div
-                v-for="(segment, index) in lesson.transcript.segments"
+                v-for="(segment, index) in lesson.transcript"
                 :key="index"
                 :data-segment-index="index"
                 :class="[
