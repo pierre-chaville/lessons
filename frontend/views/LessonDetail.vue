@@ -58,6 +58,11 @@ const editedLesson = ref({
 });
 const isSavingLesson = ref(false);
 
+// Edit segment state
+const editingSegmentIndex = ref(null);
+const editedSegmentText = ref('');
+const isSavingSegment = ref(false);
+
 // Delete confirmation state
 const showDeleteConfirm = ref(false);
 const isDeleting = ref(false);
@@ -215,13 +220,9 @@ const isSegmentActive = (segment) => {
 
 // Get currently active segment
 const activeSegmentIndex = computed(() => {
-  const segments = activeView.value === 'corrected' 
-    ? props.lesson.corrected_transcript
-    : props.lesson.transcript;
+  if (activeView.value !== 'transcript') return -1;
   
-  if (!segments) return -1;
-  
-  return segments.findIndex(segment => 
+  return unifiedTranscript.value.findIndex(segment => 
     currentTime.value >= segment.start && currentTime.value <= segment.end
   );
 });
@@ -272,13 +273,45 @@ const availableViews = computed(() => {
   if (props.lesson.summary) {
     views.push({ key: 'summary', label: t('lessons.summary') });
   }
-  if (props.lesson.corrected_transcript) {
-    views.push({ key: 'corrected', label: t('lessons.correctedTranscript') });
-  }
-  if (props.lesson.transcript) {
-    views.push({ key: 'initial', label: t('lessons.initialTranscript') });
+  if (props.lesson.transcript || props.lesson.corrected_transcript) {
+    views.push({ key: 'transcript', label: t('lessons.transcript') });
   }
   return views;
+});
+
+// Unified transcript with correction information
+const unifiedTranscript = computed(() => {
+  const initialTranscript = props.lesson.transcript || [];
+  const correctedTranscript = props.lesson.corrected_transcript || [];
+  
+  // If no initial transcript, return corrected or empty
+  if (!initialTranscript.length) {
+    return correctedTranscript.map((seg, index) => ({
+      index,
+      start: seg.start,
+      end: seg.end,
+      correctedText: seg.text,
+      originalText: null,
+      hasDiff: false
+    }));
+  }
+  
+  // Map segments with correction info
+  return initialTranscript.map((seg, index) => {
+    const correctedSeg = correctedTranscript[index];
+    const originalText = seg.text;
+    const correctedText = correctedSeg ? correctedSeg.text : originalText;
+    const hasDiff = correctedSeg && originalText !== correctedText;
+    
+    return {
+      index,
+      start: seg.start,
+      end: seg.end,
+      correctedText,
+      originalText: hasDiff ? originalText : null,
+      hasDiff
+    };
+  });
 });
 
 // Set initial view to first available
@@ -342,7 +375,8 @@ const downloadSummaryPDF = async () => {
 
 const downloadTranscriptPDF = async () => {
   try {
-    const transcriptType = activeView.value === 'corrected' ? 'corrected' : 'initial';
+    // Use corrected transcript if available, otherwise initial
+    const transcriptType = props.lesson.corrected_transcript ? 'corrected' : 'initial';
     const response = await axios.get(
       `${API_URL}/lessons/${props.lesson.id}/pdf/transcript?transcript_type=${transcriptType}`,
       { responseType: 'blob' }
@@ -352,7 +386,7 @@ const downloadTranscriptPDF = async () => {
     const url = window.URL.createObjectURL(new Blob([response.data]));
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `${props.lesson.title}_${transcriptType}_transcript.pdf`);
+    link.setAttribute('download', `${props.lesson.title}_transcript.pdf`);
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -536,6 +570,56 @@ const createTasks = async () => {
     alert(t('lessons.tasksCreationFailed'));
   } finally {
     isCreatingTasks.value = false;
+  }
+};
+
+// Edit segment functions
+const startEditSegment = (index, currentText) => {
+  editingSegmentIndex.value = index;
+  editedSegmentText.value = currentText;
+};
+
+const cancelEditSegment = () => {
+  editingSegmentIndex.value = null;
+  editedSegmentText.value = '';
+};
+
+const saveSegment = async () => {
+  if (isSavingSegment.value || editingSegmentIndex.value === null) return;
+  
+  try {
+    isSavingSegment.value = true;
+    
+    // Determine if we're editing corrected or initial transcript
+    const hasCorrected = props.lesson.corrected_transcript && props.lesson.corrected_transcript.length > 0;
+    const transcriptToUpdate = hasCorrected ? 'corrected_transcript' : 'transcript';
+    const segments = hasCorrected ? [...props.lesson.corrected_transcript] : [...props.lesson.transcript];
+    
+    // Update the segment text
+    if (editingSegmentIndex.value < segments.length) {
+      segments[editingSegmentIndex.value].text = editedSegmentText.value;
+      
+      // Send update to backend
+      await axios.patch(`${API_URL}/lessons/${props.lesson.id}`, {
+        [transcriptToUpdate]: segments
+      });
+      
+      // Update the lesson object
+      if (hasCorrected) {
+        props.lesson.corrected_transcript = segments;
+      } else {
+        props.lesson.transcript = segments;
+      }
+      
+      // Clear editing state
+      editingSegmentIndex.value = null;
+      editedSegmentText.value = '';
+    }
+  } catch (error) {
+    console.error('Failed to save segment:', error);
+    alert(t('lessons.saveFailed'));
+  } finally {
+    isSavingSegment.value = false;
   }
 };
 </script>
@@ -924,9 +1008,9 @@ const createTasks = async () => {
                 {{ t('lessons.downloadPDF') }}
               </button>
               
-              <!-- Download Transcript PDF Button (show for transcript views) -->
+              <!-- Download Transcript PDF Button (show for transcript view) -->
               <button
-                v-if="(activeView === 'corrected' || activeView === 'initial') && !isEditingSummary"
+                v-if="activeView === 'transcript' && !isEditingSummary"
                 @click="downloadTranscriptPDF"
                 class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
               >
@@ -944,9 +1028,9 @@ const createTasks = async () => {
                 {{ t('lessons.edit') }}
               </button>
               
-              <!-- Audio Player Controls (show for transcript views) -->
+              <!-- Audio Player Controls (show for transcript view) -->
               <div 
-                v-if="(activeView === 'corrected' || activeView === 'initial') && audioUrl"
+                v-if="activeView === 'transcript' && audioUrl"
                 class="flex items-center gap-2 print:hidden"
               >
                 <SpeakerWaveIcon class="h-5 w-5 text-gray-400 dark:text-gray-500" />
@@ -1016,19 +1100,20 @@ const createTasks = async () => {
             ></div>
           </div>
           
-          <!-- Corrected Transcript View -->
-          <div v-else-if="activeView === 'corrected'">
-            <!-- Segmented View (Screen) -->
-            <div v-if="hasSegments(lesson.corrected_transcript)" class="space-y-4 max-h-[600px] overflow-auto scroll-smooth print:max-h-none">
+          <!-- Unified Transcript View with Diffs -->
+          <div v-else-if="activeView === 'transcript'">
+            <div v-if="unifiedTranscript.length > 0" class="space-y-4 max-h-[600px] overflow-auto scroll-smooth print:max-h-none">
               <div
-                v-for="(segment, index) in lesson.corrected_transcript"
-                :key="index"
-                :data-segment-index="index"
+                v-for="segment in unifiedTranscript"
+                :key="segment.index"
+                :data-segment-index="segment.index"
                 :class="[
                   'flex gap-3 p-4 rounded-lg border transition-all print:border-0 print:p-2',
                   isSegmentActive(segment)
                     ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-400 dark:border-indigo-600 print:bg-white'
-                    : 'bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700 hover:border-indigo-300 dark:hover:border-indigo-700 print:bg-white'
+                    : segment.hasDiff
+                      ? 'bg-green-50 dark:bg-green-900/10 border-green-200 dark:border-green-800 hover:border-green-300 dark:hover:border-green-700 print:bg-white'
+                      : 'bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700 hover:border-indigo-300 dark:hover:border-indigo-700 print:bg-white'
                 ]"
               >
                 <button
@@ -1042,48 +1127,75 @@ const createTasks = async () => {
                 <div class="flex-shrink-0 text-xs font-mono text-indigo-600 dark:text-indigo-400 font-semibold pt-0.5 print:hidden">
                   {{ formatTimestamp(segment.start) }} - {{ formatTimestamp(segment.end) }}
                 </div>
-                <div class="flex-1 text-sm text-gray-700 dark:text-gray-300 print:text-black">
-                  {{ segment.text }}
+                <div class="flex-1 space-y-2">
+                  <!-- Edit Mode -->
+                  <div v-if="editingSegmentIndex === segment.index" class="space-y-2">
+                    <textarea
+                      v-model="editedSegmentText"
+                      class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+                      rows="3"
+                      @keydown.esc="cancelEditSegment"
+                    ></textarea>
+                    <div class="flex gap-2">
+                      <button
+                        @click="saveSegment"
+                        :disabled="isSavingSegment"
+                        class="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 rounded transition-colors"
+                      >
+                        <CheckIcon class="h-3 w-3" />
+                        {{ isSavingSegment ? t('lessons.saving') : t('lessons.save') }}
+                      </button>
+                      <button
+                        @click="cancelEditSegment"
+                        :disabled="isSavingSegment"
+                        class="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 rounded transition-colors"
+                      >
+                        <XMarkIcon class="h-3 w-3" />
+                        {{ t('lessons.cancel') }}
+                      </button>
+                    </div>
+                  </div>
+                  
+                  <!-- View Mode -->
+                  <div v-else>
+                    <div class="flex items-start gap-2">
+                      <div class="flex-1">
+                        <!-- Corrected Text -->
+                        <div class="text-sm text-gray-900 dark:text-gray-100 print:text-black">
+                          <span v-if="segment.hasDiff" class="inline-block px-1.5 py-0.5 text-xs font-semibold text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/30 rounded mr-2 print:hidden">
+                            {{ t('lessons.corrected') }}
+                          </span>
+                          {{ segment.correctedText }}
+                        </div>
+                        
+                        <!-- Original Text (if different) -->
+                        <div v-if="segment.hasDiff" class="text-sm text-gray-500 dark:text-gray-400 italic pl-4 border-l-2 border-gray-300 dark:border-gray-600 print:hidden mt-2">
+                          <span class="inline-block px-1.5 py-0.5 text-xs font-semibold text-gray-600 dark:text-gray-400 bg-gray-200 dark:bg-gray-700 rounded mr-2">
+                            {{ t('lessons.original') }}
+                          </span>
+                          {{ segment.originalText }}
+                        </div>
+                      </div>
+                      
+                      <!-- Edit Button -->
+                      <button
+                        @click="startEditSegment(segment.index, segment.correctedText)"
+                        class="flex-shrink-0 p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors print:hidden"
+                        :title="t('lessons.editSegment')"
+                      >
+                        <PencilIcon class="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
-            <!-- Fallback to JSON view -->
-            <pre v-else class="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-900 p-4 rounded-lg overflow-auto max-h-[600px]">{{ JSON.stringify(lesson.corrected_transcript, null, 2) }}</pre>
-          </div>
-          
-          <!-- Initial Transcript View -->
-          <div v-else-if="activeView === 'initial'">
-            <!-- Segmented View (Screen) -->
-            <div v-if="hasSegments(lesson.transcript)" class="space-y-4 max-h-[600px] overflow-auto scroll-smooth print:max-h-none">
-              <div
-                v-for="(segment, index) in lesson.transcript"
-                :key="index"
-                :data-segment-index="index"
-                :class="[
-                  'flex gap-3 p-4 rounded-lg border transition-all print:border-0 print:p-2',
-                  isSegmentActive(segment)
-                    ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-400 dark:border-indigo-600 print:bg-white'
-                    : 'bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700 hover:border-indigo-300 dark:hover:border-indigo-700 print:bg-white'
-                ]"
-              >
-                <button
-                  v-if="audioUrl"
-                  @click="playFromTimestamp(segment.start)"
-                  class="flex-shrink-0 p-1.5 rounded-md hover:bg-indigo-100 dark:hover:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 transition-colors print:hidden"
-                  :title="t('lessons.playSegment')"
-                >
-                  <PlayIcon class="h-4 w-4" />
-                </button>
-                <div class="flex-shrink-0 text-xs font-mono text-indigo-600 dark:text-indigo-400 font-semibold pt-0.5 print:hidden">
-                  {{ formatTimestamp(segment.start) }} - {{ formatTimestamp(segment.end) }}
-                </div>
-                <div class="flex-1 text-sm text-gray-700 dark:text-gray-300 print:text-black">
-                  {{ segment.text }}
-                </div>
-              </div>
+            <!-- No transcript message -->
+            <div v-else class="text-center py-12">
+              <p class="text-gray-500 dark:text-gray-400">
+                {{ t('lessons.noTranscripts') }}
+              </p>
             </div>
-            <!-- Fallback to JSON view -->
-            <pre v-else class="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-900 p-4 rounded-lg overflow-auto max-h-[600px]">{{ JSON.stringify(lesson.transcript, null, 2) }}</pre>
           </div>
         </div>
       </div>

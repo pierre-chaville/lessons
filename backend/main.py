@@ -368,6 +368,15 @@ def update_lesson(
         if len(themes) != len(lesson_data.theme_ids):
             raise HTTPException(status_code=404, detail="One or more themes not found")
     
+    # Convert Segment objects to dicts for JSON storage
+    transcript_data = None
+    if lesson_data.transcript is not None:
+        transcript_data = [seg.model_dump() if hasattr(seg, 'model_dump') else seg for seg in lesson_data.transcript]
+    
+    corrected_transcript_data = None
+    if lesson_data.corrected_transcript is not None:
+        corrected_transcript_data = [seg.model_dump() if hasattr(seg, 'model_dump') else seg for seg in lesson_data.corrected_transcript]
+    
     lesson = crud.update_lesson(
         session,
         lesson_id,
@@ -376,8 +385,8 @@ def update_lesson(
         course_id=lesson_data.course_id,
         date=lesson_data.date,
         duration=lesson_data.duration,
-        transcript=lesson_data.transcript,
-        corrected_transcript=lesson_data.corrected_transcript,
+        transcript=transcript_data,
+        corrected_transcript=corrected_transcript_data,
         brief=lesson_data.brief,
         summary=lesson_data.summary,
         theme_ids=lesson_data.theme_ids,

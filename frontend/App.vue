@@ -16,6 +16,7 @@ import SearchLessons from './views/SearchLessons.vue';
 import CoursesList from './views/CoursesList.vue';
 import ThemesList from './views/ThemesList.vue';
 import ProcessingTasks from './views/ProcessingTasks.vue';
+import Preferences from './views/Preferences.vue';
 
 const { locale, t } = useI18n();
 
@@ -257,8 +258,13 @@ onMounted(() => {
         </div>
       </div>
 
+      <!-- Preferences View -->
+      <div v-else-if="currentRoute === '/preferences'" class="h-full flex flex-col">
+        <Preferences />
+      </div>
+
       <!-- Placeholder for other views -->
-      <main v-else-if="!isViewingDetail && currentRoute !== '/lessons' && currentRoute !== '/search' && currentRoute !== '/courses' && currentRoute !== '/themes' && currentRoute !== '/processing'" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main v-else-if="!isViewingDetail && currentRoute !== '/lessons' && currentRoute !== '/search' && currentRoute !== '/courses' && currentRoute !== '/themes' && currentRoute !== '/processing' && currentRoute !== '/preferences'" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-8 text-center transition-colors">
           <h2 class="text-2xl font-bold text-gray-900 dark:text-white mb-4">
             {{ pageTitle }}

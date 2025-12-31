@@ -6,7 +6,7 @@ from datetime import datetime
 from sqlmodel import Session, select
 from database import engine
 from models import Task
-from tasks import correct_transcript, generate_summary
+from tasks import correct_transcript, generate_summary, transcribe_lesson
 import logging
 
 # Configure logging
@@ -58,19 +58,44 @@ def update_task_status(session: Session, task: Task, status: str, **kwargs):
     logger.info(f"Task {task.id} status updated to: {status}")
 
 def process_transcription_task(session: Session, task: Task):
-    """Process a transcription task (placeholder)"""
+    """Process a transcription task"""
     logger.info(f"Processing transcription task {task.id}")
-    # TODO: Implement actual transcription logic
-    # For now, just simulate some work
-    time.sleep(2)
     
-    # Simulate success
-    update_task_status(
-        session, 
-        task, 
-        "completed",
-        result={"message": "Transcription completed (simulated)"}
-    )
+    try:
+        # Get parameters from task
+        params = task.parameters or {}
+        lesson_id = params.get('lesson_id')
+        
+        if not lesson_id:
+            raise ValueError("lesson_id is required in task parameters")
+        
+        # Run transcription
+        success = transcribe_lesson(
+            lesson_id=lesson_id,
+            session=session
+        )
+        
+        if success:
+            update_task_status(
+                session, 
+                task, 
+                "completed",
+                result={
+                    "message": "Transcription completed successfully",
+                    "lesson_id": lesson_id
+                }
+            )
+        else:
+            update_task_status(
+                session, 
+                task, 
+                "failed",
+                error="Transcription failed"
+            )
+    
+    except Exception as e:
+        logger.error(f"Error in transcription task: {e}", exc_info=True)
+        raise
 
 def process_correction_task(session: Session, task: Task):
     """Process a correction task"""

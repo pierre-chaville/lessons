@@ -10,6 +10,13 @@ Utility functions for working with LLM models via LangChain.
 **Key Function:**
 - `get_llm_model(task_name=None, temperature=None, model=None)` - Returns a configured ChatOpenAI or ChatAnthropic model based on the provider in config.yaml
 
+### `transcribe.py`
+Audio transcription using Faster Whisper.
+
+**Key Functions:**
+- `transcribe_lesson(lesson_id, session=None)` - Transcribe a lesson's audio file
+- `transcribe_audio(audio_path, language=None, beam_size=5, vad_filter=True, initial_prompt=None)` - Low-level transcription function
+
 ### `correction.py`
 Lesson transcript correction using LLM with parallel processing.
 
@@ -25,6 +32,18 @@ Lesson summary generation using LLM.
 - `generate_summary_async(lesson_id, use_corrected=True, session=None)` - Async version
 
 ## Usage Examples
+
+### Audio Transcription
+
+```python
+from backend.tasks import transcribe_lesson
+
+# Transcribe a lesson's audio file
+success = transcribe_lesson(lesson_id=1)
+
+if success:
+    print("Transcription completed successfully!")
+```
 
 ### Summary Generation
 
@@ -78,6 +97,26 @@ asyncio.run(main())
 ```
 
 ### Using with Background Tasks
+
+To queue a transcription task:
+
+```python
+from backend.models import Task
+from backend.database import engine
+from sqlmodel import Session
+
+with Session(engine) as session:
+    task = Task(
+        task_type="transcription",
+        status="pending",
+        parameters={
+            "lesson_id": 1
+        }
+    )
+    session.add(task)
+    session.commit()
+    print(f"Created transcription task {task.id}")
+```
 
 To queue a summary task:
 

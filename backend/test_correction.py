@@ -46,30 +46,8 @@ def display_lesson_transcripts(lesson_id: int):
         
         print("\n" + "="*80)
         print(f"Lesson: {lesson.title}")
-        print("="*80)
-        
-        print("\n📝 ORIGINAL TRANSCRIPT:")
-        print("-"*80)
-        if lesson.transcript:
-            for i, seg in enumerate(lesson.transcript, 1):
-                # Handle both dict and Segment objects
-                if isinstance(seg, dict):
-                    print(f"{i}. [{seg['start']:.1f}s - {seg['end']:.1f}s] {seg['text']}")
-                else:
-                    print(f"{i}. [{seg.start:.1f}s - {seg.end:.1f}s] {seg.text}")
-        else:
-            print("No transcript available")
-        
-        print("\n✅ CORRECTED TRANSCRIPT:")
-        print("-"*80)
+       
         if lesson.corrected_transcript:
-            for i, seg in enumerate(lesson.corrected_transcript, 1):
-                # Handle both dict and Segment objects
-                if isinstance(seg, dict):
-                    print(f"{i}. [{seg['start']:.1f}s - {seg['end']:.1f}s] {seg['text']}")
-                else:
-                    print(f"{i}. [{seg.start:.1f}s - {seg.end:.1f}s] {seg.text}")
-            
             # Display metadata
             metadata = lesson.get_correction_metadata()
             if metadata:

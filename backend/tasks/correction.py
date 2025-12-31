@@ -38,12 +38,12 @@ class SegmentOutput(BaseModel):
 
 class TranscriptGroup(BaseModel):
     """Input: Group of segments to correct"""
-    segments: List[SegmentInput] = Field(description="List of segments to correct")
+    segments: List[SegmentInput] = Field(description="List of segments to review")
 
 
 class CorrectedTranscriptGroup(BaseModel):
     """Output: Group of corrected segments"""
-    segments: List[SegmentOutput] = Field(description="List of corrected segments")
+    segments: List[SegmentOutput] = Field(description="List of corrected segments (excluding segments that do not need correction)")
 
 
 async def correct_segment_group_with_retry(
@@ -145,27 +145,37 @@ async def correct_segment_group(
             for seg in input_segments
         ])
         
-        full_prompt = f"{correction_prompt}\n\nSegments to correct:\n{segments_text}"
+        full_prompt = f"{correction_prompt}\n\nSegments to review:\n{segments_text}"
         
         # Call LLM with structured output
         result = await llm_with_structure.ainvoke(full_prompt)
         
         # Map corrected segments back to original indices
+        # Note: LLM only returns segments that need correction
+        # Segments not in the response don't need correction and use original text
         corrected = []
-        for i, (original_idx, _) in enumerate(group):
+        corrected_count = 0
+        
+        for i, (original_idx, segment) in enumerate(group):
             # Find the corrected segment by id (1-based)
             corrected_segment = next(
                 (seg for seg in result.segments if seg.id == i+1),
                 None
             )
             if corrected_segment:
+                # Use corrected text from LLM
                 corrected.append((original_idx, corrected_segment.text))
+                corrected_count += 1
             else:
-                # Fallback to original text if not found
-                logger.warning(f"Segment {i+1} not found in LLM response, using original")
-                seg = group[i][1]
-                original_text = seg['text'] if isinstance(seg, dict) else seg.text
+                # Segment not returned by LLM = doesn't need correction, use original
+                original_text = segment['text'] if isinstance(segment, dict) else segment.text
                 corrected.append((original_idx, original_text))
+        
+        # Log correction statistics
+        logger.info(
+            f"Processed group: {corrected_count}/{len(group)} segments corrected, "
+            f"{len(group) - corrected_count} kept original"
+        )
         
         return corrected
     
@@ -181,7 +191,7 @@ async def correct_segment_group(
 
 async def correct_transcript_async(
     lesson_id: int,
-    segments_per_group: int = 10,
+    segments_per_group: int = 100,
     max_concurrency: int = 10,
     session: Optional[Session] = None
 ) -> bool:
