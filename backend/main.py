@@ -562,11 +562,11 @@ def get_lesson_transcript_pdf(
     # Get the appropriate transcript
     transcript = lesson.corrected_transcript if transcript_type == "corrected" else lesson.transcript
     
-    if not transcript or not transcript.get('segments'):
+    if not transcript or len(transcript) == 0:
         raise HTTPException(status_code=404, detail=f"No {transcript_type} transcript available")
     
     # Extract text from segments (without timestamps)
-    segments_text = "\n\n".join(segment['text'] for segment in transcript['segments'])
+    segments_text = "\n".join("- " + segment['text'] for segment in transcript)
     
     # Create HTML document
     html_content = f"""
@@ -600,8 +600,9 @@ def get_lesson_transcript_pdf(
                 border-radius: 5px;
             }}
             .transcript {{
-                text-align: justify;
+                text-align: left;
                 white-space: pre-wrap;
+                font-size: 14px;
             }}
         </style>
     </head>
