@@ -167,15 +167,17 @@
   },
   "search": {
     "title": "Rechercher des Leçons",
-    "placeholder": "Rechercher par titre, résumé bref ou résumé...",
+    "placeholder": "Rechercher dans la transcription corrigée...",
     "search": "Rechercher",
     "searching": "Recherche...",
     "filters": "Filtres",
     "allCourses": "Tous les cours",
     "allThemes": "Tous les thèmes",
     "clearAll": "Tout effacer",
-    "enterQuery": "Entrez une requête de recherche ou sélectionnez des filtres pour trouver des leçons",
-    "noResults": "Aucune leçon trouvée correspondant à vos critères de recherche"
+    "enterQuery": "Entrez une requête pour trouver des correspondances dans les transcriptions corrigées",
+    "noResults": "Aucune correspondance trouvée",
+    "matches": "correspondances",
+    "exact": "exact"
   },
   "nav": {
     "menu": "Menu",
@@ -235,4 +237,3 @@
     "maxLengthDesc": "Nombre maximum de mots dans le résumé"
   }
 }
-

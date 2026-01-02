@@ -167,15 +167,17 @@
   },
   "search": {
     "title": "Search Lessons",
-    "placeholder": "Search by title, brief, or summary...",
+    "placeholder": "Search in corrected transcript...",
     "search": "Search",
     "searching": "Searching...",
     "filters": "Filters",
     "allCourses": "All Courses",
     "allThemes": "All Themes",
     "clearAll": "Clear all",
-    "enterQuery": "Enter a search query or select filters to find lessons",
-    "noResults": "No lessons found matching your search criteria"
+    "enterQuery": "Enter a search query to find matches in corrected transcripts",
+    "noResults": "No matches found",
+    "matches": "matches",
+    "exact": "exact"
   },
   "nav": {
     "menu": "Menu",
@@ -235,4 +237,3 @@
     "maxLengthDesc": "Maximum number of words in the summary"
   }
 }
-

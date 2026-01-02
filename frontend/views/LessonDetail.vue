@@ -26,6 +26,11 @@ const props = defineProps({
   lesson: {
     type: Object,
     required: true
+  },
+  autoplayFrom: {
+    type: Number,
+    required: false,
+    default: null
   }
 });
 
@@ -187,6 +192,18 @@ const playFromTimestamp = (startTime) => {
     }
   }
 };
+
+// Auto-play when requested by parent (e.g., Search results)
+watch(
+  () => props.autoplayFrom,
+  (startTime) => {
+    if (startTime === null || startTime === undefined) return;
+    nextTick(() => {
+      playFromTimestamp(startTime);
+    });
+  },
+  { immediate: true }
+);
 
 // Toggle play/pause
 const togglePlayPause = () => {

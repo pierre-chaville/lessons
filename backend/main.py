@@ -11,6 +11,7 @@ from database import create_db_and_tables, get_session
 from models import Lesson, Course, Theme, Segment, Task
 import crud
 import config as config_module
+import search_utils
 
 app = FastAPI(title="Lessons Manager API", version="1.0.0")
 
@@ -38,14 +39,17 @@ def read_root():
 
 # ============== COURSE ENDPOINTS ==============
 
+
 class CourseCreate(BaseModel):
     """Schema for creating a course"""
+
     name: str
     description: Optional[str] = None
 
 
 class CourseUpdate(BaseModel):
     """Schema for updating a course"""
+
     name: Optional[str] = None
     description: Optional[str] = None
 
@@ -69,24 +73,17 @@ def get_course(course_id: int, session: Session = Depends(get_session)):
 def create_course(course_data: CourseCreate, session: Session = Depends(get_session)):
     """Create a new course"""
     return crud.create_course(
-        session,
-        name=course_data.name,
-        description=course_data.description
+        session, name=course_data.name, description=course_data.description
     )
 
 
 @app.patch("/courses/{course_id}", response_model=Course, tags=["Courses"])
 def update_course(
-    course_id: int,
-    course_data: CourseUpdate,
-    session: Session = Depends(get_session)
+    course_id: int, course_data: CourseUpdate, session: Session = Depends(get_session)
 ):
     """Update an existing course"""
     course = crud.update_course(
-        session,
-        course_id,
-        name=course_data.name,
-        description=course_data.description
+        session, course_id, name=course_data.name, description=course_data.description
     )
     if not course:
         raise HTTPException(status_code=404, detail="Course not found")
@@ -103,13 +100,16 @@ def delete_course(course_id: int, session: Session = Depends(get_session)):
 
 # ============== THEME ENDPOINTS ==============
 
+
 class ThemeCreate(BaseModel):
     """Schema for creating a theme"""
+
     name: str
 
 
 class ThemeUpdate(BaseModel):
     """Schema for updating a theme"""
+
     name: str
 
 
@@ -136,9 +136,7 @@ def create_theme(theme_data: ThemeCreate, session: Session = Depends(get_session
 
 @app.patch("/themes/{theme_id}", response_model=Theme, tags=["Themes"])
 def update_theme(
-    theme_id: int,
-    theme_data: ThemeUpdate,
-    session: Session = Depends(get_session)
+    theme_id: int, theme_data: ThemeUpdate, session: Session = Depends(get_session)
 ):
     """Update an existing theme"""
     theme = crud.update_theme(session, theme_id, name=theme_data.name)
@@ -157,8 +155,10 @@ def delete_theme(theme_id: int, session: Session = Depends(get_session)):
 
 # ============== LESSON ENDPOINTS ==============
 
+
 class LessonCreate(BaseModel):
     """Schema for creating a lesson"""
+
     title: str
     filename: str
     course_id: Optional[int] = None
@@ -172,6 +172,7 @@ class LessonCreate(BaseModel):
 
 class LessonUpdate(BaseModel):
     """Schema for updating a lesson"""
+
     title: Optional[str] = None
     filename: Optional[str] = None
     course_id: Optional[int] = None
@@ -189,6 +190,7 @@ class LessonUpdate(BaseModel):
 
 class LessonListResponse(BaseModel):
     """Lightweight lesson response for list view"""
+
     id: int
     title: str
     date: datetime
@@ -204,6 +206,7 @@ class LessonListResponse(BaseModel):
 
 class LessonResponse(BaseModel):
     """Enhanced lesson response with theme details"""
+
     id: int
     title: str
     filename: str
@@ -225,31 +228,58 @@ class LessonResponse(BaseModel):
         from_attributes = True
 
 
+class SearchMatchSegment(BaseModel):
+    start: float
+    end: float
+    text: str
+    score: float
+    exact: bool
+
+
+class SearchLessonResult(BaseModel):
+    id: int
+    title: str
+    date: datetime
+    duration: Optional[float]
+    brief: Optional[str]
+    filename: str
+    themes: List[Theme] = []
+    course: Optional[Course] = None
+    matches: List[SearchMatchSegment]
+    match_count: int
+    best_score: float
+
+    class Config:
+        from_attributes = True
+
+
 @app.get("/lessons", response_model=List[LessonListResponse], tags=["Lessons"])
 def get_lessons(
     course_id: Optional[int] = Query(None, description="Filter by course ID"),
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
 ):
     """Get all lessons (lightweight response), optionally filtered by course"""
     lessons = crud.get_all_lessons(session, course_id=course_id)
-    
+
     # Return lightweight response with only essential fields
     result = []
     for lesson in lessons:
         theme_ids = lesson.get_themes()
         themes = crud.get_themes_by_ids(session, theme_ids) if theme_ids else []
-        
-        result.append(LessonListResponse(
-            id=lesson.id,
-            title=lesson.title,
-            date=lesson.date,
-            duration=lesson.duration,
-            brief=lesson.brief,
-            filename=lesson.filename,
-            themes=themes,
-            course=lesson.course
-        ))
-    
+
+        result.append(
+            LessonListResponse(
+                id=lesson.id,
+                title=lesson.title,
+                date=lesson.date,
+                duration=lesson.duration,
+                brief=lesson.brief,
+                filename=lesson.filename,
+                themes=themes,
+                course=lesson.course,
+            )
+        )
+
     return result
 
 
@@ -259,10 +289,10 @@ def get_lesson(lesson_id: int, session: Session = Depends(get_session)):
     lesson = crud.get_lesson(session, lesson_id)
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
-    
+
     theme_ids = lesson.get_themes()
     themes = crud.get_themes_by_ids(session, theme_ids) if theme_ids else []
-    
+
     return LessonResponse(
         id=lesson.id,
         title=lesson.title,
@@ -279,7 +309,7 @@ def get_lesson(lesson_id: int, session: Session = Depends(get_session)):
         course=lesson.course,
         transcript_metadata=lesson.transcript_metadata,
         correction_metadata=lesson.correction_metadata,
-        summary_metadata=lesson.summary_metadata
+        summary_metadata=lesson.summary_metadata,
     )
 
 
@@ -291,13 +321,13 @@ def create_lesson(lesson_data: LessonCreate, session: Session = Depends(get_sess
         course = crud.get_course(session, lesson_data.course_id)
         if not course:
             raise HTTPException(status_code=404, detail="Course not found")
-    
+
     # Verify themes exist if provided
     if lesson_data.theme_ids:
         themes = crud.get_themes_by_ids(session, lesson_data.theme_ids)
         if len(themes) != len(lesson_data.theme_ids):
             raise HTTPException(status_code=404, detail="One or more themes not found")
-    
+
     lesson = crud.create_lesson(
         session,
         title=lesson_data.title,
@@ -308,27 +338,29 @@ def create_lesson(lesson_data: LessonCreate, session: Session = Depends(get_sess
         transcript=lesson_data.transcript,
         corrected_transcript=lesson_data.corrected_transcript,
         summary=lesson_data.summary,
-        theme_ids=lesson_data.theme_ids
+        theme_ids=lesson_data.theme_ids,
     )
-    
+
     # Rename audio file to include lesson ID
     audio_dir = Path(__file__).parent / "data" / "audio"
     temp_file = audio_dir / lesson_data.filename
     if temp_file.exists():
-        new_filename = f"{lesson.id}_{lesson_data.filename.replace('temp_', '').split('_', 1)[-1]}"
+        new_filename = (
+            f"{lesson.id}_{lesson_data.filename.replace('temp_', '').split('_', 1)[-1]}"
+        )
         new_path = audio_dir / new_filename
         temp_file.rename(new_path)
-        
+
         # Update lesson with new filename
-        lesson.filename = new_filename.split('_', 1)[-1]  # Store without the ID prefix
+        lesson.filename = new_filename.split("_", 1)[-1]  # Store without the ID prefix
         session.add(lesson)
         session.commit()
         session.refresh(lesson)
-    
+
     # Return with enriched data
     theme_ids = lesson.get_themes()
     themes = crud.get_themes_by_ids(session, theme_ids) if theme_ids else []
-    
+
     return LessonResponse(
         id=lesson.id,
         title=lesson.title,
@@ -345,15 +377,13 @@ def create_lesson(lesson_data: LessonCreate, session: Session = Depends(get_sess
         course=lesson.course,
         transcript_metadata=lesson.transcript_metadata,
         correction_metadata=lesson.correction_metadata,
-        summary_metadata=lesson.summary_metadata
+        summary_metadata=lesson.summary_metadata,
     )
 
 
 @app.patch("/lessons/{lesson_id}", response_model=LessonResponse, tags=["Lessons"])
 def update_lesson(
-    lesson_id: int,
-    lesson_data: LessonUpdate,
-    session: Session = Depends(get_session)
+    lesson_id: int, lesson_data: LessonUpdate, session: Session = Depends(get_session)
 ):
     """Update an existing lesson"""
     # Verify course exists if provided
@@ -361,22 +391,28 @@ def update_lesson(
         course = crud.get_course(session, lesson_data.course_id)
         if not course:
             raise HTTPException(status_code=404, detail="Course not found")
-    
+
     # Verify themes exist if provided
     if lesson_data.theme_ids is not None:
         themes = crud.get_themes_by_ids(session, lesson_data.theme_ids)
         if len(themes) != len(lesson_data.theme_ids):
             raise HTTPException(status_code=404, detail="One or more themes not found")
-    
+
     # Convert Segment objects to dicts for JSON storage
     transcript_data = None
     if lesson_data.transcript is not None:
-        transcript_data = [seg.model_dump() if hasattr(seg, 'model_dump') else seg for seg in lesson_data.transcript]
-    
+        transcript_data = [
+            seg.model_dump() if hasattr(seg, "model_dump") else seg
+            for seg in lesson_data.transcript
+        ]
+
     corrected_transcript_data = None
     if lesson_data.corrected_transcript is not None:
-        corrected_transcript_data = [seg.model_dump() if hasattr(seg, 'model_dump') else seg for seg in lesson_data.corrected_transcript]
-    
+        corrected_transcript_data = [
+            seg.model_dump() if hasattr(seg, "model_dump") else seg
+            for seg in lesson_data.corrected_transcript
+        ]
+
     lesson = crud.update_lesson(
         session,
         lesson_id,
@@ -392,16 +428,16 @@ def update_lesson(
         theme_ids=lesson_data.theme_ids,
         transcript_metadata=lesson_data.transcript_metadata,
         correction_metadata=lesson_data.correction_metadata,
-        summary_metadata=lesson_data.summary_metadata
+        summary_metadata=lesson_data.summary_metadata,
     )
-    
+
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
-    
+
     # Return with enriched data
     theme_ids = lesson.get_themes()
     themes_list = crud.get_themes_by_ids(session, theme_ids) if theme_ids else []
-    
+
     return LessonResponse(
         id=lesson.id,
         title=lesson.title,
@@ -418,7 +454,7 @@ def update_lesson(
         course=lesson.course,
         transcript_metadata=lesson.transcript_metadata,
         correction_metadata=lesson.correction_metadata,
-        summary_metadata=lesson.summary_metadata
+        summary_metadata=lesson.summary_metadata,
     )
 
 
@@ -438,18 +474,18 @@ def get_lesson_summary_pdf(lesson_id: int, session: Session = Depends(get_sessio
     from weasyprint import HTML, CSS
     from io import BytesIO
     import markdown
-    
+
     lesson = crud.get_lesson(session, lesson_id)
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
-    
+
     if not lesson.summary:
         raise HTTPException(status_code=404, detail="No summary available")
-    
+
     # Convert markdown to HTML
-    md = markdown.Markdown(extensions=['extra', 'nl2br'])
+    md = markdown.Markdown(extensions=["extra", "nl2br"])
     summary_html = md.convert(lesson.summary)
-    
+
     # Create HTML document with proper styling
     html_content = f"""
     <!DOCTYPE html>
@@ -524,50 +560,56 @@ def get_lesson_summary_pdf(lesson_id: int, session: Session = Depends(get_sessio
     </body>
     </html>
     """
-    
+
     # Generate PDF
     pdf_buffer = BytesIO()
     HTML(string=html_content).write_pdf(pdf_buffer)
     pdf_buffer.seek(0)
-    
+
     # Create safe filename
-    safe_title = "".join(c for c in lesson.title if c.isalnum() or c in (' ', '-', '_')).rstrip()
+    safe_title = "".join(
+        c for c in lesson.title if c.isalnum() or c in (" ", "-", "_")
+    ).rstrip()
     filename = f"{safe_title}_summary.pdf"
-    
+
     return Response(
         content=pdf_buffer.getvalue(),
         media_type="application/pdf",
-        headers={
-            "Content-Disposition": f'attachment; filename="{filename}"'
-        }
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
 @app.get("/lessons/{lesson_id}/pdf/transcript", tags=["Lessons"])
 def get_lesson_transcript_pdf(
-    lesson_id: int, 
+    lesson_id: int,
     transcript_type: str = Query("corrected", regex="^(corrected|initial)$"),
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
 ):
     """Generate and download PDF of the lesson transcript (without timestamps)"""
     from pathlib import Path
     from fastapi.responses import Response
     from weasyprint import HTML
     from io import BytesIO
-    
+
     lesson = crud.get_lesson(session, lesson_id)
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
-    
+
     # Get the appropriate transcript
-    transcript = lesson.corrected_transcript if transcript_type == "corrected" else lesson.transcript
-    
+    transcript = (
+        lesson.corrected_transcript
+        if transcript_type == "corrected"
+        else lesson.transcript
+    )
+
     if not transcript or len(transcript) == 0:
-        raise HTTPException(status_code=404, detail=f"No {transcript_type} transcript available")
-    
+        raise HTTPException(
+            status_code=404, detail=f"No {transcript_type} transcript available"
+        )
+
     # Extract text from segments (without timestamps)
-    segments_text = "\n".join("- " + segment['text'] for segment in transcript)
-    
+    segments_text = "\n".join("- " + segment["text"] for segment in transcript)
+
     # Create HTML document
     html_content = f"""
     <!DOCTYPE html>
@@ -619,83 +661,91 @@ def get_lesson_transcript_pdf(
     </body>
     </html>
     """
-    
+
     # Generate PDF
     pdf_buffer = BytesIO()
     HTML(string=html_content).write_pdf(pdf_buffer)
     pdf_buffer.seek(0)
-    
+
     # Create safe filename
-    safe_title = "".join(c for c in lesson.title if c.isalnum() or c in (' ', '-', '_')).rstrip()
+    safe_title = "".join(
+        c for c in lesson.title if c.isalnum() or c in (" ", "-", "_")
+    ).rstrip()
     filename = f"{safe_title}_{transcript_type}_transcript.pdf"
-    
+
     return Response(
         content=pdf_buffer.getvalue(),
         media_type="application/pdf",
-        headers={
-            "Content-Disposition": f'attachment; filename="{filename}"'
-        }
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
 @app.post("/upload/audio", tags=["Lessons"])
-async def upload_audio(file: UploadFile = File(...), session: Session = Depends(get_session)):
+async def upload_audio(
+    file: UploadFile = File(...), session: Session = Depends(get_session)
+):
     """Upload an audio file for a lesson"""
     # Validate file type
-    if not file.content_type or not file.content_type.startswith('audio/'):
+    if not file.content_type or not file.content_type.startswith("audio/"):
         raise HTTPException(status_code=400, detail="File must be an audio file")
-    
+
     # Create audio directory if it doesn't exist
     audio_dir = Path(__file__).parent / "data" / "audio"
     audio_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Save file with temporary name (will be renamed when lesson is created)
     temp_filename = f"temp_{datetime.now().strftime('%Y%m%d%H%M%S')}_{file.filename}"
     temp_path = audio_dir / temp_filename
-    
+
     try:
         with open(temp_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
-    
+
     return {"filename": temp_filename, "original_filename": file.filename}
 
 
 @app.get("/lessons/{lesson_id}/audio", tags=["Lessons"])
-def get_lesson_audio(lesson_id: int, request: Request, session: Session = Depends(get_session)):
+def get_lesson_audio(
+    lesson_id: int, request: Request, session: Session = Depends(get_session)
+):
     """Get audio file for a specific lesson with range request support"""
     from pathlib import Path
     from fastapi.responses import StreamingResponse
     import os
-    
+
     lesson = crud.get_lesson(session, lesson_id)
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
-    
+
     # Construct audio file path: data/audio/{id}_{filename}
     audio_filename = f"{lesson_id}_{lesson.filename}"
     audio_path = Path(__file__).parent / "data" / "audio" / audio_filename
-    
+
     if not audio_path.exists():
         raise HTTPException(status_code=404, detail="Audio file not found")
-    
+
     file_size = os.path.getsize(audio_path)
     range_header = request.headers.get("range")
-    
+
     # Handle range request for seeking
     if range_header:
         # Parse range header (format: "bytes=start-end")
         byte_range = range_header.replace("bytes=", "").split("-")
         start = int(byte_range[0]) if byte_range[0] else 0
-        end = int(byte_range[1]) if len(byte_range) > 1 and byte_range[1] else file_size - 1
-        
+        end = (
+            int(byte_range[1])
+            if len(byte_range) > 1 and byte_range[1]
+            else file_size - 1
+        )
+
         # Validate range
         if start >= file_size or end >= file_size:
             raise HTTPException(status_code=416, detail="Range not satisfiable")
-        
+
         chunk_size = end - start + 1
-        
+
         def iter_file():
             with open(audio_path, "rb") as f:
                 f.seek(start)
@@ -706,50 +756,111 @@ def get_lesson_audio(lesson_id: int, request: Request, session: Session = Depend
                         break
                     remaining -= len(chunk)
                     yield chunk
-        
+
         headers = {
             "Content-Range": f"bytes {start}-{end}/{file_size}",
             "Accept-Ranges": "bytes",
             "Content-Length": str(chunk_size),
             "Content-Type": "audio/mpeg",
         }
-        
+
         return StreamingResponse(
-            iter_file(),
-            status_code=206,
-            headers=headers,
-            media_type="audio/mpeg"
+            iter_file(), status_code=206, headers=headers, media_type="audio/mpeg"
         )
-    
+
     # Normal request without range
     def iter_file_full():
         with open(audio_path, "rb") as f:
             while chunk := f.read(8192):
                 yield chunk
-    
+
     headers = {
         "Accept-Ranges": "bytes",
         "Content-Length": str(file_size),
         "Content-Type": "audio/mpeg",
     }
-    
-    return StreamingResponse(
-        iter_file_full(),
-        headers=headers,
-        media_type="audio/mpeg"
-    )
+
+    return StreamingResponse(iter_file_full(), headers=headers, media_type="audio/mpeg")
+
+
+@app.get("/search", response_model=List[SearchLessonResult], tags=["Search"])
+def search_corrected_transcript(
+    q: Optional[str] = Query(None, description="Search string"),
+    course_id: Optional[int] = Query(None, description="Filter by course ID"),
+    theme_id: Optional[int] = Query(None, description="Filter by theme ID"),
+    threshold: int = Query(
+        72, ge=0, le=100, description="Fuzzy match threshold (0-100)"
+    ),
+    max_matches_per_lesson: int = Query(
+        20, ge=1, le=200, description="Max matched segments returned per lesson"
+    ),
+    session: Session = Depends(get_session),
+):
+    """Fuzzy search in corrected transcript segments.
+
+    Returns results grouped by lesson, with the list of segments that matched.
+    """
+    if not q or not q.strip():
+        return []
+
+    lessons = crud.get_all_lessons(session, course_id=course_id)
+    results: List[SearchLessonResult] = []
+
+    for lesson in lessons:
+        if theme_id is not None:
+            lesson_theme_ids = lesson.get_themes()
+            if theme_id not in lesson_theme_ids:
+                continue
+
+        matches = search_utils.find_matching_segments(
+            lesson.corrected_transcript,
+            q,
+            threshold=float(threshold),
+            max_matches=int(max_matches_per_lesson),
+        )
+        if not matches:
+            continue
+
+        theme_ids = lesson.get_themes()
+        themes = crud.get_themes_by_ids(session, theme_ids) if theme_ids else []
+
+        best_score = float(matches[0]["score"]) if matches else 0.0
+
+        results.append(
+            SearchLessonResult(
+                id=lesson.id,
+                title=lesson.title,
+                date=lesson.date,
+                duration=lesson.duration,
+                brief=lesson.brief,
+                filename=lesson.filename,
+                themes=themes,
+                course=lesson.course,
+                matches=matches,
+                match_count=len(matches),
+                best_score=best_score,
+            )
+        )
+
+    results.sort(key=lambda r: (r.best_score, r.match_count, r.date), reverse=True)
+    return results
+
 
 # ============================================================
 # Task Endpoints
 # ============================================================
 
+
 class TaskCreate(BaseModel):
     """Schema for creating a task"""
+
     task_type: str
     parameters: Optional[Dict[str, Any]] = None
 
+
 class TaskResponse(BaseModel):
     """Schema for task response"""
+
     id: int
     task_type: str
     status: str
@@ -760,22 +871,19 @@ class TaskResponse(BaseModel):
     result: Optional[Dict[str, Any]]
     error: Optional[str]
     created_at: datetime
-    
+
     class Config:
         from_attributes = True
 
+
 @app.post("/tasks", response_model=TaskResponse, tags=["Tasks"])
-def create_task(
-    task: TaskCreate,
-    session: Session = Depends(get_session)
-):
+def create_task(task: TaskCreate, session: Session = Depends(get_session)):
     """Create and launch a new background task"""
     new_task = crud.create_task(
-        session=session,
-        task_type=task.task_type,
-        parameters=task.parameters
+        session=session, task_type=task.task_type, parameters=task.parameters
     )
     return new_task
+
 
 @app.get("/tasks", response_model=List[TaskResponse], tags=["Tasks"])
 def get_tasks(session: Session = Depends(get_session)):
@@ -783,51 +891,52 @@ def get_tasks(session: Session = Depends(get_session)):
     tasks = crud.get_all_tasks(session=session)
     return tasks
 
+
 @app.get("/tasks/{task_id}", response_model=TaskResponse, tags=["Tasks"])
-def get_task(
-    task_id: int,
-    session: Session = Depends(get_session)
-):
+def get_task(task_id: int, session: Session = Depends(get_session)):
     """Get a specific task by ID"""
     task = crud.get_task(session=session, task_id=task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     return task
 
+
 @app.delete("/tasks/{task_id}", tags=["Tasks"])
-def delete_task(
-    task_id: int,
-    session: Session = Depends(get_session)
-):
+def delete_task(task_id: int, session: Session = Depends(get_session)):
     """Delete a task"""
     success = crud.delete_task(session=session, task_id=task_id)
     if not success:
         raise HTTPException(status_code=404, detail="Task not found")
     return {"message": "Task deleted successfully"}
 
+
 @app.post("/tasks/test/{task_type}", response_model=TaskResponse, tags=["Tasks"])
-def create_test_task(
-    task_type: str,
-    session: Session = Depends(get_session)
-):
+def create_test_task(task_type: str, session: Session = Depends(get_session)):
     """Create a test task for development/testing purposes"""
     if task_type not in ["transcription", "correction", "summary"]:
-        raise HTTPException(status_code=400, detail="Invalid task type. Must be: transcription, correction, or summary")
-    
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid task type. Must be: transcription, correction, or summary",
+        )
+
     new_task = crud.create_task(
         session=session,
         task_type=task_type,
-        parameters={"test": True, "message": f"Test {task_type} task"}
+        parameters={"test": True, "message": f"Test {task_type} task"},
     )
     return new_task
+
 
 # ============================================================
 # Configuration Endpoints
 # ============================================================
 
+
 class ConfigUpdate(BaseModel):
     """Schema for updating configuration"""
+
     config: Dict[str, Any]
+
 
 @app.get("/config", tags=["Configuration"])
 def get_configuration():
@@ -836,7 +945,10 @@ def get_configuration():
         config = config_module.load_config()
         return config
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to load configuration: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to load configuration: {str(e)}"
+        )
+
 
 @app.put("/config", tags=["Configuration"])
 def update_configuration(config_update: ConfigUpdate):
@@ -845,10 +957,13 @@ def update_configuration(config_update: ConfigUpdate):
         updated_config = config_module.update_config(config_update.config)
         return {
             "message": "Configuration updated successfully",
-            "config": updated_config
+            "config": updated_config,
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to update configuration: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to update configuration: {str(e)}"
+        )
+
 
 @app.get("/config/{key_path}", tags=["Configuration"])
 def get_configuration_value(key_path: str):
@@ -856,12 +971,17 @@ def get_configuration_value(key_path: str):
     try:
         value = config_module.get_config_value(key_path)
         if value is None:
-            raise HTTPException(status_code=404, detail=f"Configuration key '{key_path}' not found")
+            raise HTTPException(
+                status_code=404, detail=f"Configuration key '{key_path}' not found"
+            )
         return {"key": key_path, "value": value}
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get configuration value: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get configuration value: {str(e)}"
+        )
+
 
 @app.post("/config/reset", tags=["Configuration"])
 def reset_configuration():
@@ -870,7 +990,9 @@ def reset_configuration():
         config_module.save_config(config_module.DEFAULT_CONFIG)
         return {
             "message": "Configuration reset to defaults",
-            "config": config_module.DEFAULT_CONFIG
+            "config": config_module.DEFAULT_CONFIG,
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to reset configuration: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to reset configuration: {str(e)}"
+        )
