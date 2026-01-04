@@ -479,12 +479,23 @@ def get_lesson_summary_pdf(lesson_id: int, session: Session = Depends(get_sessio
     if not lesson.summary:
         raise HTTPException(status_code=404, detail="No summary available")
 
+    # Extract prompt name from metadata if available
+    prompt_name = None
+    if lesson.summary_metadata:
+        prompt_text = lesson.summary_metadata.get("prompt", "")
+        # Check if prompt has format "[PromptName] ..."
+        if prompt_text.startswith("["):
+            end_bracket = prompt_text.find("]")
+            if end_bracket > 0:
+                prompt_name = prompt_text[1:end_bracket]
+
     # Generate PDF using ReportLab
     pdf_bytes = generate_lesson_summary_pdf(
         title=lesson.title,
         summary_markdown=lesson.summary,
         date=lesson.date,
         course_name=lesson.course.name if lesson.course else None,
+        prompt_name=prompt_name,
     )
 
     # Create safe filename

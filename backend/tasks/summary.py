@@ -170,16 +170,19 @@ async def generate_summary_async(
 
         # Find the requested prompt or use the first one
         summary_prompt = None
+        selected_prompt_name = None
         if prompt_type:
             # Find prompt by name
             for p in prompts:
                 if p.get("name") == prompt_type:
                     summary_prompt = p.get("text")
+                    selected_prompt_name = p.get("name")
                     break
 
         # If not found or not specified, use the first prompt
         if not summary_prompt and prompts:
             summary_prompt = prompts[0].get("text")
+            selected_prompt_name = prompts[0].get("name")
 
         # Fallback to a default prompt if nothing is configured
         if not summary_prompt:
@@ -206,12 +209,16 @@ async def generate_summary_async(
         # Update lesson with summary
         lesson.summary = summary.strip()
 
-        # Save summary metadata
+        # Save summary metadata (including prompt type name)
+        prompt_info = summary_prompt
+        if selected_prompt_name:
+            prompt_info = f"[{selected_prompt_name}] {summary_prompt}"
+
         metadata = Metadata(
             provider=config.get("provider"),
             model=summary_config.get("model"),
             temperature=summary_config.get("temperature"),
-            prompt=summary_prompt,
+            prompt=prompt_info,
         )
         lesson.set_summary_metadata(metadata)
 

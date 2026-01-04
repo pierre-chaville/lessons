@@ -78,6 +78,11 @@ def _parse_markdown_to_paragraphs(markdown_text: str, styles) -> List:
             text = line[2:].strip()
             flowables.append(Paragraph(text, styles["Heading1"]))
             flowables.append(Spacer(1, 0.5 * cm))
+        # Check for standalone bold text as a heading (e.g., **L'Ancrage**)
+        elif line.startswith("**") and line.endswith("**") and line.count("**") == 2:
+            text = line[2:-2].strip()
+            flowables.append(Paragraph(text, styles["Heading3"]))
+            flowables.append(Spacer(1, 0.3 * cm))
         # List items
         elif line.startswith("- ") or line.startswith("* "):
             text = line[2:].strip()
@@ -118,6 +123,7 @@ def generate_lesson_summary_pdf(
     summary_markdown: str,
     date: Optional[datetime] = None,
     course_name: Optional[str] = None,
+    prompt_name: Optional[str] = None,
 ) -> bytes:
     """Generate a PDF from a lesson summary (markdown format).
 
@@ -126,6 +132,7 @@ def generate_lesson_summary_pdf(
         summary_markdown: Summary text in markdown format
         date: Lesson date
         course_name: Associated course name
+        prompt_name: Name of the prompt used to generate the summary
 
     Returns:
         PDF file as bytes
@@ -201,12 +208,16 @@ def generate_lesson_summary_pdf(
     story.append(Spacer(1, 0.5 * cm))
 
     # Metadata
-    if date or course_name:
+    if date or course_name or prompt_name:
         if date:
             date_str = date.strftime("%Y-%m-%d %H:%M")
             story.append(Paragraph(f"<b>Date:</b> {date_str}", metadata_style))
         if course_name:
             story.append(Paragraph(f"<b>Course:</b> {course_name}", metadata_style))
+        if prompt_name:
+            story.append(
+                Paragraph(f"<b>Summary Type:</b> {prompt_name}", metadata_style)
+            )
         story.append(Spacer(1, 0.5 * cm))
 
     # Summary content (parse markdown)
