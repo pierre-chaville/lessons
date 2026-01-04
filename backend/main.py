@@ -469,11 +469,8 @@ def delete_lesson(lesson_id: int, session: Session = Depends(get_session)):
 @app.get("/lessons/{lesson_id}/pdf/summary", tags=["Lessons"])
 def get_lesson_summary_pdf(lesson_id: int, session: Session = Depends(get_session)):
     """Generate and download PDF of the lesson summary"""
-    from pathlib import Path
     from fastapi.responses import Response
-    from weasyprint import HTML, CSS
-    from io import BytesIO
-    import markdown
+    from pdf_reportlab import generate_lesson_summary_pdf
 
     lesson = crud.get_lesson(session, lesson_id)
     if not lesson:
@@ -482,89 +479,13 @@ def get_lesson_summary_pdf(lesson_id: int, session: Session = Depends(get_sessio
     if not lesson.summary:
         raise HTTPException(status_code=404, detail="No summary available")
 
-    # Convert markdown to HTML
-    md = markdown.Markdown(extensions=["extra", "nl2br"])
-    summary_html = md.convert(lesson.summary)
-
-    # Create HTML document with proper styling
-    html_content = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="utf-8">
-        <title>{lesson.title} - Summary</title>
-        <style>
-            @page {{
-                size: A4;
-                margin: 2cm;
-            }}
-            body {{
-                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                line-height: 1.6;
-                color: #333;
-            }}
-            h1 {{
-                color: #4f46e5;
-                border-bottom: 2px solid #4f46e5;
-                padding-bottom: 10px;
-                margin-bottom: 20px;
-            }}
-            h2 {{
-                color: #6366f1;
-                margin-top: 20px;
-            }}
-            h3 {{
-                color: #818cf8;
-            }}
-            code {{
-                background-color: #f3f4f6;
-                padding: 2px 6px;
-                border-radius: 3px;
-                font-family: 'Courier New', monospace;
-            }}
-            pre {{
-                background-color: #f3f4f6;
-                padding: 15px;
-                border-radius: 5px;
-                overflow-x: auto;
-            }}
-            blockquote {{
-                border-left: 4px solid #4f46e5;
-                padding-left: 15px;
-                margin-left: 0;
-                font-style: italic;
-                color: #666;
-            }}
-            ul, ol {{
-                margin-left: 20px;
-            }}
-            .metadata {{
-                font-size: 12px;
-                color: #666;
-                margin-bottom: 20px;
-                padding: 10px;
-                background-color: #f9fafb;
-                border-radius: 5px;
-            }}
-        </style>
-    </head>
-    <body>
-        <h1>{lesson.title}</h1>
-        <div class="metadata">
-            <p><strong>Date:</strong> {lesson.date.strftime('%Y-%m-%d %H:%M') if lesson.date else 'N/A'}</p>
-            {f'<p><strong>Course:</strong> {lesson.course.name}</p>' if lesson.course else ''}
-        </div>
-        <div class="content">
-            {summary_html}
-        </div>
-    </body>
-    </html>
-    """
-
-    # Generate PDF
-    pdf_buffer = BytesIO()
-    HTML(string=html_content).write_pdf(pdf_buffer)
-    pdf_buffer.seek(0)
+    # Generate PDF using ReportLab
+    pdf_bytes = generate_lesson_summary_pdf(
+        title=lesson.title,
+        summary_markdown=lesson.summary,
+        date=lesson.date,
+        course_name=lesson.course.name if lesson.course else None,
+    )
 
     # Create safe filename
     safe_title = "".join(
@@ -573,7 +494,7 @@ def get_lesson_summary_pdf(lesson_id: int, session: Session = Depends(get_sessio
     filename = f"{safe_title}_summary.pdf"
 
     return Response(
-        content=pdf_buffer.getvalue(),
+        content=pdf_bytes,
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
@@ -586,10 +507,8 @@ def get_lesson_transcript_pdf(
     session: Session = Depends(get_session),
 ):
     """Generate and download PDF of the lesson transcript (without timestamps)"""
-    from pathlib import Path
     from fastapi.responses import Response
-    from weasyprint import HTML
-    from io import BytesIO
+    from pdf_reportlab import generate_lesson_transcript_pdf
 
     lesson = crud.get_lesson(session, lesson_id)
     if not lesson:
@@ -607,65 +526,14 @@ def get_lesson_transcript_pdf(
             status_code=404, detail=f"No {transcript_type} transcript available"
         )
 
-    # Extract text from segments (without timestamps)
-    segments_text = "\n".join("- " + segment["text"] for segment in transcript)
-
-    # Create HTML document
-    html_content = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="utf-8">
-        <title>{lesson.title} - {transcript_type.capitalize()} Transcript</title>
-        <style>
-            @page {{
-                size: A4;
-                margin: 2cm;
-            }}
-            body {{
-                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                line-height: 1.8;
-                color: #333;
-            }}
-            h1 {{
-                color: #4f46e5;
-                border-bottom: 2px solid #4f46e5;
-                padding-bottom: 10px;
-                margin-bottom: 20px;
-            }}
-            .metadata {{
-                font-size: 12px;
-                color: #666;
-                margin-bottom: 20px;
-                padding: 10px;
-                background-color: #f9fafb;
-                border-radius: 5px;
-            }}
-            .transcript {{
-                text-align: left;
-                white-space: pre-wrap;
-                font-size: 14px;
-            }}
-        </style>
-    </head>
-    <body>
-        <h1>{lesson.title}</h1>
-        <div class="metadata">
-            <p><strong>Date:</strong> {lesson.date.strftime('%Y-%m-%d %H:%M') if lesson.date else 'N/A'}</p>
-            {f'<p><strong>Course:</strong> {lesson.course.name}</p>' if lesson.course else ''}
-            <p><strong>Transcript Type:</strong> {transcript_type.capitalize()}</p>
-        </div>
-        <div class="transcript">
-            {segments_text}
-        </div>
-    </body>
-    </html>
-    """
-
-    # Generate PDF
-    pdf_buffer = BytesIO()
-    HTML(string=html_content).write_pdf(pdf_buffer)
-    pdf_buffer.seek(0)
+    # Generate PDF using ReportLab
+    pdf_bytes = generate_lesson_transcript_pdf(
+        title=lesson.title,
+        transcript=transcript,
+        date=lesson.date,
+        course_name=lesson.course.name if lesson.course else None,
+        transcript_type=transcript_type,
+    )
 
     # Create safe filename
     safe_title = "".join(
@@ -674,7 +542,7 @@ def get_lesson_transcript_pdf(
     filename = f"{safe_title}_{transcript_type}_transcript.pdf"
 
     return Response(
-        content=pdf_buffer.getvalue(),
+        content=pdf_bytes,
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
