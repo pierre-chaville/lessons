@@ -66,6 +66,7 @@
     "processCorrectDesc": "Corriger les erreurs de transcription avec l'IA",
     "processSummary": "Résumé",
     "processSummaryDesc": "Générer un résumé concis",
+    "summaryPromptType": "Type de Prompt de Résumé",
     "createTasks": "Créer les Tâches",
     "creating": "Création...",
     "selectAtLeastOneProcess": "Veuillez sélectionner au moins un processus",
@@ -231,8 +232,13 @@
     "precise": "Précis",
     "creative": "Créatif",
     "prompt": "Prompt",
+    "summaryPrompts": "Prompts de Résumé",
+    "addPrompt": "Ajouter un Prompt",
+    "promptName": "Nom du prompt (ex: Défaut, Détaillé, Bref)",
+    "promptText": "Texte du prompt (instructions pour le LLM)",
+    "remove": "Supprimer",
     "correctionPromptDesc": "Instructions pour le LLM lors de la correction des transcriptions",
-    "summaryPromptDesc": "Instructions pour le LLM lors de la génération de résumés",
+    "summaryPromptDesc": "Créez plusieurs modèles de prompts de résumé pour utiliser différents styles ou niveaux de détail",
     "maxLength": "Longueur Max (mots)",
     "maxLengthDesc": "Nombre maximum de mots dans le résumé"
   }

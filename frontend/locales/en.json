@@ -66,6 +66,7 @@
     "processCorrectDesc": "Correct transcription errors using AI",
     "processSummary": "Summary",
     "processSummaryDesc": "Generate a concise summary",
+    "summaryPromptType": "Summary Prompt Type",
     "createTasks": "Create Tasks",
     "creating": "Creating...",
     "selectAtLeastOneProcess": "Please select at least one process",
@@ -231,8 +232,13 @@
     "precise": "Precise",
     "creative": "Creative",
     "prompt": "Prompt",
+    "summaryPrompts": "Summary Prompts",
+    "addPrompt": "Add Prompt",
+    "promptName": "Prompt name (e.g., Default, Detailed, Brief)",
+    "promptText": "Prompt text (instructions for the LLM)",
+    "remove": "Remove",
     "correctionPromptDesc": "Instructions for the LLM when correcting transcripts",
-    "summaryPromptDesc": "Instructions for the LLM when generating summaries",
+    "summaryPromptDesc": "Create multiple summary prompt templates to use different styles or levels of detail",
     "maxLength": "Max Length (words)",
     "maxLengthDesc": "Maximum number of words in the summary"
   }

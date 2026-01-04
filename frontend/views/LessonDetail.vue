@@ -79,6 +79,8 @@ const selectedProcesses = ref({
   correct: false,
   summary: false
 });
+const selectedSummaryPrompt = ref('');
+const availableSummaryPrompts = ref([]);
 const isCreatingTasks = ref(false);
 
 const API_URL = 'http://localhost:8000';
@@ -524,7 +526,7 @@ const deleteLesson = async () => {
 };
 
 // Process tasks modal functions
-const openProcessModal = () => {
+const openProcessModal = async () => {
   // Reset selections
   selectedProcesses.value = {
     transcribe: false,
@@ -532,6 +534,19 @@ const openProcessModal = () => {
     summary: false
   };
   showProcessModal.value = true;
+  
+  // Load available summary prompts from config
+  try {
+    const response = await axios.get(`${API_URL}/config`);
+    const prompts = response.data?.summary?.prompts || [];
+    availableSummaryPrompts.value = prompts;
+    // Set default to first prompt
+    if (prompts.length > 0 && !selectedSummaryPrompt.value) {
+      selectedSummaryPrompt.value = prompts[0].name;
+    }
+  } catch (error) {
+    console.error('Failed to load summary prompts:', error);
+  }
 };
 
 const closeProcessModal = () => {
@@ -569,6 +584,7 @@ const createTasks = async () => {
         parameters.max_concurrency = 10;
       } else if (taskType === 'summary') {
         parameters.use_corrected = true;
+        parameters.prompt_type = selectedSummaryPrompt.value;
       }
       
       await axios.post(`${API_URL}/tasks`, {
@@ -750,7 +766,7 @@ const saveSegment = async () => {
                 v-model="selectedProcesses.summary"
                 class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
               />
-              <div>
+              <div class="flex-1">
                 <div class="text-sm font-medium text-gray-900 dark:text-white">
                   {{ t('lessons.processSummary') }}
                 </div>
@@ -759,6 +775,25 @@ const saveSegment = async () => {
                 </div>
               </div>
             </label>
+            
+            <!-- Summary Prompt Type Selection (shown when summary is selected) -->
+            <div v-if="selectedProcesses.summary" class="ml-7 -mt-1 mb-2">
+              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                {{ t('lessons.summaryPromptType') }}
+              </label>
+              <select
+                v-model="selectedSummaryPrompt"
+                class="w-full max-w-md px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+              >
+                <option
+                  v-for="prompt in availableSummaryPrompts"
+                  :key="prompt.name"
+                  :value="prompt.name"
+                >
+                  {{ prompt.name }}
+                </option>
+              </select>
+            </div>
           </div>
           
           <!-- Action Buttons -->
