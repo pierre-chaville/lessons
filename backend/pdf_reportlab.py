@@ -101,17 +101,9 @@ def _parse_markdown_to_paragraphs(markdown_text: str, styles) -> List:
 def _apply_inline_formatting(text: str) -> str:
     """Apply inline markdown formatting (bold, italic, code) and handle Hebrew RTL text."""
     import re
+    from bidi.algorithm import get_display
 
-    # Detect and wrap Hebrew text with RTL directive
-    # Hebrew Unicode range: \u0590-\u05FF (includes vowels and cantillation marks)
-    def wrap_hebrew(match):
-        hebrew_text = match.group(0)
-        # Reverse the Hebrew text for proper RTL display in LTR context
-        return f'<font name="Arial">{hebrew_text[::-1]}</font>'
-
-    # Find Hebrew text segments (one or more Hebrew characters, including vowels/nikud)
-    text = re.sub(r"[\u0590-\u05FF]+", wrap_hebrew, text)
-
+    # First apply markdown formatting
     # Code (backticks)
     text = re.sub(
         r"`([^`]+)`",
@@ -124,6 +116,14 @@ def _apply_inline_formatting(text: str) -> str:
 
     # Italic
     text = re.sub(r"\*([^*]+)\*", r"<i>\1</i>", text)
+
+    # Check if text contains Hebrew characters
+    if re.search(r"[\u0590-\u05FF]", text):
+        # Apply bidi algorithm to the entire text for proper RTL/LTR mixing
+        # The algorithm will handle the word order correctly
+        text = get_display(text)
+        # Wrap in Arial font for Hebrew support
+        text = f'<font name="Arial">{text}</font>'
 
     return text
 
