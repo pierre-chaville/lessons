@@ -108,9 +108,9 @@ def _apply_inline_formatting(text: str) -> str:
         hebrew_text = match.group(0)
         # Reverse the Hebrew text for proper RTL display in LTR context
         return f'<font name="Arial">{hebrew_text[::-1]}</font>'
-    
+
     # Find Hebrew text segments (one or more Hebrew characters, including vowels/nikud)
-    text = re.sub(r'[\u0590-\u05FF]+', wrap_hebrew, text)
+    text = re.sub(r"[\u0590-\u05FF]+", wrap_hebrew, text)
 
     # Code (backticks)
     text = re.sub(
