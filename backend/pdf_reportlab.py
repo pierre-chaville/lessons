@@ -8,6 +8,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
 from reportlab.lib.enums import TA_LEFT, TA_CENTER
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
+from reportlab.lib import colors
 from reportlab.lib.colors import HexColor
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
@@ -500,6 +501,157 @@ def generate_lesson_edited_transcript_pdf(
                     story.append(Paragraph(source_info, source_style))
 
             story.append(Spacer(1, 0.4 * cm))
+
+    # Generate PDF
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
+def generate_lesson_sources_pdf(
+    title: str,
+    edited_transcript: List[dict],
+    date: Optional[datetime] = None,
+    course_name: Optional[str] = None,
+) -> bytes:
+    """Generate a PDF with all sources grouped by author.
+
+    Args:
+        title: Lesson title
+        edited_transcript: List of edited parts (each with 'sources')
+        date: Lesson date
+        course_name: Associated course name
+
+    Returns:
+        PDF file as bytes
+    """
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4)
+
+    # Create styles
+    styles = getSampleStyleSheet()
+
+    # Use Arial font if registered
+    default_font = "Arial" if _fonts_registered else "Helvetica"
+
+    # Title style
+    title_style = ParagraphStyle(
+        "CustomTitle",
+        parent=styles["Heading1"],
+        fontName=f"{default_font}-Bold" if _fonts_registered else "Helvetica-Bold",
+        fontSize=20,
+        textColor=HexColor("#1f2937"),
+        spaceAfter=12,
+        alignment=TA_CENTER,
+    )
+
+    # Metadata style
+    metadata_style = ParagraphStyle(
+        "Metadata",
+        parent=styles["Normal"],
+        fontName=default_font,
+        fontSize=10,
+        textColor=HexColor("#6b7280"),
+        spaceAfter=6,
+        alignment=TA_CENTER,
+    )
+
+    # Author header style
+    author_style = ParagraphStyle(
+        "AuthorHeader",
+        parent=styles["Heading2"],
+        fontName=f"{default_font}-Bold" if _fonts_registered else "Helvetica-Bold",
+        fontSize=14,
+        textColor=HexColor("#1f2937"),
+        spaceAfter=8,
+        spaceBefore=12,
+    )
+
+    # Source style
+    source_style = ParagraphStyle(
+        "Source",
+        parent=styles["Normal"],
+        fontName=default_font,
+        fontSize=10,
+        textColor=HexColor("#374151"),
+        leftIndent=20,
+        spaceAfter=6,
+    )
+
+    # Build content
+    story = []
+
+    # Title
+    story.append(Paragraph(title, title_style))
+    story.append(Spacer(1, 0.5 * cm))
+
+    # Metadata
+    if date:
+        date_str = date.strftime("%Y-%m-%d %H:%M")
+        story.append(Paragraph(f"<b>Date:</b> {date_str}", metadata_style))
+    if course_name:
+        story.append(Paragraph(f"<b>Course:</b> {course_name}", metadata_style))
+    story.append(Paragraph("<b>Document Type:</b> Sources", metadata_style))
+    story.append(Spacer(1, 0.8 * cm))
+
+    # Collect and group sources by author
+    author_sources = {}
+    for part in edited_transcript:
+        if part.get("sources"):
+            for source in part["sources"]:
+                author = source.get("author", "Unknown")
+                if author not in author_sources:
+                    author_sources[author] = []
+                author_sources[author].append(source)
+
+    # Sort authors alphabetically
+    sorted_authors = sorted(author_sources.keys())
+
+    # Generate content for each author
+    for author in sorted_authors:
+        # Author header
+        story.append(Paragraph(_apply_inline_formatting(author), author_style))
+
+        # List all sources for this author
+        sources = author_sources[author]
+        for source in sources:
+            work = source.get("work", "")
+            reference = source.get("reference", "")
+            text = source.get("text", "")
+            cited_excerpt = source.get("cited_excerpt", "")
+
+            # Build source line with bullet point
+            source_parts = []
+            if work:
+                source_parts.append(f"<i>{work}</i>")
+            if reference:
+                source_parts.append(reference)
+            if text:
+                # Truncate long source text
+                truncated_text = text[:150] + "..." if len(text) > 150 else text
+                source_parts.append(f'"{truncated_text}"')
+
+            source_line = ", ".join(source_parts) if source_parts else "No details"
+            # Add bullet point at the beginning
+            bullet_line = f"• {source_line}"
+            story.append(Paragraph(_apply_inline_formatting(bullet_line), source_style))
+            
+            # Add referenced text (cited excerpt) if it exists
+            if cited_excerpt:
+                # Truncate long excerpts
+                truncated_excerpt = cited_excerpt[:200] + "..." if len(cited_excerpt) > 200 else cited_excerpt
+                excerpt_text = f'<i>Referenced in: "{truncated_excerpt}"</i>'
+                # Create a style for the excerpt with extra left indent
+                excerpt_style = ParagraphStyle(
+                    'SourceExcerpt',
+                    parent=source_style,
+                    leftIndent=40,
+                    fontSize=9,
+                    textColor=colors.HexColor('#666666')
+                )
+                story.append(Paragraph(_apply_inline_formatting(excerpt_text), excerpt_style))
+
+        story.append(Spacer(1, 0.3 * cm))
 
     # Generate PDF
     doc.build(story)

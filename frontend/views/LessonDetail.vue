@@ -72,6 +72,10 @@ const isSavingSegment = ref(false);
 const showDeleteConfirm = ref(false);
 const isDeleting = ref(false);
 
+// Source modal state
+const showSourceModal = ref(false);
+const selectedSourceEditedText = ref('');
+
 // Process tasks modal state
 const showProcessModal = ref(false);
 const selectedProcesses = ref({
@@ -312,6 +316,36 @@ const addSourceMarkers = (text, sources) => {
   return markedText;
 };
 
+// Collect all sources from edited transcript, grouped by author
+const allSources = computed(() => {
+  if (!props.lesson.edited_transcript) return [];
+  
+  const authorMap = new Map();
+  
+  props.lesson.edited_transcript.forEach((part) => {
+    if (part.sources && part.sources.length > 0) {
+      part.sources.forEach((source) => {
+        const author = source.author || 'Unknown';
+        
+        if (!authorMap.has(author)) {
+          authorMap.set(author, []);
+        }
+        
+        // Add this source with its edited part
+        authorMap.get(author).push({
+          ...source,
+          editedPart: part
+        });
+      });
+    }
+  });
+  
+  // Convert to array of authors with their sources, sorted by author name
+  return Array.from(authorMap.entries())
+    .map(([author, sources]) => ({ author, sources }))
+    .sort((a, b) => a.author.localeCompare(b.author));
+});
+
 // Available views based on what data exists
 const availableViews = computed(() => {
   const views = [];
@@ -320,6 +354,9 @@ const availableViews = computed(() => {
   }
   if (props.lesson.edited_transcript) {
     views.push({ key: 'edited', label: t('lessons.editedTranscript') });
+  }
+  if (allSources.value.length > 0) {
+    views.push({ key: 'sources', label: t('lessons.sources') });
   }
   if (props.lesson.transcript || props.lesson.corrected_transcript) {
     views.push({ key: 'transcript', label: t('lessons.transcript') });
@@ -399,6 +436,12 @@ const saveSummary = async () => {
   }
 };
 
+// Open source modal with edited part text
+const openSourceModal = (editedPart) => {
+  selectedSourceEditedText.value = editedPart.text;
+  showSourceModal.value = true;
+};
+
 // Download PDF functions
 const downloadSummaryPDF = async () => {
   try {
@@ -463,6 +506,28 @@ const downloadEditedPDF = async () => {
     window.URL.revokeObjectURL(url);
   } catch (error) {
     console.error('Failed to download edited PDF:', error);
+    alert(t('lessons.downloadFailed'));
+  }
+};
+
+const downloadSourcesPDF = async () => {
+  try {
+    const response = await axios.get(
+      `${API_URL}/lessons/${props.lesson.id}/pdf/sources`,
+      { responseType: 'blob' }
+    );
+    
+    // Create download link
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `${props.lesson.title}_sources.pdf`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  } catch (error) {
+    console.error('Failed to download sources PDF:', error);
     alert(t('lessons.downloadFailed'));
   }
 };
@@ -1151,6 +1216,16 @@ const saveSegment = async () => {
                 {{ t('lessons.downloadPDF') }}
               </button>
               
+              <!-- Download Sources PDF Button (show for sources view) -->
+              <button
+                v-if="activeView === 'sources' && !isEditingSummary"
+                @click="downloadSourcesPDF"
+                class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
+              >
+                <PrinterIcon class="h-4 w-4" />
+                {{ t('lessons.downloadPDF') }}
+              </button>
+              
               <!-- Edit Button (show for summary view) -->
               <button
                 v-if="activeView === 'summary' && !isEditingSummary"
@@ -1331,6 +1406,50 @@ const saveSegment = async () => {
             </div>
           </div>
           
+          <!-- Sources View -->
+          <div v-else-if="activeView === 'sources'">
+            <div v-if="allSources.length > 0" class="space-y-6 max-h-[600px] overflow-auto scroll-smooth print:max-h-none">
+              <div
+                v-for="(authorGroup, authorIndex) in allSources"
+                :key="authorIndex"
+                class="p-5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 transition-all"
+              >
+                <!-- Author Name -->
+                <div class="font-semibold text-lg text-gray-900 dark:text-white mb-4 pb-3 border-b border-gray-200 dark:border-gray-700">
+                  {{ authorGroup.author }}
+                </div>
+                
+                <!-- Sources List -->
+                <div class="space-y-2">
+                  <div
+                    v-for="(source, sourceIndex) in authorGroup.sources"
+                    :key="sourceIndex"
+                    class="flex items-start gap-3 p-3 rounded-md bg-gray-50 dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                  >
+                    <!-- Icon to view referenced part -->
+                    <button
+                      @click="openSourceModal(source.editedPart)"
+                      class="flex-shrink-0 p-1.5 rounded-md hover:bg-indigo-100 dark:hover:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 transition-colors"
+                      :title="t('lessons.clickToView')"
+                    >
+                      <DocumentTextIcon class="h-4 w-4" />
+                    </button>
+                    
+                    <!-- Work, Reference, and Text on same line -->
+                    <div class="flex-1 text-sm text-gray-700 dark:text-gray-300">
+                      <span v-if="source.work" class="italic font-medium">{{ source.work }}</span><span v-if="source.work && source.reference">, </span><span v-if="source.reference" class="text-gray-500 dark:text-gray-400">{{ source.reference }}</span><span v-if="(source.work || source.reference) && source.text"> — </span><span v-if="source.text" class="italic">"{{ source.text }}"</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div v-else class="text-center py-12">
+              <p class="text-gray-500 dark:text-gray-400">
+                {{ t('lessons.noSources') }}
+              </p>
+            </div>
+          </div>
+
           <!-- Edited Transcript View -->
           <div v-else-if="activeView === 'edited'">
             <div v-if="lesson.edited_transcript && lesson.edited_transcript.length > 0" class="space-y-6 max-h-[600px] overflow-auto scroll-smooth print:max-h-none">
@@ -1406,6 +1525,39 @@ const saveSegment = async () => {
         </p>
       </div>
     </div>
+
+    <!-- Source Modal -->
+    <Dialog
+      :open="showSourceModal"
+      @close="showSourceModal = false"
+      class="relative z-50"
+    >
+      <div class="fixed inset-0 bg-black/30" aria-hidden="true" />
+      <div class="fixed inset-0 flex items-center justify-center p-4">
+        <DialogPanel class="w-full max-w-3xl bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-h-[80vh] overflow-auto">
+          <div class="p-6">
+            <DialogTitle class="text-xl font-bold text-gray-900 dark:text-white mb-4">
+              {{ t('lessons.editedText') }}
+            </DialogTitle>
+            
+            <div class="prose prose-sm dark:prose-invert max-w-none bg-gray-50 dark:bg-gray-900 p-4 rounded-lg">
+              <div class="text-gray-900 dark:text-gray-100 leading-relaxed whitespace-pre-wrap">
+                {{ selectedSourceEditedText }}
+              </div>
+            </div>
+            
+            <div class="mt-6 flex justify-end">
+              <button
+                @click="showSourceModal = false"
+                class="px-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg transition-colors"
+              >
+                {{ t('lessons.close') }}
+              </button>
+            </div>
+          </div>
+        </DialogPanel>
+      </div>
+    </Dialog>
   </div>
 </template>
 

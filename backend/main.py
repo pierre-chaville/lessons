@@ -615,6 +615,40 @@ def get_lesson_edited_transcript_pdf(
     )
 
 
+@app.get("/lessons/{lesson_id}/pdf/sources", tags=["Lessons"])
+def get_lesson_sources_pdf(lesson_id: int, session: Session = Depends(get_session)):
+    """Generate and download PDF of all sources grouped by author"""
+    from fastapi.responses import Response
+    from pdf_reportlab import generate_lesson_sources_pdf
+
+    lesson = crud.get_lesson(session, lesson_id)
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+
+    if not lesson.edited_transcript or len(lesson.edited_transcript) == 0:
+        raise HTTPException(status_code=404, detail="No sources available")
+
+    # Generate PDF using ReportLab
+    pdf_bytes = generate_lesson_sources_pdf(
+        title=lesson.title,
+        edited_transcript=lesson.edited_transcript,
+        date=lesson.date,
+        course_name=lesson.course.name if lesson.course else None,
+    )
+
+    # Create safe filename
+    safe_title = "".join(
+        c for c in lesson.title if c.isalnum() or c in (" ", "-", "_")
+    ).rstrip()
+    filename = f"{safe_title}_sources.pdf"
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.post("/upload/audio", tags=["Lessons"])
 async def upload_audio(
     file: UploadFile = File(...), session: Session = Depends(get_session)
