@@ -77,6 +77,7 @@ const showProcessModal = ref(false);
 const selectedProcesses = ref({
   transcribe: false,
   correct: false,
+  edition: false,
   summary: false
 });
 const selectedSummaryPrompt = ref('');
@@ -286,11 +287,39 @@ const formatDuration = (seconds) => {
   }
 };
 
+// Function to add source markers to edited text
+const addSourceMarkers = (text, sources) => {
+  if (!sources || sources.length === 0) return text;
+  
+  let markedText = text;
+  
+  // Sort sources by cited_excerpt length (longest first) to avoid nested replacements
+  const sortedSources = [...sources]
+    .filter(src => src.cited_excerpt)
+    .sort((a, b) => b.cited_excerpt.length - a.cited_excerpt.length);
+  
+  sortedSources.forEach((source, index) => {
+    const marker = index + 1;
+    const excerpt = source.cited_excerpt;
+    
+    // Create a highlighted version with superscript marker
+    const highlighted = `<mark class="bg-yellow-100 dark:bg-yellow-900/30 px-0.5 rounded">${excerpt}<sup class="text-indigo-600 dark:text-indigo-400 font-bold ml-0.5">[${marker}]</sup></mark>`;
+    
+    // Replace first occurrence
+    markedText = markedText.replace(excerpt, highlighted);
+  });
+  
+  return markedText;
+};
+
 // Available views based on what data exists
 const availableViews = computed(() => {
   const views = [];
   if (props.lesson.summary) {
     views.push({ key: 'summary', label: t('lessons.summary') });
+  }
+  if (props.lesson.edited_transcript) {
+    views.push({ key: 'edited', label: t('lessons.editedTranscript') });
   }
   if (props.lesson.transcript || props.lesson.corrected_transcript) {
     views.push({ key: 'transcript', label: t('lessons.transcript') });
@@ -416,6 +445,28 @@ const downloadTranscriptPDF = async () => {
   }
 };
 
+const downloadEditedPDF = async () => {
+  try {
+    const response = await axios.get(
+      `${API_URL}/lessons/${props.lesson.id}/pdf/edited`,
+      { responseType: 'blob' }
+    );
+    
+    // Create download link
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `${props.lesson.title}_edited.pdf`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  } catch (error) {
+    console.error('Failed to download edited PDF:', error);
+    alert(t('lessons.downloadFailed'));
+  }
+};
+
 // Edit lesson functions
 const startEditLesson = async () => {
   // Fetch courses and themes for the dropdowns if not already loaded
@@ -531,6 +582,7 @@ const openProcessModal = async () => {
   selectedProcesses.value = {
     transcribe: false,
     correct: false,
+    edition: false,
     summary: false
   };
   showProcessModal.value = true;
@@ -567,7 +619,7 @@ const createTasks = async () => {
     isCreatingTasks.value = true;
     
     // Define the correct order for task execution
-    const taskOrder = ['transcribe', 'correct', 'summary'];
+    const taskOrder = ['transcribe', 'correct', 'edition', 'summary'];
     
     // Filter selected tasks and sort them by the defined order
     const orderedTasks = taskOrder.filter(task => selectedTasks.includes(task));
@@ -582,13 +634,16 @@ const createTasks = async () => {
       if (taskType === 'correct') {
         parameters.segments_per_group = 100;
         parameters.max_concurrency = 10;
+      } else if (taskType === 'edition') {
+        parameters.segments_per_group = 100;
+        parameters.max_concurrency = 10;
       } else if (taskType === 'summary') {
         parameters.use_corrected = true;
         parameters.prompt_type = selectedSummaryPrompt.value;
       }
       
       await axios.post(`${API_URL}/tasks`, {
-        task_type: taskType === 'transcribe' ? 'transcription' : taskType === 'correct' ? 'correction' : 'summary',
+        task_type: taskType === 'transcribe' ? 'transcription' : taskType === 'correct' ? 'correction' : taskType === 'edition' ? 'edition' : 'summary',
         parameters: parameters
       });
     }
@@ -756,6 +811,22 @@ const saveSegment = async () => {
                 </div>
                 <div class="text-xs text-gray-500 dark:text-gray-400">
                   {{ t('lessons.processCorrectDesc') }}
+                </div>
+              </div>
+            </label>
+            
+            <label class="flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors">
+              <input
+                type="checkbox"
+                v-model="selectedProcesses.edition"
+                class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+              />
+              <div>
+                <div class="text-sm font-medium text-gray-900 dark:text-white">
+                  {{ t('lessons.processEdition') }}
+                </div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('lessons.processEditionDesc') }}
                 </div>
               </div>
             </label>
@@ -1070,6 +1141,16 @@ const saveSegment = async () => {
                 {{ t('lessons.downloadPDF') }}
               </button>
               
+              <!-- Download Edited PDF Button (show for edited view) -->
+              <button
+                v-if="activeView === 'edited' && !isEditingSummary"
+                @click="downloadEditedPDF"
+                class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
+              >
+                <PrinterIcon class="h-4 w-4" />
+                {{ t('lessons.downloadPDF') }}
+              </button>
+              
               <!-- Edit Button (show for summary view) -->
               <button
                 v-if="activeView === 'summary' && !isEditingSummary"
@@ -1246,6 +1327,72 @@ const saveSegment = async () => {
             <div v-else class="text-center py-12">
               <p class="text-gray-500 dark:text-gray-400">
                 {{ t('lessons.noTranscripts') }}
+              </p>
+            </div>
+          </div>
+          
+          <!-- Edited Transcript View -->
+          <div v-else-if="activeView === 'edited'">
+            <div v-if="lesson.edited_transcript && lesson.edited_transcript.length > 0" class="space-y-6 max-h-[600px] overflow-auto scroll-smooth print:max-h-none">
+              <div
+                v-for="(part, index) in lesson.edited_transcript"
+                :key="index"
+                class="p-5 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 hover:border-indigo-300 dark:hover:border-indigo-700 transition-all print:bg-white print:border-0"
+              >
+                <!-- Timing -->
+                <div class="flex items-center gap-2 mb-3 print:hidden">
+                  <button
+                    v-if="audioUrl"
+                    @click="playFromTimestamp(part.start)"
+                    class="flex-shrink-0 p-1.5 rounded-md hover:bg-indigo-100 dark:hover:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 transition-colors"
+                    :title="t('lessons.playSegment')"
+                  >
+                    <PlayIcon class="h-4 w-4" />
+                  </button>
+                  <div class="text-xs font-mono text-indigo-600 dark:text-indigo-400 font-semibold">
+                    {{ formatTimestamp(part.start) }} - {{ formatTimestamp(part.end) }}
+                  </div>
+                </div>
+                
+                <!-- Edited Text -->
+                <div class="prose prose-sm dark:prose-invert max-w-none mb-4">
+                  <div 
+                    class="text-gray-900 dark:text-gray-100 leading-relaxed whitespace-pre-wrap print:text-black"
+                    v-html="addSourceMarkers(part.text, part.sources)"
+                  ></div>
+                </div>
+                
+                <!-- Sources -->
+                <div v-if="part.sources && part.sources.length > 0" class="space-y-2 mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 print:border-gray-300">
+                  <div class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+                    {{ t('lessons.sources') }}
+                  </div>
+                  <div
+                    v-for="(source, srcIndex) in part.sources"
+                    :key="srcIndex"
+                    class="flex gap-3 p-3 rounded-md bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 print:bg-gray-50"
+                  >
+                    <div class="flex-shrink-0 text-green-600 dark:text-green-400 font-bold text-sm">
+                      [{{ srcIndex + 1 }}]
+                    </div>
+                    <div class="flex-1 text-sm">
+                      <div class="font-semibold text-gray-900 dark:text-white mb-1">
+                        {{ source.author }}<span v-if="source.work">, <em class="text-gray-600 dark:text-gray-400">{{ source.work }}</em></span>
+                      </div>
+                      <div v-if="source.reference" class="text-xs text-gray-500 dark:text-gray-400 mb-1">
+                        {{ source.reference }}
+                      </div>
+                      <div v-if="source.text" class="text-gray-700 dark:text-gray-300 italic">
+                        "{{ source.text }}"
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div v-else class="text-center py-12">
+              <p class="text-gray-500 dark:text-gray-400">
+                {{ t('lessons.noEditedTranscript') }}
               </p>
             </div>
           </div>

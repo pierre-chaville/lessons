@@ -1,11 +1,15 @@
 """CRUD operations for database models"""
+
 from sqlmodel import Session, select
 from typing import List, Optional
 from datetime import datetime
 from models import Lesson, Course, Theme, Task
 
+
 # Course CRUD
-def create_course(session: Session, name: str, description: Optional[str] = None) -> Course:
+def create_course(
+    session: Session, name: str, description: Optional[str] = None
+) -> Course:
     """Create a new course"""
     course = Course(name=name, description=description)
     session.add(course)
@@ -13,16 +17,24 @@ def create_course(session: Session, name: str, description: Optional[str] = None
     session.refresh(course)
     return course
 
+
 def get_course(session: Session, course_id: int) -> Optional[Course]:
     """Get course by ID"""
     return session.get(Course, course_id)
+
 
 def get_all_courses(session: Session) -> List[Course]:
     """Get all courses"""
     statement = select(Course)
     return list(session.exec(statement).all())
 
-def update_course(session: Session, course_id: int, name: Optional[str] = None, description: Optional[str] = None) -> Optional[Course]:
+
+def update_course(
+    session: Session,
+    course_id: int,
+    name: Optional[str] = None,
+    description: Optional[str] = None,
+) -> Optional[Course]:
     """Update a course"""
     course = session.get(Course, course_id)
     if course:
@@ -35,6 +47,7 @@ def update_course(session: Session, course_id: int, name: Optional[str] = None, 
         session.refresh(course)
     return course
 
+
 def delete_course(session: Session, course_id: int) -> bool:
     """Delete a course"""
     course = session.get(Course, course_id)
@@ -43,6 +56,7 @@ def delete_course(session: Session, course_id: int) -> bool:
         session.commit()
         return True
     return False
+
 
 # Theme CRUD
 def create_theme(session: Session, name: str) -> Theme:
@@ -53,14 +67,17 @@ def create_theme(session: Session, name: str) -> Theme:
     session.refresh(theme)
     return theme
 
+
 def get_theme(session: Session, theme_id: int) -> Optional[Theme]:
     """Get theme by ID"""
     return session.get(Theme, theme_id)
+
 
 def get_all_themes(session: Session) -> List[Theme]:
     """Get all themes"""
     statement = select(Theme)
     return list(session.exec(statement).all())
+
 
 def get_themes_by_ids(session: Session, theme_ids: List[int]) -> List[Theme]:
     """Get themes by list of IDs"""
@@ -68,6 +85,7 @@ def get_themes_by_ids(session: Session, theme_ids: List[int]) -> List[Theme]:
         return []
     statement = select(Theme).where(Theme.id.in_(theme_ids))
     return list(session.exec(statement).all())
+
 
 def update_theme(session: Session, theme_id: int, name: str) -> Optional[Theme]:
     """Update a theme"""
@@ -79,6 +97,7 @@ def update_theme(session: Session, theme_id: int, name: str) -> Optional[Theme]:
         session.refresh(theme)
     return theme
 
+
 def delete_theme(session: Session, theme_id: int) -> bool:
     """Delete a theme"""
     theme = session.get(Theme, theme_id)
@@ -87,6 +106,7 @@ def delete_theme(session: Session, theme_id: int) -> bool:
         session.commit()
         return True
     return False
+
 
 # Lesson CRUD
 def create_lesson(
@@ -99,7 +119,7 @@ def create_lesson(
     transcript: Optional[str] = None,
     corrected_transcript: Optional[str] = None,
     summary: Optional[str] = None,
-    theme_ids: Optional[List[int]] = None
+    theme_ids: Optional[List[int]] = None,
 ) -> Lesson:
     """Create a new lesson"""
     lesson = Lesson(
@@ -110,7 +130,7 @@ def create_lesson(
         duration=duration,
         transcript=transcript,
         corrected_transcript=corrected_transcript,
-        summary=summary
+        summary=summary,
     )
     if theme_ids:
         lesson.set_themes(theme_ids)
@@ -119,9 +139,11 @@ def create_lesson(
     session.refresh(lesson)
     return lesson
 
+
 def get_lesson(session: Session, lesson_id: int) -> Optional[Lesson]:
     """Get lesson by ID"""
     return session.get(Lesson, lesson_id)
+
 
 def get_all_lessons(session: Session, course_id: Optional[int] = None) -> List[Lesson]:
     """Get all lessons, optionally filtered by course"""
@@ -130,6 +152,7 @@ def get_all_lessons(session: Session, course_id: Optional[int] = None) -> List[L
     else:
         statement = select(Lesson)
     return list(session.exec(statement).all())
+
 
 def update_lesson(
     session: Session,
@@ -141,12 +164,14 @@ def update_lesson(
     duration: Optional[float] = None,
     transcript: Optional[List[dict]] = None,
     corrected_transcript: Optional[List[dict]] = None,
+    edited_transcript: Optional[List[dict]] = None,
     brief: Optional[str] = None,
     summary: Optional[str] = None,
     theme_ids: Optional[List[int]] = None,
     transcript_metadata: Optional[dict] = None,
     correction_metadata: Optional[dict] = None,
-    summary_metadata: Optional[dict] = None
+    summary_metadata: Optional[dict] = None,
+    edited_metadata: Optional[dict] = None,
 ) -> Optional[Lesson]:
     """Update a lesson"""
     lesson = session.get(Lesson, lesson_id)
@@ -165,6 +190,8 @@ def update_lesson(
             lesson.transcript = transcript
         if corrected_transcript is not None:
             lesson.corrected_transcript = corrected_transcript
+        if edited_transcript is not None:
+            lesson.edited_transcript = edited_transcript
         if brief is not None:
             lesson.brief = brief
         if summary is not None:
@@ -177,11 +204,14 @@ def update_lesson(
             lesson.correction_metadata = correction_metadata
         if summary_metadata is not None:
             lesson.summary_metadata = summary_metadata
-        
+        if edited_metadata is not None:
+            lesson.edited_metadata = edited_metadata
+
         session.add(lesson)
         session.commit()
         session.refresh(lesson)
     return lesson
+
 
 def delete_lesson(session: Session, lesson_id: int) -> bool:
     """Delete a lesson"""
@@ -192,34 +222,39 @@ def delete_lesson(session: Session, lesson_id: int) -> bool:
         return True
     return False
 
+
 # Task CRUD
 def create_task(
     session: Session,
     task_type: str,
     parameters: Optional[dict] = None,
-    status: str = "pending"
+    status: str = "pending",
 ) -> Task:
     """Create a new task"""
     from datetime import datetime
+
     task = Task(
         task_type=task_type,
         status=status,
         parameters=parameters,
-        created_at=datetime.utcnow()
+        created_at=datetime.utcnow(),
     )
     session.add(task)
     session.commit()
     session.refresh(task)
     return task
 
+
 def get_task(session: Session, task_id: int) -> Optional[Task]:
     """Get task by ID"""
     return session.get(Task, task_id)
+
 
 def get_all_tasks(session: Session) -> List[Task]:
     """Get all tasks"""
     statement = select(Task).order_by(Task.created_at.desc())
     return list(session.exec(statement).all())
+
 
 def update_task(
     session: Session,
@@ -229,13 +264,13 @@ def update_task(
     end_date: Optional[datetime] = None,
     duration: Optional[float] = None,
     result: Optional[dict] = None,
-    error: Optional[str] = None
+    error: Optional[str] = None,
 ) -> Optional[Task]:
     """Update task details"""
     task = session.get(Task, task_id)
     if not task:
         return None
-    
+
     if status is not None:
         task.status = status
     if start_date is not None:
@@ -248,11 +283,12 @@ def update_task(
         task.result = result
     if error is not None:
         task.error = error
-    
+
     session.add(task)
     session.commit()
     session.refresh(task)
     return task
+
 
 def delete_task(session: Session, task_id: int) -> bool:
     """Delete a task"""

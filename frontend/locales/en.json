@@ -21,6 +21,7 @@
     "file": "File",
     "summary": "Summary",
     "transcript": "Transcript",
+    "editedTranscript": "Edited",
     "corrected": "Corrected",
     "original": "Original",
     "correctedTranscript": "Corrected Transcript",
@@ -46,6 +47,8 @@
     "deleteFailed": "Failed to delete lesson. Please try again.",
     "noTranscripts": "No transcripts available for this lesson.",
     "noContent": "No content available for this lesson.",
+    "noEditedTranscript": "No edited transcript available for this lesson.",
+    "sources": "Sources",
     "play": "Play",
     "pause": "Pause",
     "playSegment": "Play from this segment",
@@ -64,6 +67,8 @@
     "processTranscribeDesc": "Convert audio to text transcript",
     "processCorrect": "Correct",
     "processCorrectDesc": "Correct transcription errors using AI",
+    "processEdition": "Edit",
+    "processEditionDesc": "Rewrite transcript in written style with sources",
     "processSummary": "Summary",
     "processSummaryDesc": "Generate a concise summary",
     "summaryPromptType": "Summary Prompt Type",
@@ -157,6 +162,7 @@
     "taskTypes": {
       "transcription": "Transcription",
       "correction": "Correction",
+      "edition": "Edition",
       "summary": "Summary"
     },
     "statuses": {
@@ -207,9 +213,11 @@
     "llmSettings": "LLM Settings",
     "transcription": "Transcription",
     "correction": "Correction",
+    "edition": "Edition",
     "summary": "Summary",
     "transcriptionSettings": "Transcription Settings",
     "correctionSettings": "Correction Settings",
+    "editionSettings": "Edition Settings",
     "summarySettings": "Summary Settings",
     "provider": "Provider",
     "providerDesc": "Choose between OpenAI or Anthropic",
@@ -238,6 +246,7 @@
     "promptText": "Prompt text (instructions for the LLM)",
     "remove": "Remove",
     "correctionPromptDesc": "Instructions for the LLM when correcting transcripts",
+    "editionPromptDesc": "Instructions for the LLM when rewriting transcripts with sources and timing",
     "summaryPromptDesc": "Create multiple summary prompt templates to use different styles or levels of detail",
     "maxLength": "Max Length (words)",
     "maxLengthDesc": "Maximum number of words in the summary"

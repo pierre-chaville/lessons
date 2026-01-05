@@ -21,6 +21,7 @@
     "file": "Fichier",
     "summary": "Résumé",
     "transcript": "Transcription",
+    "editedTranscript": "Éditée",
     "corrected": "Corrigé",
     "original": "Original",
     "correctedTranscript": "Transcription Corrigée",
@@ -46,6 +47,8 @@
     "deleteFailed": "Échec de la suppression. Veuillez réessayer.",
     "noTranscripts": "Aucune transcription disponible pour cette leçon.",
     "noContent": "Aucun contenu disponible pour cette leçon.",
+    "noEditedTranscript": "Aucune transcription éditée disponible pour cette leçon.",
+    "sources": "Sources",
     "play": "Lecture",
     "pause": "Pause",
     "playSegment": "Lire depuis ce segment",
@@ -64,6 +67,8 @@
     "processTranscribeDesc": "Convertir l'audio en texte transcrit",
     "processCorrect": "Corriger",
     "processCorrectDesc": "Corriger les erreurs de transcription avec l'IA",
+    "processEdition": "Éditer",
+    "processEditionDesc": "Réécrire la transcription avec style écrit et sources",
     "processSummary": "Résumé",
     "processSummaryDesc": "Générer un résumé concis",
     "summaryPromptType": "Type de Prompt de Résumé",
@@ -157,6 +162,7 @@
     "taskTypes": {
       "transcription": "Transcription",
       "correction": "Correction",
+      "edition": "Édition",
       "summary": "Résumé"
     },
     "statuses": {
@@ -207,9 +213,11 @@
     "llmSettings": "Paramètres LLM",
     "transcription": "Transcription",
     "correction": "Correction",
+    "edition": "Édition",
     "summary": "Résumé",
     "transcriptionSettings": "Paramètres de Transcription",
     "correctionSettings": "Paramètres de Correction",
+    "editionSettings": "Paramètres d'Édition",
     "summarySettings": "Paramètres de Résumé",
     "provider": "Fournisseur",
     "providerDesc": "Choisir entre OpenAI ou Anthropic",
@@ -238,6 +246,7 @@
     "promptText": "Texte du prompt (instructions pour le LLM)",
     "remove": "Supprimer",
     "correctionPromptDesc": "Instructions pour le LLM lors de la correction des transcriptions",
+    "editionPromptDesc": "Instructions pour le LLM lors de la réécriture des transcriptions avec sources et timing",
     "summaryPromptDesc": "Créez plusieurs modèles de prompts de résumé pour utiliser différents styles ou niveaux de détail",
     "maxLength": "Longueur Max (mots)",
     "maxLengthDesc": "Nombre maximum de mots dans le résumé"

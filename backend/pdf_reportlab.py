@@ -340,3 +340,168 @@ def generate_lesson_transcript_pdf(
     doc.build(story)
     buffer.seek(0)
     return buffer.getvalue()
+
+
+def generate_lesson_edited_transcript_pdf(
+    title: str,
+    edited_transcript: List[dict],
+    date: Optional[datetime] = None,
+    course_name: Optional[str] = None,
+) -> bytes:
+    """Generate a PDF from an edited transcript with sources.
+
+    Args:
+        title: Lesson title
+        edited_transcript: List of edited parts (each with 'start', 'end', 'text', 'sources')
+        date: Lesson date
+        course_name: Associated course name
+
+    Returns:
+        PDF file as bytes
+    """
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=2 * cm,
+        leftMargin=2 * cm,
+        topMargin=2 * cm,
+        bottomMargin=2 * cm,
+    )
+
+    # Custom styles
+    styles = getSampleStyleSheet()
+
+    # Use Arial font for Unicode/Hebrew support if registered
+    font_name = "Arial" if _fonts_registered else "Helvetica"
+
+    # Title style
+    title_style = ParagraphStyle(
+        "CustomTitle",
+        parent=styles["Heading1"],
+        fontName=font_name,
+        fontSize=24,
+        textColor=HexColor("#4f46e5"),
+        spaceAfter=12,
+        alignment=TA_LEFT,
+    )
+
+    # Metadata style
+    metadata_style = ParagraphStyle(
+        "Metadata",
+        parent=styles["Normal"],
+        fontName=font_name,
+        fontSize=10,
+        textColor=HexColor("#666666"),
+        spaceAfter=6,
+        spaceBefore=6,
+        leftIndent=10,
+        rightIndent=10,
+        backColor=HexColor("#f9fafb"),
+    )
+
+    # Edited text style
+    edited_style = ParagraphStyle(
+        "EditedText",
+        parent=styles["Normal"],
+        fontName=font_name,
+        fontSize=11,
+        leading=18,
+        alignment=TA_LEFT,
+    )
+
+    # Timing style
+    timing_style = ParagraphStyle(
+        "Timing",
+        parent=styles["Normal"],
+        fontName=font_name,
+        fontSize=9,
+        textColor=HexColor("#6366f1"),
+        spaceAfter=6,
+    )
+
+    # Source style
+    source_style = ParagraphStyle(
+        "Source",
+        parent=styles["Normal"],
+        fontName=font_name,
+        fontSize=9,
+        textColor=HexColor("#059669"),
+        leftIndent=20,
+        spaceAfter=4,
+    )
+
+    # Build content
+    story = []
+
+    # Title
+    story.append(Paragraph(title, title_style))
+    story.append(Spacer(1, 0.5 * cm))
+
+    # Metadata
+    if date:
+        date_str = date.strftime("%Y-%m-%d %H:%M")
+        story.append(Paragraph(f"<b>Date:</b> {date_str}", metadata_style))
+    if course_name:
+        story.append(Paragraph(f"<b>Course:</b> {course_name}", metadata_style))
+    story.append(Paragraph("<b>Document Type:</b> Edited Transcript", metadata_style))
+    story.append(Spacer(1, 0.5 * cm))
+
+    # Edited transcript parts
+    for part in edited_transcript:
+        text = part.get("text", "").strip()
+        sources = part.get("sources", [])
+
+        if text:
+            # Add source markers to text
+            marked_text = text
+            if sources:
+                # Filter sources with cited_excerpt
+                sources_with_excerpt = [
+                    (i, src)
+                    for i, src in enumerate(sources)
+                    if src.get("cited_excerpt")
+                ]
+
+                # Sort by excerpt length (longest first) to avoid nested replacements
+                sources_with_excerpt.sort(
+                    key=lambda x: len(x[1].get("cited_excerpt", "")), reverse=True
+                )
+
+                for idx, source in sources_with_excerpt:
+                    marker = idx + 1
+                    excerpt = source.get("cited_excerpt", "")
+                    if excerpt and excerpt in marked_text:
+                        # Add superscript marker
+                        marked_excerpt = f"{excerpt}<super>[{marker}]</super>"
+                        marked_text = marked_text.replace(excerpt, marked_excerpt, 1)
+
+            # Add edited text with markers
+            story.append(Paragraph(_apply_inline_formatting(marked_text), edited_style))
+            story.append(Spacer(1, 0.2 * cm))
+
+            # Add sources only if they exist
+            if sources:
+                for idx, source in enumerate(sources):
+                    marker = idx + 1
+                    author = source.get("author", "Unknown")
+                    work = source.get("work", "")
+                    reference = source.get("reference", "")
+                    source_text = source.get("text", "")
+
+                    source_info = f"<b>[{marker}]</b> <b>{author}</b>"
+                    if work:
+                        source_info += f", <i>{work}</i>"
+                    if reference:
+                        source_info += f" ({reference})"
+                    if source_text:
+                        source_info += f": {source_text[:100]}{'...' if len(source_text) > 100 else ''}"
+
+                    story.append(Paragraph(source_info, source_style))
+
+            story.append(Spacer(1, 0.4 * cm))
+
+    # Generate PDF
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()

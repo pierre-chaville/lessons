@@ -8,7 +8,7 @@ import shutil
 from pathlib import Path
 
 from database import create_db_and_tables, get_session
-from models import Lesson, Course, Theme, Segment, Task
+from models import Lesson, Course, Theme, Segment, Task, EditedPart, Source
 import crud
 import config as config_module
 import search_utils
@@ -180,12 +180,14 @@ class LessonUpdate(BaseModel):
     duration: Optional[float] = None
     transcript: Optional[List[Segment]] = None
     corrected_transcript: Optional[List[Segment]] = None
+    edited_transcript: Optional[List[EditedPart]] = None
     brief: Optional[str] = None
     summary: Optional[str] = None
     theme_ids: Optional[List[int]] = None
     transcript_metadata: Optional[Dict[str, Any]] = None
     correction_metadata: Optional[Dict[str, Any]] = None
     summary_metadata: Optional[Dict[str, Any]] = None
+    edited_metadata: Optional[Dict[str, Any]] = None
 
 
 class LessonListResponse(BaseModel):
@@ -215,6 +217,7 @@ class LessonResponse(BaseModel):
     duration: Optional[float]
     transcript: Optional[List[Segment]]
     corrected_transcript: Optional[List[Segment]]
+    edited_transcript: Optional[List[EditedPart]]
     brief: Optional[str]
     summary: Optional[str]
     theme_ids: List[int]
@@ -223,6 +226,7 @@ class LessonResponse(BaseModel):
     transcript_metadata: Optional[Dict[str, Any]] = None
     correction_metadata: Optional[Dict[str, Any]] = None
     summary_metadata: Optional[Dict[str, Any]] = None
+    edited_metadata: Optional[Dict[str, Any]] = None
 
     class Config:
         from_attributes = True
@@ -302,6 +306,7 @@ def get_lesson(lesson_id: int, session: Session = Depends(get_session)):
         duration=lesson.duration,
         transcript=lesson.transcript,
         corrected_transcript=lesson.corrected_transcript,
+        edited_transcript=lesson.edited_transcript,
         brief=lesson.brief,
         summary=lesson.summary,
         theme_ids=theme_ids,
@@ -310,6 +315,7 @@ def get_lesson(lesson_id: int, session: Session = Depends(get_session)):
         transcript_metadata=lesson.transcript_metadata,
         correction_metadata=lesson.correction_metadata,
         summary_metadata=lesson.summary_metadata,
+        edited_metadata=lesson.edited_metadata,
     )
 
 
@@ -370,6 +376,7 @@ def create_lesson(lesson_data: LessonCreate, session: Session = Depends(get_sess
         duration=lesson.duration,
         transcript=lesson.transcript,
         corrected_transcript=lesson.corrected_transcript,
+        edited_transcript=lesson.edited_transcript,
         brief=lesson.brief,
         summary=lesson.summary,
         theme_ids=theme_ids,
@@ -378,6 +385,7 @@ def create_lesson(lesson_data: LessonCreate, session: Session = Depends(get_sess
         transcript_metadata=lesson.transcript_metadata,
         correction_metadata=lesson.correction_metadata,
         summary_metadata=lesson.summary_metadata,
+        edited_metadata=lesson.edited_metadata,
     )
 
 
@@ -413,6 +421,14 @@ def update_lesson(
             for seg in lesson_data.corrected_transcript
         ]
 
+    # Convert EditedPart objects to dicts for JSON storage
+    edited_transcript_data = None
+    if lesson_data.edited_transcript is not None:
+        edited_transcript_data = [
+            part.model_dump() if hasattr(part, "model_dump") else part
+            for part in lesson_data.edited_transcript
+        ]
+
     lesson = crud.update_lesson(
         session,
         lesson_id,
@@ -423,12 +439,14 @@ def update_lesson(
         duration=lesson_data.duration,
         transcript=transcript_data,
         corrected_transcript=corrected_transcript_data,
+        edited_transcript=edited_transcript_data,
         brief=lesson_data.brief,
         summary=lesson_data.summary,
         theme_ids=lesson_data.theme_ids,
         transcript_metadata=lesson_data.transcript_metadata,
         correction_metadata=lesson_data.correction_metadata,
         summary_metadata=lesson_data.summary_metadata,
+        edited_metadata=lesson_data.edited_metadata,
     )
 
     if not lesson:
@@ -447,6 +465,7 @@ def update_lesson(
         duration=lesson.duration,
         transcript=lesson.transcript,
         corrected_transcript=lesson.corrected_transcript,
+        edited_transcript=lesson.edited_transcript,
         brief=lesson.brief,
         summary=lesson.summary,
         theme_ids=theme_ids,
@@ -455,6 +474,7 @@ def update_lesson(
         transcript_metadata=lesson.transcript_metadata,
         correction_metadata=lesson.correction_metadata,
         summary_metadata=lesson.summary_metadata,
+        edited_metadata=lesson.edited_metadata,
     )
 
 
@@ -551,6 +571,42 @@ def get_lesson_transcript_pdf(
         c for c in lesson.title if c.isalnum() or c in (" ", "-", "_")
     ).rstrip()
     filename = f"{safe_title}_{transcript_type}_transcript.pdf"
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/lessons/{lesson_id}/pdf/edited", tags=["Lessons"])
+def get_lesson_edited_transcript_pdf(
+    lesson_id: int, session: Session = Depends(get_session)
+):
+    """Generate and download PDF of the edited transcript with sources"""
+    from fastapi.responses import Response
+    from pdf_reportlab import generate_lesson_edited_transcript_pdf
+
+    lesson = crud.get_lesson(session, lesson_id)
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+
+    if not lesson.edited_transcript or len(lesson.edited_transcript) == 0:
+        raise HTTPException(status_code=404, detail="No edited transcript available")
+
+    # Generate PDF using ReportLab
+    pdf_bytes = generate_lesson_edited_transcript_pdf(
+        title=lesson.title,
+        edited_transcript=lesson.edited_transcript,
+        date=lesson.date,
+        course_name=lesson.course.name if lesson.course else None,
+    )
+
+    # Create safe filename
+    safe_title = "".join(
+        c for c in lesson.title if c.isalnum() or c in (" ", "-", "_")
+    ).rstrip()
+    filename = f"{safe_title}_edited.pdf"
 
     return Response(
         content=pdf_bytes,

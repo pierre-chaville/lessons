@@ -26,6 +26,11 @@ const config = ref({
     prompt: '',
     temperature: 0.3
   },
+  edition: {
+    model: '',
+    prompt: '',
+    temperature: 0.5
+  },
   summary: {
     max_length: 300,
     model: '',
@@ -216,6 +221,17 @@ const removeSummaryPrompt = (index) => {
               ]">
                 <PencilIcon class="h-5 w-5" />
                 {{ t('preferences.correction') }}
+              </div>
+            </Tab>
+            <Tab v-slot="{ selected }" class="w-full rounded-md py-2.5 text-sm font-medium leading-5 transition-colors focus:outline-none">
+              <div :class="[
+                'flex items-center justify-center gap-2',
+                selected
+                  ? 'bg-white dark:bg-gray-800 text-indigo-700 dark:text-indigo-400 shadow'
+                  : 'text-gray-700 dark:text-gray-300 hover:bg-white/[0.12] dark:hover:bg-gray-600'
+              ]">
+                <DocumentTextIcon class="h-5 w-5" />
+                {{ t('preferences.edition') }}
               </div>
             </Tab>
             <Tab v-slot="{ selected }" class="w-full rounded-md py-2.5 text-sm font-medium leading-5 transition-colors focus:outline-none">
@@ -441,6 +457,65 @@ const removeSummaryPrompt = (index) => {
                   ></textarea>
                   <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
                     {{ t('preferences.correctionPromptDesc') }}
+                  </p>
+                </div>
+              </div>
+            </TabPanel>
+
+            <!-- Edition Tab -->
+            <TabPanel class="rounded-lg bg-white dark:bg-gray-800 p-6 shadow">
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                {{ t('preferences.editionSettings') }}
+              </h2>
+              
+              <div class="space-y-6">
+                <!-- Model -->
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    {{ t('preferences.model') }}
+                  </label>
+                  <input
+                    v-model="config.edition.model"
+                    type="text"
+                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                    placeholder="gpt-4o"
+                  />
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('preferences.modelDesc') }}
+                  </p>
+                </div>
+
+                <!-- Temperature -->
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    {{ t('preferences.temperature') }}: {{ config.edition.temperature }}
+                  </label>
+                  <input
+                    v-model.number="config.edition.temperature"
+                    type="range"
+                    min="0"
+                    max="2"
+                    step="0.1"
+                    class="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer"
+                  />
+                  <div class="flex justify-between text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    <span>{{ t('preferences.precise') }}</span>
+                    <span>{{ t('preferences.creative') }}</span>
+                  </div>
+                </div>
+
+                <!-- Prompt -->
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    {{ t('preferences.prompt') }}
+                  </label>
+                  <textarea
+                    v-model="config.edition.prompt"
+                    rows="10"
+                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
+                  ></textarea>
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('preferences.editionPromptDesc') }}
                   </p>
                 </div>
               </div>

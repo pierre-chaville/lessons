@@ -7,7 +7,12 @@ from datetime import datetime
 from sqlmodel import Session, select
 from database import engine
 from models import Task
-from tasks import correct_transcript, generate_summary, transcribe_lesson
+from tasks import (
+    correct_transcript,
+    edit_transcript,
+    generate_summary,
+    transcribe_lesson,
+)
 import logging
 
 # Configure logging
@@ -137,6 +142,48 @@ def process_correction_task(session: Session, task: Task):
         raise
 
 
+def process_edition_task(session: Session, task: Task):
+    """Process an edition task"""
+    logger.info(f"Processing edition task {task.id}")
+
+    try:
+        # Get parameters from task
+        params = task.parameters or {}
+        lesson_id = params.get("lesson_id")
+        segments_per_group = params.get("segments_per_group", 100)
+        max_concurrency = params.get("max_concurrency", 10)
+
+        if not lesson_id:
+            raise ValueError("lesson_id is required in task parameters")
+
+        # Run edition
+        success = edit_transcript(
+            lesson_id=lesson_id,
+            segments_per_group=segments_per_group,
+            max_concurrency=max_concurrency,
+            session=session,
+        )
+
+        if success:
+            update_task_status(
+                session,
+                task,
+                "completed",
+                result={
+                    "message": "Edition completed successfully",
+                    "lesson_id": lesson_id,
+                    "segments_per_group": segments_per_group,
+                    "max_concurrency": max_concurrency,
+                },
+            )
+        else:
+            update_task_status(session, task, "failed", error="Edition failed")
+
+    except Exception as e:
+        logger.error(f"Error in edition task: {e}", exc_info=True)
+        raise
+
+
 def process_summary_task(session: Session, task: Task):
     """Process a summary generation task"""
     logger.info(f"Processing summary task {task.id}")
@@ -192,6 +239,8 @@ def process_task(session: Session, task: Task):
             process_transcription_task(session, task)
         elif task.task_type == "correction":
             process_correction_task(session, task)
+        elif task.task_type == "edition":
+            process_edition_task(session, task)
         elif task.task_type == "summary":
             process_summary_task(session, task)
         else:
