@@ -635,21 +635,27 @@ def generate_lesson_sources_pdf(
             # Add bullet point at the beginning
             bullet_line = f"• {source_line}"
             story.append(Paragraph(_apply_inline_formatting(bullet_line), source_style))
-            
+
             # Add referenced text (cited excerpt) if it exists
             if cited_excerpt:
                 # Truncate long excerpts
-                truncated_excerpt = cited_excerpt[:200] + "..." if len(cited_excerpt) > 200 else cited_excerpt
+                truncated_excerpt = (
+                    cited_excerpt[:200] + "..."
+                    if len(cited_excerpt) > 200
+                    else cited_excerpt
+                )
                 excerpt_text = f'<i>Referenced in: "{truncated_excerpt}"</i>'
                 # Create a style for the excerpt with extra left indent
                 excerpt_style = ParagraphStyle(
-                    'SourceExcerpt',
+                    "SourceExcerpt",
                     parent=source_style,
                     leftIndent=40,
                     fontSize=9,
-                    textColor=colors.HexColor('#666666')
+                    textColor=colors.HexColor("#666666"),
                 )
-                story.append(Paragraph(_apply_inline_formatting(excerpt_text), excerpt_style))
+                story.append(
+                    Paragraph(_apply_inline_formatting(excerpt_text), excerpt_style)
+                )
 
         story.append(Spacer(1, 0.3 * cm))
 
