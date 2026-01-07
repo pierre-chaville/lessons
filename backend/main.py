@@ -513,6 +513,7 @@ def get_lesson_summary_pdf(lesson_id: int, session: Session = Depends(get_sessio
     pdf_bytes = generate_lesson_summary_pdf(
         title=lesson.title,
         summary_markdown=lesson.summary,
+        filename=lesson.filename,
         date=lesson.date,
         course_name=lesson.course.name if lesson.course else None,
         prompt_name=prompt_name,
@@ -561,6 +562,7 @@ def get_lesson_transcript_pdf(
     pdf_bytes = generate_lesson_transcript_pdf(
         title=lesson.title,
         transcript=transcript,
+        filename=lesson.filename,
         date=lesson.date,
         course_name=lesson.course.name if lesson.course else None,
         transcript_type=transcript_type,
@@ -598,6 +600,7 @@ def get_lesson_edited_transcript_pdf(
     pdf_bytes = generate_lesson_edited_transcript_pdf(
         title=lesson.title,
         edited_transcript=lesson.edited_transcript,
+        filename=lesson.filename,
         date=lesson.date,
         course_name=lesson.course.name if lesson.course else None,
     )
@@ -632,6 +635,7 @@ def get_lesson_sources_pdf(lesson_id: int, session: Session = Depends(get_sessio
     pdf_bytes = generate_lesson_sources_pdf(
         title=lesson.title,
         edited_transcript=lesson.edited_transcript,
+        filename=lesson.filename,
         date=lesson.date,
         course_name=lesson.course.name if lesson.course else None,
     )

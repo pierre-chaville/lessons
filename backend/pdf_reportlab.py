@@ -12,6 +12,7 @@ from reportlab.lib import colors
 from reportlab.lib.colors import HexColor
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfgen import canvas
 import os
 
 
@@ -46,6 +47,68 @@ def _register_unicode_fonts():
 
 # Try to register fonts on module load
 _fonts_registered = _register_unicode_fonts()
+
+
+class NumberedCanvas(canvas.Canvas):
+    """Custom canvas that tracks page numbers."""
+
+    def __init__(self, *args, **kwargs):
+        canvas.Canvas.__init__(self, *args, **kwargs)
+        self._saved_page_states = []
+        self.footer_title = None
+        self.doc_type = None
+
+    def showPage(self):
+        self._saved_page_states.append(dict(self.__dict__))
+        self._startPage()
+
+    def save(self):
+        """Add page numbers to each page before saving."""
+        num_pages = len(self._saved_page_states)
+        for page_num, state in enumerate(self._saved_page_states, 1):
+            self.__dict__.update(state)
+            self.draw_page_number(page_num, num_pages)
+            canvas.Canvas.showPage(self)
+        canvas.Canvas.save(self)
+
+    def draw_page_number(self, page_num, page_count):
+        """Draw the footer with title, doc type and page number."""
+        if self.footer_title and self.doc_type:
+            # Truncate title to 40 characters
+            truncated_title = (
+                self.footer_title[:60] + "..."
+                if len(self.footer_title) > 60
+                else self.footer_title
+            )
+            footer_text = (
+                f"{truncated_title} • {self.doc_type} • Page {page_num} / {page_count}"
+            )
+            self.saveState()
+            self.setFont("Helvetica", 9)
+            self.setFillColor(colors.grey)
+            self.drawCentredString(self._pagesize[0] / 2, 1.5 * cm, footer_text)
+            self.restoreState()
+
+
+def _add_footer(canvas, doc, filename: str, total_pages: int = None):
+    """Add footer with filename and page number to each page."""
+    canvas.saveState()
+
+    # Footer content
+    if total_pages is not None:
+        page_text = f"Page {doc.page} / {total_pages}"
+    else:
+        page_text = f"Page {doc.page}"
+    footer_text = f"{filename}  •  {page_text}"
+
+    # Draw footer
+    canvas.setFont("Helvetica", 9)
+    canvas.setFillColor(colors.grey)
+
+    # Center the footer text
+    canvas.drawCentredString(doc.pagesize[0] / 2, 1.5 * cm, footer_text)
+
+    canvas.restoreState()
 
 
 def _parse_markdown_to_paragraphs(markdown_text: str, styles) -> List:
@@ -132,6 +195,7 @@ def _apply_inline_formatting(text: str) -> str:
 def generate_lesson_summary_pdf(
     title: str,
     summary_markdown: str,
+    filename: str,
     date: Optional[datetime] = None,
     course_name: Optional[str] = None,
     prompt_name: Optional[str] = None,
@@ -141,6 +205,7 @@ def generate_lesson_summary_pdf(
     Args:
         title: Lesson title
         summary_markdown: Summary text in markdown format
+        filename: Original audio filename
         date: Lesson date
         course_name: Associated course name
         prompt_name: Name of the prompt used to generate the summary
@@ -155,7 +220,7 @@ def generate_lesson_summary_pdf(
         rightMargin=2 * cm,
         leftMargin=2 * cm,
         topMargin=2 * cm,
-        bottomMargin=2 * cm,
+        bottomMargin=3 * cm,
     )
 
     # Custom styles
@@ -235,15 +300,22 @@ def generate_lesson_summary_pdf(
     content_flowables = _parse_markdown_to_paragraphs(summary_markdown, styles)
     story.extend(content_flowables)
 
-    # Generate PDF
-    doc.build(story)
-    buffer.seek(0)
+    # Build PDF with custom canvas for page numbering
+    def create_canvas_with_footer(*args, **kwargs):
+        c = NumberedCanvas(*args, **kwargs)
+        c.footer_title = title
+        c.doc_type = "Summary"
+        return c
+
+    doc.build(story, canvasmaker=create_canvas_with_footer)
+
     return buffer.getvalue()
 
 
 def generate_lesson_transcript_pdf(
     title: str,
     transcript: List[dict],
+    filename: str,
     date: Optional[datetime] = None,
     course_name: Optional[str] = None,
     transcript_type: str = "corrected",
@@ -253,6 +325,7 @@ def generate_lesson_transcript_pdf(
     Args:
         title: Lesson title
         transcript: List of transcript segments (each with 'text' field)
+        filename: Original audio filename
         date: Lesson date
         course_name: Associated course name
         transcript_type: Type of transcript ("corrected" or "initial")
@@ -267,7 +340,7 @@ def generate_lesson_transcript_pdf(
         rightMargin=2 * cm,
         leftMargin=2 * cm,
         topMargin=2 * cm,
-        bottomMargin=2 * cm,
+        bottomMargin=3 * cm,
     )
 
     # Custom styles
@@ -337,15 +410,22 @@ def generate_lesson_transcript_pdf(
         if text:
             story.append(Paragraph(f"• {text}", transcript_style))
 
-    # Generate PDF
-    doc.build(story)
-    buffer.seek(0)
+    # Build PDF with custom canvas for page numbering
+    def create_canvas_with_footer(*args, **kwargs):
+        c = NumberedCanvas(*args, **kwargs)
+        c.footer_title = title
+        c.doc_type = "Transcript"
+        return c
+
+    doc.build(story, canvasmaker=create_canvas_with_footer)
+
     return buffer.getvalue()
 
 
 def generate_lesson_edited_transcript_pdf(
     title: str,
     edited_transcript: List[dict],
+    filename: str,
     date: Optional[datetime] = None,
     course_name: Optional[str] = None,
 ) -> bytes:
@@ -354,6 +434,7 @@ def generate_lesson_edited_transcript_pdf(
     Args:
         title: Lesson title
         edited_transcript: List of edited parts (each with 'start', 'end', 'text', 'sources')
+        filename: Original audio filename
         date: Lesson date
         course_name: Associated course name
 
@@ -367,7 +448,7 @@ def generate_lesson_edited_transcript_pdf(
         rightMargin=2 * cm,
         leftMargin=2 * cm,
         topMargin=2 * cm,
-        bottomMargin=2 * cm,
+        bottomMargin=3 * cm,
     )
 
     # Custom styles
@@ -502,15 +583,22 @@ def generate_lesson_edited_transcript_pdf(
 
             story.append(Spacer(1, 0.4 * cm))
 
-    # Generate PDF
-    doc.build(story)
-    buffer.seek(0)
+    # Build PDF with custom canvas for page numbering
+    def create_canvas_with_footer(*args, **kwargs):
+        c = NumberedCanvas(*args, **kwargs)
+        c.footer_title = title
+        c.doc_type = "Edited"
+        return c
+
+    doc.build(story, canvasmaker=create_canvas_with_footer)
+
     return buffer.getvalue()
 
 
 def generate_lesson_sources_pdf(
     title: str,
     edited_transcript: List[dict],
+    filename: str,
     date: Optional[datetime] = None,
     course_name: Optional[str] = None,
 ) -> bytes:
@@ -519,6 +607,7 @@ def generate_lesson_sources_pdf(
     Args:
         title: Lesson title
         edited_transcript: List of edited parts (each with 'sources')
+        filename: Original audio filename
         date: Lesson date
         course_name: Associated course name
 
@@ -526,7 +615,14 @@ def generate_lesson_sources_pdf(
         PDF file as bytes
     """
     buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4)
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=2 * cm,
+        leftMargin=2 * cm,
+        topMargin=2 * cm,
+        bottomMargin=3 * cm,
+    )
 
     # Create styles
     styles = getSampleStyleSheet()
@@ -659,7 +755,13 @@ def generate_lesson_sources_pdf(
 
         story.append(Spacer(1, 0.3 * cm))
 
-    # Generate PDF
-    doc.build(story)
-    buffer.seek(0)
+    # Build PDF with custom canvas for page numbering
+    def create_canvas_with_footer(*args, **kwargs):
+        c = NumberedCanvas(*args, **kwargs)
+        c.footer_title = title
+        c.doc_type = "Sources"
+        return c
+
+    doc.build(story, canvasmaker=create_canvas_with_footer)
+
     return buffer.getvalue()

@@ -16,7 +16,9 @@ import {
   PrinterIcon,
   TrashIcon,
   ExclamationTriangleIcon,
-  CogIcon
+  CogIcon,
+  ChevronDownIcon,
+  ChevronUpIcon
 } from '@heroicons/vue/24/outline';
 import { SpeakerWaveIcon } from '@heroicons/vue/24/solid';
 import { Dialog, DialogPanel, DialogTitle } from '@headlessui/vue';
@@ -75,6 +77,9 @@ const isDeleting = ref(false);
 // Source modal state
 const showSourceModal = ref(false);
 const selectedSourceEditedText = ref('');
+
+// Transcript expander state (for edited view)
+const expandedTranscriptIndex = ref(null);
 
 // Process tasks modal state
 const showProcessModal = ref(false);
@@ -440,6 +445,30 @@ const saveSummary = async () => {
 const openSourceModal = (editedPart) => {
   selectedSourceEditedText.value = editedPart.text;
   showSourceModal.value = true;
+};
+
+// Toggle transcript expander
+const toggleTranscript = (index) => {
+  if (expandedTranscriptIndex.value === index) {
+    expandedTranscriptIndex.value = null;
+  } else {
+    expandedTranscriptIndex.value = index;
+  }
+};
+
+// Get transcript segments for an edited part
+const getTranscriptSegments = (part) => {
+  const transcript = props.lesson.corrected_transcript || props.lesson.transcript || [];
+  return transcript.filter(seg => 
+    (seg.start >= part.start && seg.start < part.end) || 
+    (seg.end > part.start && seg.end <= part.end) ||
+    (seg.start <= part.start && seg.end >= part.end)
+  );
+};
+
+// Check if an edited part is currently playing
+const isEditedPartPlaying = (part) => {
+  return isPlaying.value && currentTime.value >= part.start && currentTime.value < part.end;
 };
 
 // Download PDF functions
@@ -1452,33 +1481,78 @@ const saveSegment = async () => {
 
           <!-- Edited Transcript View -->
           <div v-else-if="activeView === 'edited'">
-            <div v-if="lesson.edited_transcript && lesson.edited_transcript.length > 0" class="space-y-6 max-h-[600px] overflow-auto scroll-smooth print:max-h-none">
+            <div v-if="lesson.edited_transcript && lesson.edited_transcript.length > 0" class="space-y-4 max-h-[600px] overflow-auto scroll-smooth print:max-h-none">
               <div
                 v-for="(part, index) in lesson.edited_transcript"
                 :key="index"
-                class="p-5 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 hover:border-indigo-300 dark:hover:border-indigo-700 transition-all print:bg-white print:border-0"
+                class="py-3 print:py-2"
               >
-                <!-- Timing -->
-                <div class="flex items-center gap-2 mb-3 print:hidden">
+                <!-- Controls and Text -->
+                <div class="flex gap-3">
+                  <!-- Play/Pause Button -->
                   <button
                     v-if="audioUrl"
                     @click="playFromTimestamp(part.start)"
-                    class="flex-shrink-0 p-1.5 rounded-md hover:bg-indigo-100 dark:hover:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 transition-colors"
-                    :title="t('lessons.playSegment')"
+                    class="flex-shrink-0 p-1.5 rounded-md hover:bg-indigo-100 dark:hover:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 transition-colors print:hidden mt-1"
+                    :title="isEditedPartPlaying(part) ? t('lessons.pause') : t('lessons.playSegment')"
                   >
-                    <PlayIcon class="h-4 w-4" />
+                    <PlayIcon v-if="!isEditedPartPlaying(part)" class="h-4 w-4" />
+                    <PauseIcon v-else class="h-4 w-4" />
                   </button>
-                  <div class="text-xs font-mono text-indigo-600 dark:text-indigo-400 font-semibold">
-                    {{ formatTimestamp(part.start) }} - {{ formatTimestamp(part.end) }}
+                  
+                  <!-- Edited Text -->
+                  <div class="flex-1">
+                    <div class="prose prose-sm dark:prose-invert max-w-none mb-3">
+                      <div 
+                        class="text-gray-900 dark:text-gray-100 leading-relaxed whitespace-pre-wrap print:text-black"
+                        v-html="addSourceMarkers(part.text, part.sources)"
+                      ></div>
+                    </div>
                   </div>
+                  
+                  <!-- Transcript Toggle Button -->
+                  <button
+                    @click="toggleTranscript(index)"
+                    class="flex-shrink-0 p-1.5 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors print:hidden mt-1"
+                    :title="expandedTranscriptIndex === index ? t('lessons.hideTranscript') : t('lessons.showTranscript')"
+                  >
+                    <ChevronDownIcon v-if="expandedTranscriptIndex !== index" class="h-4 w-4" />
+                    <ChevronUpIcon v-else class="h-4 w-4" />
+                  </button>
                 </div>
                 
-                <!-- Edited Text -->
-                <div class="prose prose-sm dark:prose-invert max-w-none mb-4">
-                  <div 
-                    class="text-gray-900 dark:text-gray-100 leading-relaxed whitespace-pre-wrap print:text-black"
-                    v-html="addSourceMarkers(part.text, part.sources)"
-                  ></div>
+                <!-- Expandable Transcript Section -->
+                <div 
+                  v-if="expandedTranscriptIndex === index"
+                  class="ml-11 mt-3 p-4 bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 print:hidden"
+                >
+                  <div class="space-y-3">
+                    <!-- Time Range Header -->
+                    <div class="flex items-center gap-2 pb-2 border-b border-gray-200 dark:border-gray-700">
+                      <ClockIcon class="h-4 w-4 text-gray-400 dark:text-gray-500" />
+                      <div class="text-xs text-gray-600 dark:text-gray-400">
+                        <span class="font-semibold">{{ t('lessons.timeRange') }}:</span>
+                        {{ formatTimestamp(part.start) }} - {{ formatTimestamp(part.end) }}
+                      </div>
+                    </div>
+                    
+                    <!-- Transcript Segments -->
+                    <div class="space-y-1">
+                      <div class="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                        {{ t('lessons.originalTranscript') }}
+                      </div>
+                      <div 
+                        v-for="(segment, idx) in getTranscriptSegments(part)"
+                        :key="idx"
+                        class="text-sm text-gray-900 dark:text-gray-100 leading-relaxed"
+                      >
+                        <span class="text-xs font-mono text-indigo-600 dark:text-indigo-400 mr-2">{{ formatTimestamp(segment.start) }}-{{ formatTimestamp(segment.end) }}</span>{{ segment.text }}
+                      </div>
+                      <div v-if="getTranscriptSegments(part).length === 0" class="text-sm text-gray-500 dark:text-gray-400 italic py-2">
+                        {{ t('lessons.noTranscripts') }}
+                      </div>
+                    </div>
+                  </div>
                 </div>
                 
                 <!-- Sources -->
