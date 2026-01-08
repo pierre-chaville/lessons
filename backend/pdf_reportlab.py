@@ -286,7 +286,7 @@ def generate_lesson_summary_pdf(
     # Metadata
     if date or course_name or prompt_name:
         if date:
-            date_str = date.strftime("%Y-%m-%d %H:%M")
+            date_str = date.strftime("%Y-%m-%d")
             story.append(Paragraph(f"<b>Date:</b> {date_str}", metadata_style))
         if course_name:
             story.append(Paragraph(f"<b>Course:</b> {course_name}", metadata_style))
@@ -303,7 +303,7 @@ def generate_lesson_summary_pdf(
     # Build PDF with custom canvas for page numbering
     def create_canvas_with_footer(*args, **kwargs):
         c = NumberedCanvas(*args, **kwargs)
-        c.footer_title = title
+        c.footer_title = title + " - " + date_str
         c.doc_type = "Summary"
         return c
 
@@ -530,6 +530,7 @@ def generate_lesson_edited_transcript_pdf(
     story.append(Spacer(1, 0.5 * cm))
 
     # Edited transcript parts
+    source_counter = 0  # Global counter for source numbers
     for part in edited_transcript:
         text = part.get("text", "").strip()
         sources = part.get("sources", [])
@@ -551,7 +552,7 @@ def generate_lesson_edited_transcript_pdf(
                 )
 
                 for idx, source in sources_with_excerpt:
-                    marker = idx + 1
+                    marker = source_counter + idx + 1
                     excerpt = source.get("cited_excerpt", "")
                     if excerpt and excerpt in marked_text:
                         # Add superscript marker
@@ -565,7 +566,7 @@ def generate_lesson_edited_transcript_pdf(
             # Add sources only if they exist
             if sources:
                 for idx, source in enumerate(sources):
-                    marker = idx + 1
+                    marker = source_counter + idx + 1
                     author = source.get("author", "Unknown")
                     work = source.get("work", "")
                     reference = source.get("reference", "")
@@ -580,6 +581,9 @@ def generate_lesson_edited_transcript_pdf(
                         source_info += f": {source_text[:100]}{'...' if len(source_text) > 100 else ''}"
 
                     story.append(Paragraph(source_info, source_style))
+
+                # Increment counter by the number of sources in this part
+                source_counter += len(sources)
 
             story.append(Spacer(1, 0.4 * cm))
 

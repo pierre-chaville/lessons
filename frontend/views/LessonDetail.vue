@@ -297,7 +297,7 @@ const formatDuration = (seconds) => {
 };
 
 // Function to add source markers to edited text
-const addSourceMarkers = (text, sources) => {
+const addSourceMarkers = (text, sources, globalStartIndex = 0) => {
   if (!sources || sources.length === 0) return text;
   
   let markedText = text;
@@ -308,7 +308,7 @@ const addSourceMarkers = (text, sources) => {
     .sort((a, b) => b.cited_excerpt.length - a.cited_excerpt.length);
   
   sortedSources.forEach((source, index) => {
-    const marker = index + 1;
+    const marker = globalStartIndex + index + 1;
     const excerpt = source.cited_excerpt;
     
     // Create a highlighted version with superscript marker
@@ -350,6 +350,20 @@ const allSources = computed(() => {
     .map(([author, sources]) => ({ author, sources }))
     .sort((a, b) => a.author.localeCompare(b.author));
 });
+
+// Compute global source indices for each part
+const getGlobalSourceIndex = (partIndex) => {
+  if (!props.lesson.edited_transcript) return 0;
+  
+  let count = 0;
+  for (let i = 0; i < partIndex; i++) {
+    const part = props.lesson.edited_transcript[i];
+    if (part.sources) {
+      count += part.sources.length;
+    }
+  }
+  return count;
+};
 
 // Available views based on what data exists
 const availableViews = computed(() => {
@@ -469,6 +483,20 @@ const getTranscriptSegments = (part) => {
 // Check if an edited part is currently playing
 const isEditedPartPlaying = (part) => {
   return isPlaying.value && currentTime.value >= part.start && currentTime.value < part.end;
+};
+
+// Toggle play/pause for edited part
+const togglePlayEditedPart = (part) => {
+  if (!audioPlayer.value) return;
+  
+  // If this part is currently playing, pause it
+  if (isEditedPartPlaying(part)) {
+    audioPlayer.value.pause();
+    isPlaying.value = false;
+  } else {
+    // Otherwise, play from the start of this part
+    playFromTimestamp(part.start);
+  }
 };
 
 // Download PDF functions
@@ -1492,7 +1520,7 @@ const saveSegment = async () => {
                   <!-- Play/Pause Button -->
                   <button
                     v-if="audioUrl"
-                    @click="playFromTimestamp(part.start)"
+                    @click="togglePlayEditedPart(part)"
                     class="flex-shrink-0 p-1.5 rounded-md hover:bg-indigo-100 dark:hover:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 transition-colors print:hidden mt-1"
                     :title="isEditedPartPlaying(part) ? t('lessons.pause') : t('lessons.playSegment')"
                   >
@@ -1505,7 +1533,7 @@ const saveSegment = async () => {
                     <div class="prose prose-sm dark:prose-invert max-w-none mb-3">
                       <div 
                         class="text-gray-900 dark:text-gray-100 leading-relaxed whitespace-pre-wrap print:text-black"
-                        v-html="addSourceMarkers(part.text, part.sources)"
+                        v-html="addSourceMarkers(part.text, part.sources, getGlobalSourceIndex(index))"
                       ></div>
                     </div>
                   </div>
@@ -1566,7 +1594,7 @@ const saveSegment = async () => {
                     class="flex gap-3 p-3 rounded-md bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 print:bg-gray-50"
                   >
                     <div class="flex-shrink-0 text-green-600 dark:text-green-400 font-bold text-sm">
-                      [{{ srcIndex + 1 }}]
+                      [{{ getGlobalSourceIndex(index) + srcIndex + 1 }}]
                     </div>
                     <div class="flex-1 text-sm">
                       <div class="font-semibold text-gray-900 dark:text-white mb-1">
