@@ -44,9 +44,25 @@ def get_whisper_model():
         
         logger.info(f"Loading Whisper model {model_size} on {device} with compute type {compute_type}...")
         start_time = time.time()
-        _model = WhisperModel(model_size_or_path=model_size, device=device, compute_type=compute_type)
-        _model_config = current_config
-        logger.info(f"Model loaded in {time.time() - start_time:.2f} seconds")
+        
+        try:
+            _model = WhisperModel(model_size_or_path=model_size, device=device, compute_type=compute_type)
+            _model_config = current_config
+            logger.info(f"Model loaded in {time.time() - start_time:.2f} seconds")
+        except Exception as e:
+            # If CUDA fails, fall back to CPU
+            if device == "cuda":
+                logger.warning(f"Failed to load model on CUDA: {e}")
+                logger.info("Falling back to CPU...")
+                device = "cpu"
+                compute_type = "int8"
+                current_config = (model_size, device, compute_type)
+                
+                _model = WhisperModel(model_size_or_path=model_size, device=device, compute_type=compute_type)
+                _model_config = current_config
+                logger.info(f"Model loaded on CPU in {time.time() - start_time:.2f} seconds")
+            else:
+                raise
     
     return _model, model_size, device, compute_type
 
@@ -137,12 +153,13 @@ def transcribe_lesson(
             return False
         
         # Get audio file path
-        audio_path = Path(__file__).parent.parent / "data" / "audio" / lesson.filename
+        audio_dir = Path(__file__).parent.parent / "data" / "audio"
+        audio_path = audio_dir / (str(lesson_id) + "_" + lesson.filename)
         
         if not audio_path.exists():
             logger.error(f"Audio file not found: {audio_path}")
             return False
-        
+                    
         logger.info(f"Transcribing lesson {lesson_id}: {lesson.title}")
         
         # Load config

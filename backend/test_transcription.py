@@ -103,7 +103,10 @@ def main():
             logger.error(f"Lesson {lesson_id} not found")
             sys.exit(1)
         
-        audio_path = Path(__file__).parent / "data" / "audio" / lesson.filename
+        # Get audio file path
+        audio_dir = Path(__file__).parent / "data" / "audio"
+        audio_path = audio_dir / (str(lesson_id) + "_" + lesson.filename)
+
         if not audio_path.exists():
             logger.error(f"Audio file not found: {audio_path}")
             print("\n❌ Cannot transcribe: Audio file not found!")
