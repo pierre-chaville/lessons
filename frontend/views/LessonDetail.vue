@@ -18,7 +18,8 @@ import {
   ExclamationTriangleIcon,
   CogIcon,
   ChevronDownIcon,
-  ChevronUpIcon
+  ChevronUpIcon,
+  MagnifyingGlassIcon
 } from '@heroicons/vue/24/outline';
 import { SpeakerWaveIcon } from '@heroicons/vue/24/solid';
 import { Dialog, DialogPanel, DialogTitle } from '@headlessui/vue';
@@ -77,6 +78,9 @@ const isDeleting = ref(false);
 // Source modal state
 const showSourceModal = ref(false);
 const selectedSourceEditedText = ref('');
+const selectedSource = ref(null);
+const sefariaText = ref('');
+const isLoadingSefaria = ref(false);
 
 // Transcript expander state (for edited view)
 const expandedTranscriptIndex = ref(null);
@@ -321,6 +325,20 @@ const addSourceMarkers = (text, sources, globalStartIndex = 0) => {
   return markedText;
 };
 
+// Function to highlight matched text in Sefaria text
+const highlightMatchedText = (text, matchedText) => {
+  if (!text || !matchedText) return text;
+  
+  // Escape special regex characters in matchedText
+  const escapedMatch = matchedText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  
+  // Create a case-insensitive regex to find the match
+  const regex = new RegExp(`(${escapedMatch})`, 'gi');
+  
+  // Replace with highlighted version
+  return text.replace(regex, '<mark class="bg-yellow-200 dark:bg-yellow-800/50 dark:text-yellow-100 px-1 rounded font-medium">$1</mark>');
+};
+
 // Collect all sources from edited transcript, grouped by type
 const allSources = computed(() => {
   if (!props.lesson.edited_transcript) return [];
@@ -455,9 +473,54 @@ const saveSummary = async () => {
   }
 };
 
-// Open source modal with edited part text
-const openSourceModal = (editedPart) => {
+// Fetch text from Sefaria API
+const fetchSefariaText = async (slug) => {
+  if (!slug) {
+    sefariaText.value = '';
+    return;
+  }
+  
+  try {
+    isLoadingSefaria.value = true;
+    const response = await axios.get(`https://www.sefaria.org/api/texts/${slug}`);
+    
+    // Extract text from Sefaria response
+    let text = '';
+    if (response.data.text) {
+      const textData = response.data.text;
+      if (Array.isArray(textData)) {
+        text = textData.map(item => 
+          typeof item === 'string' ? item : Array.isArray(item) ? item.join(' ') : String(item)
+        ).join('\n');
+      } else if (typeof textData === 'string') {
+        text = textData;
+      }
+    } else if (response.data.he) {
+      text = response.data.he;
+    } else {
+      text = JSON.stringify(response.data, null, 2);
+    }
+    
+    sefariaText.value = text;
+  } catch (error) {
+    console.error('Failed to fetch Sefaria text:', error);
+    sefariaText.value = `Error fetching text from Sefaria: ${error.message}`;
+  } finally {
+    isLoadingSefaria.value = false;
+  }
+};
+
+// Open source modal with edited part text and source data
+const openSourceModal = async (editedPart, source) => {
   selectedSourceEditedText.value = editedPart.text;
+  selectedSource.value = source;
+  sefariaText.value = '';
+  
+  // Fetch Sefaria text if slug is available
+  if (source.standard_slug) {
+    await fetchSefariaText(source.standard_slug);
+  }
+  
   showSourceModal.value = true;
 };
 
@@ -1481,16 +1544,13 @@ const saveSegment = async () => {
                   <div
                     v-for="(source, sourceIndex) in typeGroup.sources"
                     :key="sourceIndex"
-                    class="flex items-start gap-3 p-3 rounded-md bg-gray-50 dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                    @click="openSourceModal(source.editedPart, source)"
+                    class="flex items-start gap-3 p-3 rounded-md bg-gray-50 dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors cursor-pointer"
                   >
-                    <!-- Icon to view referenced part -->
-                    <button
-                      @click="openSourceModal(source.editedPart)"
-                      class="flex-shrink-0 p-1.5 rounded-md hover:bg-indigo-100 dark:hover:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 transition-colors"
-                      :title="t('lessons.clickToView')"
-                    >
-                      <DocumentTextIcon class="h-4 w-4" />
-                    </button>
+                    <!-- Search icon -->
+                    <div class="flex-shrink-0 p-1.5 rounded-md text-indigo-600 dark:text-indigo-400">
+                      <MagnifyingGlassIcon class="h-4 w-4" />
+                    </div>
                     
                     <!-- Work, Reference, Standard Slug, Translation Text, Original Text, and Confidence -->
                     <div class="flex-1 text-sm text-gray-700 dark:text-gray-300">
@@ -1612,7 +1672,8 @@ const saveSegment = async () => {
                   <div
                     v-for="(source, srcIndex) in part.sources"
                     :key="srcIndex"
-                    class="flex gap-3 p-3 rounded-md bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 print:bg-gray-50"
+                    @click="openSourceModal(part, source)"
+                    class="flex gap-3 p-3 rounded-md bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 print:bg-gray-50 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors print:cursor-default"
                   >
                     <div class="flex-shrink-0 text-green-600 dark:text-green-400 font-bold text-sm">
                       [{{ getGlobalSourceIndex(index) + srcIndex + 1 }}]
@@ -1672,15 +1733,108 @@ const saveSegment = async () => {
     >
       <div class="fixed inset-0 bg-black/30" aria-hidden="true" />
       <div class="fixed inset-0 flex items-center justify-center p-4">
-        <DialogPanel class="w-full max-w-3xl bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-h-[80vh] overflow-auto">
+        <DialogPanel class="w-full max-w-4xl bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-h-[90vh] overflow-auto">
           <div class="p-6">
             <DialogTitle class="text-xl font-bold text-gray-900 dark:text-white mb-4">
-              {{ t('lessons.editedText') }}
+              {{ t('lessons.sourceDetails') }}
             </DialogTitle>
             
-            <div class="prose prose-sm dark:prose-invert max-w-none bg-gray-50 dark:bg-gray-900 p-4 rounded-lg">
-              <div class="text-gray-900 dark:text-gray-100 leading-relaxed whitespace-pre-wrap">
-                {{ selectedSourceEditedText }}
+            <div class="space-y-6">
+              <!-- Edited Part Text -->
+              <div class="bg-gray-50 dark:bg-gray-900 p-4 rounded-lg">
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-3">{{ t('lessons.editedText') }}</h3>
+                <div class="prose prose-sm dark:prose-invert max-w-none">
+                  <div class="text-gray-900 dark:text-gray-100 leading-relaxed whitespace-pre-wrap">
+                    {{ selectedSourceEditedText }}
+                  </div>
+                </div>
+              </div>
+
+              <!-- Source Information -->
+              <div v-if="selectedSource" class="bg-gray-50 dark:bg-gray-900 p-4 rounded-lg">
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-3">Source Information</h3>
+                <div class="space-y-2 text-sm">
+                  <div><span class="font-medium text-gray-700 dark:text-gray-300">Type:</span> <span class="text-gray-900 dark:text-white">{{ selectedSource.type || 'N/A' }}</span></div>
+                  <div><span class="font-medium text-gray-700 dark:text-gray-300">Work:</span> <span class="text-gray-900 dark:text-white">{{ selectedSource.work || 'N/A' }}</span></div>
+                  <div><span class="font-medium text-gray-700 dark:text-gray-300">Reference:</span> <span class="text-gray-900 dark:text-white">{{ selectedSource.ref || 'N/A' }}</span></div>
+                  <div><span class="font-medium text-gray-700 dark:text-gray-300">Slug:</span> <span class="text-gray-900 dark:text-white font-mono text-xs">{{ selectedSource.standard_slug || 'N/A' }}</span></div>
+                  <div v-if="selectedSource.original_text">
+                    <span class="font-medium text-gray-700 dark:text-gray-300">Original Text:</span>
+                    <div class="text-gray-900 dark:text-white italic mt-1">{{ selectedSource.original_text }}</div>
+                  </div>
+                  <div v-if="selectedSource.translation_text">
+                    <span class="font-medium text-gray-700 dark:text-gray-300">Translation Text:</span>
+                    <div class="text-gray-900 dark:text-white italic mt-1">{{ selectedSource.translation_text }}</div>
+                  </div>
+                  <div v-if="selectedSource.confidence !== null && selectedSource.confidence !== undefined">
+                    <span class="font-medium text-gray-700 dark:text-gray-300">Initial Confidence:</span>
+                    <span :class="[
+                      'px-2 py-0.5 rounded text-xs font-medium ml-2',
+                      selectedSource.confidence >= 0.7 ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' :
+                      selectedSource.confidence >= 0.4 ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400' :
+                      'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
+                    ]">
+                      {{ (selectedSource.confidence * 100).toFixed(0) }}%
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Verification Status -->
+              <div v-if="selectedSource && selectedSource.slug_retrieved !== null && selectedSource.slug_retrieved !== undefined" class="bg-gray-50 dark:bg-gray-900 p-4 rounded-lg">
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-3">Verification Status</h3>
+                <div class="space-y-2 text-sm">
+                  <div>
+                    <span class="font-medium text-gray-700 dark:text-gray-300">Slug Retrieved:</span>
+                    <span :class="selectedSource.slug_retrieved ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'" class="ml-2">
+                      {{ selectedSource.slug_retrieved ? '✅ Yes' : '❌ No' }}
+                    </span>
+                  </div>
+                  <div v-if="selectedSource.slug_retrieved">
+                    <span class="font-medium text-gray-700 dark:text-gray-300">Citation Found:</span>
+                    <span :class="selectedSource.citation_found ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'" class="ml-2">
+                      {{ selectedSource.citation_found ? '✅ Yes' : '❌ No' }}
+                    </span>
+                  </div>
+                  <div v-if="selectedSource.verification_confidence !== null && selectedSource.verification_confidence !== undefined">
+                    <span class="font-medium text-gray-700 dark:text-gray-300">Verification Confidence:</span>
+                    <span :class="[
+                      'px-2 py-0.5 rounded text-xs font-medium ml-2',
+                      selectedSource.verification_confidence >= 0.7 ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' :
+                      selectedSource.verification_confidence >= 0.4 ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400' :
+                      'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
+                    ]">
+                      {{ (selectedSource.verification_confidence * 100).toFixed(0) }}%
+                    </span>
+                  </div>
+                  <div v-if="selectedSource.verification_explanation">
+                    <span class="font-medium text-gray-700 dark:text-gray-300">Explanation:</span>
+                    <div class="text-gray-900 dark:text-white mt-1">{{ selectedSource.verification_explanation }}</div>
+                  </div>
+                  <div v-if="selectedSource.matched_text">
+                    <span class="font-medium text-gray-700 dark:text-gray-300">Matched Text:</span>
+                    <div class="text-gray-900 dark:text-white italic mt-1">{{ selectedSource.matched_text }}</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Sefaria Text -->
+              <div v-if="selectedSource && selectedSource.standard_slug" class="bg-gray-50 dark:bg-gray-900 p-4 rounded-lg">
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-3">
+                  Text from Sefaria ({{ selectedSource.standard_slug }})
+                </h3>
+                <div v-if="isLoadingSefaria" class="text-center py-4">
+                  <div class="text-gray-500 dark:text-gray-400">Loading...</div>
+                </div>
+                <div v-else-if="sefariaText" class="prose prose-sm dark:prose-invert max-w-none">
+                  <div 
+                    class="text-gray-900 dark:text-gray-100 leading-relaxed whitespace-pre-wrap max-h-96 overflow-auto"
+                    v-html="selectedSource && selectedSource.matched_text ? highlightMatchedText(sefariaText, selectedSource.matched_text) : sefariaText"
+                  ></div>
+                </div>
+                <div v-else class="text-gray-500 dark:text-gray-400 italic">
+                  No text available
+                </div>
               </div>
             </div>
             

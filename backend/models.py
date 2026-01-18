@@ -29,6 +29,12 @@ class Source(BaseModel):
         None  # The excerpt from edited text that cites this source
     )
     confidence: Optional[float] = None  # Confidence score between 0 and 1
+    # Source verification fields
+    slug_retrieved: Optional[bool] = None  # Whether the API successfully retrieved the slug
+    citation_found: Optional[bool] = None  # Whether the citation was found in the source
+    verification_confidence: Optional[float] = None  # Confidence score from verification (0-1)
+    verification_explanation: Optional[str] = None  # Explanation of the verification result
+    matched_text: Optional[str] = None  # The matched text found in the source
 
 
 class EditedPart(BaseModel):
