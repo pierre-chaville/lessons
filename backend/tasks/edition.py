@@ -299,7 +299,7 @@ async def edit_transcript_async(
                     standard_slug=src.standard_slug,
                     original_text=src.original_text,
                     translation_text=src.translation_text,
-                    cited_excerpt=src.cited_excerpt,
+                    cited_excerpt=getattr(src, 'cited_excerpt', None),
                     confidence=src.confidence,
                 )
                 for src in part.sources

@@ -35,7 +35,7 @@ class SourceVerificationOutput(BaseModel):
         description="Confidence score between 0 and 1 [1 = high confidence, 0 = low confidence]"
     )
     explanation: str = Field(
-        description="Explanation of why the citation was found or not found"
+        description="Explanation of why the citation was found or not found (in french)"
     )
     matched_text: Optional[str] = Field(
         default=None,

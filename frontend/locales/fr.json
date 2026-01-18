@@ -83,6 +83,8 @@
     "processEditionDesc": "Réécrire la transcription avec style écrit et sources",
     "processSummary": "Résumé",
     "processSummaryDesc": "Générer un résumé concis",
+    "processSources": "Vérifier les Sources",
+    "processSourcesDesc": "Vérifier les sources en utilisant l'API Sefaria et l'IA",
     "summaryPromptType": "Type de Prompt de Résumé",
     "createTasks": "Créer les Tâches",
     "creating": "Création...",

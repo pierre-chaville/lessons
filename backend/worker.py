@@ -12,6 +12,7 @@ from tasks import (
     edit_transcript,
     generate_summary,
     transcribe_lesson,
+    verify_lesson_sources,
 )
 import logging
 
@@ -228,6 +229,44 @@ def process_summary_task(session: Session, task: Task):
         raise
 
 
+def process_sources_task(session: Session, task: Task):
+    """Process a source verification task"""
+    logger.info(f"Processing sources task {task.id}")
+
+    try:
+        # Get parameters from task
+        params = task.parameters or {}
+        lesson_id = params.get("lesson_id")
+
+        if not lesson_id:
+            raise ValueError("lesson_id is required in task parameters")
+
+        # Verify sources
+        success = verify_lesson_sources(
+            lesson_id=lesson_id,
+            session=session,
+        )
+
+        if success:
+            update_task_status(
+                session,
+                task,
+                "completed",
+                result={
+                    "message": "Source verification completed successfully",
+                    "lesson_id": lesson_id,
+                },
+            )
+        else:
+            update_task_status(
+                session, task, "failed", error="Source verification failed"
+            )
+
+    except Exception as e:
+        logger.error(f"Error in sources task: {e}", exc_info=True)
+        raise
+
+
 def process_task(session: Session, task: Task):
     """Process a task based on its type"""
     try:
@@ -243,6 +282,8 @@ def process_task(session: Session, task: Task):
             process_edition_task(session, task)
         elif task.task_type == "summary":
             process_summary_task(session, task)
+        elif task.task_type == "sources":
+            process_sources_task(session, task)
         else:
             logger.warning(f"Unknown task type: {task.task_type}")
             update_task_status(

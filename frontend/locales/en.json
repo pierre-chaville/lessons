@@ -83,6 +83,8 @@
     "processEditionDesc": "Rewrite transcript in written style with sources",
     "processSummary": "Summary",
     "processSummaryDesc": "Generate a concise summary",
+    "processSources": "Verify Sources",
+    "processSourcesDesc": "Verify sources using Sefaria API and LLM",
     "summaryPromptType": "Summary Prompt Type",
     "createTasks": "Create Tasks",
     "creating": "Creating...",

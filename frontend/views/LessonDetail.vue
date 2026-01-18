@@ -91,7 +91,8 @@ const selectedProcesses = ref({
   transcribe: false,
   correct: false,
   edition: false,
-  summary: false
+  summary: false,
+  sources: false
 });
 const selectedSummaryPrompt = ref('');
 const availableSummaryPrompts = ref([]);
@@ -768,7 +769,8 @@ const openProcessModal = async () => {
     transcribe: false,
     correct: false,
     edition: false,
-    summary: false
+    summary: false,
+    sources: false
   };
   showProcessModal.value = true;
   
@@ -804,7 +806,7 @@ const createTasks = async () => {
     isCreatingTasks.value = true;
     
     // Define the correct order for task execution
-    const taskOrder = ['transcribe', 'correct', 'edition', 'summary'];
+    const taskOrder = ['transcribe', 'correct', 'edition', 'summary', 'sources'];
     
     // Filter selected tasks and sort them by the defined order
     const orderedTasks = taskOrder.filter(task => selectedTasks.includes(task));
@@ -827,8 +829,17 @@ const createTasks = async () => {
         parameters.prompt_type = selectedSummaryPrompt.value;
       }
       
+      // Map task type to API task_type
+      const taskTypeMap = {
+        'transcribe': 'transcription',
+        'correct': 'correction',
+        'edition': 'edition',
+        'summary': 'summary',
+        'sources': 'sources'
+      };
+      
       await axios.post(`${API_URL}/tasks`, {
-        task_type: taskType === 'transcribe' ? 'transcription' : taskType === 'correct' ? 'correction' : taskType === 'edition' ? 'edition' : 'summary',
+        task_type: taskTypeMap[taskType],
         parameters: parameters
       });
     }
@@ -1028,6 +1039,22 @@ const saveSegment = async () => {
                 </div>
                 <div class="text-xs text-gray-500 dark:text-gray-400">
                   {{ t('lessons.processSummaryDesc') }}
+                </div>
+              </div>
+            </label>
+            
+            <label class="flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors">
+              <input
+                type="checkbox"
+                v-model="selectedProcesses.sources"
+                class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+              />
+              <div class="flex-1">
+                <div class="text-sm font-medium text-gray-900 dark:text-white">
+                  {{ t('lessons.processSources') }}
+                </div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('lessons.processSourcesDesc') }}
                 </div>
               </div>
             </label>
@@ -1559,15 +1586,16 @@ const saveSegment = async () => {
                         <span v-if="source.work && source.ref">, </span>
                         <span v-if="source.ref" class="text-gray-500 dark:text-gray-400">{{ source.ref }}</span>
                         <span v-if="source.standard_slug" class="text-xs text-gray-400 dark:text-gray-500 font-mono">({{ source.standard_slug }})</span>
-                        <span v-if="source.confidence !== null && source.confidence !== undefined" 
-                          :class="[
-                            'px-2 py-0.5 rounded text-xs font-medium',
-                            source.confidence >= 0.7 ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' :
-                            source.confidence >= 0.4 ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400' :
-                            'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
-                          ]"
-                          :title="`Confidence: ${(source.confidence * 100).toFixed(0)}%`">
-                          {{ (source.confidence * 100).toFixed(0) }}%
+                        <!-- Verification status icon -->
+                        <span v-if="source.citation_found === true && source.verification_confidence !== null && source.verification_confidence > 0.9" 
+                          class="text-green-600 dark:text-green-400"
+                          title="Verified (confidence > 90%)">
+                          <CheckIcon class="h-5 w-5" />
+                        </span>
+                        <span v-else-if="source.citation_found === false || (source.verification_confidence !== null && source.verification_confidence <= 0.9) || source.slug_retrieved === false"
+                          class="text-yellow-600 dark:text-yellow-400"
+                          :title="source.citation_found === false ? 'Citation not found' : source.verification_confidence !== null ? `Verification confidence: ${(source.verification_confidence * 100).toFixed(0)}%` : 'Not verified'">
+                          <ExclamationTriangleIcon class="h-5 w-5" />
                         </span>
                       </div>
                       <div v-if="source.translation_text" class="italic mb-1">
@@ -1683,15 +1711,16 @@ const saveSegment = async () => {
                         <div class="font-semibold text-gray-900 dark:text-white">
                           <span v-if="source.type" class="text-gray-600 dark:text-gray-400">{{ source.type }}</span><span v-if="source.type && source.work"> — </span><span v-if="source.work" class="italic">{{ source.work }}</span>
                         </div>
-                        <span v-if="source.confidence !== null && source.confidence !== undefined" 
-                          :class="[
-                            'px-2 py-0.5 rounded text-xs font-medium',
-                            source.confidence >= 0.7 ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' :
-                            source.confidence >= 0.4 ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400' :
-                            'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
-                          ]"
-                          :title="`Confidence: ${(source.confidence * 100).toFixed(0)}%`">
-                          {{ (source.confidence * 100).toFixed(0) }}%
+                        <!-- Verification status icon -->
+                        <span v-if="source.citation_found === true && source.verification_confidence !== null && source.verification_confidence > 0.9" 
+                          class="text-green-600 dark:text-green-400"
+                          title="Verified (confidence > 90%)">
+                          <CheckIcon class="h-5 w-5" />
+                        </span>
+                        <span v-else-if="source.citation_found === false || (source.verification_confidence !== null && source.verification_confidence <= 0.9) || source.slug_retrieved === false"
+                          class="text-yellow-600 dark:text-yellow-400"
+                          :title="source.citation_found === false ? 'Citation not found' : source.verification_confidence !== null ? `Verification confidence: ${(source.verification_confidence * 100).toFixed(0)}%` : 'Not verified'">
+                          <ExclamationTriangleIcon class="h-5 w-5" />
                         </span>
                       </div>
                       <div v-if="source.ref" class="text-xs text-gray-500 dark:text-gray-400 mb-1">
