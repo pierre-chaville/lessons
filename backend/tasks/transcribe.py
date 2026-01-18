@@ -1,9 +1,181 @@
 """Whisper transcription utilities"""
 import time
 import sys
+import os
 from pathlib import Path
 from typing import Optional, List, Tuple, Dict, Any
 from sqlmodel import Session
+
+# Add CUDA to PATH for Windows (needed for cuDNN DLLs)
+if sys.platform == "win32":
+    print(f"Current PATH: {os.environ.get('PATH', 'NOT SET')[:200]}...")
+    
+    # Common CUDA and cuDNN installation paths (check both \bin and \bin\x64)
+    cuda_paths = [
+        # Standalone cuDNN installations (from .exe installer) - versioned structure
+        # Format: C:\Program Files\NVIDIA\CUDNN\v9.x\bin\{cuda_version}\x64
+        # Prioritize 12.x versions as they're more stable/compatible
+        r"C:\Program Files\NVIDIA\CUDNN\v9.18\bin\12.9\x64",
+        r"C:\Program Files\NVIDIA\CUDNN\v9.18\bin\12.6\x64",
+        r"C:\Program Files\NVIDIA\CUDNN\v9.18\bin\13.1\x64",
+        r"C:\Program Files\NVIDIA\CUDNN\v9.18\bin\13.0\x64",
+        r"C:\Program Files\NVIDIA\CUDNN\v9.5\bin\13.1\x64",
+        r"C:\Program Files\NVIDIA\CUDNN\v9.5\bin\13.0\x64",
+        r"C:\Program Files\NVIDIA\CUDNN\v9.5\bin\12.9\x64",
+        r"C:\Program Files\NVIDIA\CUDNN\v9.5\bin\12.6\x64",
+        r"C:\Program Files\NVIDIA\CUDNN\v9.4\bin\13.1\x64",
+        r"C:\Program Files\NVIDIA\CUDNN\v9.4\bin\13.0\x64",
+        r"C:\Program Files\NVIDIA\CUDNN\v9.4\bin\12.9\x64",
+        r"C:\Program Files\NVIDIA\CUDNN\v9.4\bin\12.6\x64",
+        r"C:\Program Files\NVIDIA\CUDNN\v9.3\bin\13.1\x64",
+        r"C:\Program Files\NVIDIA\CUDNN\v9.3\bin\13.0\x64",
+        r"C:\Program Files\NVIDIA\CUDNN\v9.3\bin\12.9\x64",
+        r"C:\Program Files\NVIDIA\CUDNN\v9.3\bin\12.6\x64",
+        r"C:\Program Files\NVIDIA\CUDNN\v9.2\bin\13.1\x64",
+        r"C:\Program Files\NVIDIA\CUDNN\v9.2\bin\13.0\x64",
+        r"C:\Program Files\NVIDIA\CUDNN\v9.2\bin\12.9\x64",
+        r"C:\Program Files\NVIDIA\CUDNN\v9.2\bin\12.6\x64",
+        r"C:\Program Files\NVIDIA\CUDNN\v9.1\bin\13.1\x64",
+        r"C:\Program Files\NVIDIA\CUDNN\v9.1\bin\13.0\x64",
+        r"C:\Program Files\NVIDIA\CUDNN\v9.1\bin\12.9\x64",
+        r"C:\Program Files\NVIDIA\CUDNN\v9.1\bin\12.6\x64",
+        r"C:\Program Files\NVIDIA\CUDNN\v9.0\bin\13.1\x64",
+        r"C:\Program Files\NVIDIA\CUDNN\v9.0\bin\13.0\x64",
+        r"C:\Program Files\NVIDIA\CUDNN\v9.0\bin\12.9\x64",
+        r"C:\Program Files\NVIDIA\CUDNN\v9.0\bin\12.6\x64",
+        # Older cuDNN structure (non-versioned)
+        r"C:\Program Files\NVIDIA\CUDNN\v9.5\bin",
+        r"C:\Program Files\NVIDIA\CUDNN\v9.4\bin",
+        r"C:\Program Files\NVIDIA\CUDNN\v9.3\bin",
+        r"C:\Program Files\NVIDIA\CUDNN\v9.2\bin",
+        r"C:\Program Files\NVIDIA\CUDNN\v9.1\bin",
+        r"C:\Program Files\NVIDIA\CUDNN\v9.0\bin",
+        r"C:\Program Files\NVIDIA Corporation\CUDNN\v9.5\bin",
+        r"C:\Program Files\NVIDIA Corporation\CUDNN\v9.4\bin",
+        r"C:\Program Files\NVIDIA Corporation\CUDNN\v9.3\bin",
+        r"C:\Program Files\NVIDIA Corporation\CUDNN\v9.2\bin",
+        r"C:\Program Files\NVIDIA Corporation\CUDNN\v9.1\bin",
+        r"C:\Program Files\NVIDIA Corporation\CUDNN\v9.0\bin",
+        # CUDA Toolkit paths with cuDNN
+        r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.0\bin\x64",
+        r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.0\bin",
+        r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6\bin\x64",
+        r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6\bin",
+        r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.5\bin\x64",
+        r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.5\bin",
+        r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4\bin\x64",
+        r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4\bin",
+        r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.3\bin\x64",
+        r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.3\bin",
+        r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.2\bin\x64",
+        r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.2\bin",
+        r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.1\bin\x64",
+        r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.1\bin",
+        r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.0\bin\x64",
+        r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.0\bin",
+        r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.8\bin\x64",
+        r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.8\bin",
+        r"C:\Program Files\NVIDIA\CUDA\v13.0\bin\x64",
+        r"C:\Program Files\NVIDIA\CUDA\v13.0\bin",
+        r"C:\Program Files\NVIDIA\CUDA\v12.6\bin\x64",
+        r"C:\Program Files\NVIDIA\CUDA\v12.6\bin",
+        r"C:\Program Files\NVIDIA\CUDA\v12.5\bin\x64",
+        r"C:\Program Files\NVIDIA\CUDA\v12.5\bin",
+        r"C:\Program Files\NVIDIA\CUDA\v11.8\bin\x64",
+        r"C:\Program Files\NVIDIA\CUDA\v11.8\bin",
+    ]
+    
+    # Check which paths exist
+    print("Checking CUDA paths:")
+    for cuda_path in cuda_paths:
+        exists = Path(cuda_path).exists()
+        in_path = cuda_path in os.environ.get("PATH", "")
+        print(f"  {cuda_path}: exists={exists}, in_PATH={in_path}")
+        if exists:
+            # Check if cudnn_ops64_9.dll is in this directory
+            dll_path = Path(cuda_path) / "cudnn_ops64_9.dll"
+            print(f"    cudnn_ops64_9.dll exists: {dll_path.exists()}")
+    
+    # Search for cuDNN DLL in known paths and add to PATH if found
+    cudnn_found = False
+    cudnn_cuda_version = None
+    for cuda_path in cuda_paths:
+        if Path(cuda_path).exists():
+            dll_path = Path(cuda_path) / "cudnn_ops64_9.dll"
+            if dll_path.exists():
+                print(f"✓ Found cudnn_ops64_9.dll in: {cuda_path}")
+                # Extract CUDA version from path (e.g., "12.9" from "...bin\12.9\x64")
+                path_parts = cuda_path.split(os.sep)
+                for i, part in enumerate(path_parts):
+                    if part == "bin" and i + 1 < len(path_parts):
+                        potential_version = path_parts[i + 1]
+                        if potential_version.replace(".", "").isdigit():
+                            cudnn_cuda_version = potential_version
+                            break
+                
+                if cuda_path not in os.environ.get("PATH", ""):
+                    os.environ["PATH"] = cuda_path + os.pathsep + os.environ.get("PATH", "")
+                    print(f"✓ Added cuDNN path to environment: {cuda_path}")
+                    if cudnn_cuda_version:
+                        print(f"  (cuDNN built for CUDA {cudnn_cuda_version})")
+                else:
+                    print(f"✓ cuDNN path already in PATH: {cuda_path}")
+                    if cudnn_cuda_version:
+                        print(f"  (cuDNN built for CUDA {cudnn_cuda_version})")
+                cudnn_found = True
+                break
+    
+    # Also ensure CUDA Toolkit bin directory is in PATH for cuBLAS, etc.
+    if cudnn_found and cudnn_cuda_version:
+        # Try to find matching CUDA toolkit
+        cuda_major = cudnn_cuda_version.split('.')[0]
+        potential_cuda_paths = [
+            rf"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v{cudnn_cuda_version}\bin",
+            rf"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v{cuda_major}.0\bin",
+            rf"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v{cudnn_cuda_version}\bin\x64",
+            rf"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v{cuda_major}.0\bin\x64",
+        ]
+        
+        for cuda_bin in potential_cuda_paths:
+            if Path(cuda_bin).exists():
+                cublas_dll = Path(cuda_bin) / f"cublasLt64_{cuda_major}.dll"
+                if cublas_dll.exists():
+                    if cuda_bin not in os.environ.get("PATH", ""):
+                        os.environ["PATH"] = cuda_bin + os.pathsep + os.environ.get("PATH", "")
+                        print(f"✓ Added CUDA Toolkit path: {cuda_bin}")
+                    else:
+                        print(f"✓ CUDA Toolkit path already in PATH: {cuda_bin}")
+                    break
+        else:
+            print(f"⚠ WARNING: Could not find CUDA {cudnn_cuda_version} Toolkit installation")
+            print(f"  cuDNN {cudnn_cuda_version} requires CUDA {cudnn_cuda_version} libraries")
+            print(f"  The worker will attempt to use CPU instead.")
+    
+    if not cudnn_found:
+        print("⚠ WARNING: cudnn_ops64_9.dll not found in standard paths!")
+        print("  Searching all PATH directories for cudnn_ops64_9.dll...")
+        
+        # Search all PATH directories for the DLL
+        path_dirs = os.environ.get("PATH", "").split(os.pathsep)
+        for path_dir in path_dirs:
+            if path_dir and Path(path_dir).exists():
+                dll_path = Path(path_dir) / "cudnn_ops64_9.dll"
+                if dll_path.exists():
+                    print(f"  ✓ Found cudnn_ops64_9.dll in: {path_dir}")
+                    cudnn_found = True
+                    break
+        
+        if not cudnn_found:
+            print("  ✗ cudnn_ops64_9.dll not found in any PATH directory!")
+            print("  ")
+            print("  To fix this, you need to find where cuDNN was installed and add it to PATH.")
+            print("  Common locations to check:")
+            print("    - C:\\Program Files\\NVIDIA\\CUDNN\\")
+            print("    - C:\\Program Files\\NVIDIA Corporation\\CUDNN\\")
+            print("    - Your user AppData folder")
+            print("  ")
+            print("  Or manually add the cuDNN bin directory to your system PATH.")
+            print("  The worker will attempt to use CPU instead of CUDA.")
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -18,11 +190,14 @@ logger = logging.getLogger(__name__)
 _model = None
 _model_config = None
 
-def get_whisper_model():
+def get_whisper_model(force_device=None):
     """
     Get or initialize the Whisper model with lazy loading.
     Model is cached globally to avoid reloading.
     Import is delayed until first use for faster app startup.
+    
+    Args:
+        force_device: If provided, overrides the device from config (e.g., 'cpu', 'cuda')
     """
     global _model, _model_config
     
@@ -32,7 +207,7 @@ def get_whisper_model():
     # Get whisper config with defaults
     whisper_config = config.get("whisper", {})
     model_size = whisper_config.get("model_size", "large-v3")
-    device = whisper_config.get("device", "cuda")
+    device = force_device if force_device is not None else whisper_config.get("device", "cuda")
     compute_type = whisper_config.get("compute_type", "int8")
     
     current_config = (model_size, device, compute_type)
@@ -64,26 +239,31 @@ def get_whisper_model():
             else:
                 raise
     
-    return _model, model_size, device, compute_type
+    # Return model and its config (use cached config if model wasn't reloaded)
+    return _model, _model_config[0], _model_config[1], _model_config[2]
 
 def transcribe_audio(
     audio_path: str, 
     language: Optional[str] = None,
     beam_size: int = 5,
     vad_filter: bool = True,
-    initial_prompt: Optional[str] = None
+    initial_prompt: Optional[str] = None,
+    force_device: Optional[str] = None
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """
     Transcribe audio and return list of segments with timestamps and metadata.
     Model is loaded lazily on first call and cached for subsequent calls.
+    
+    Args:
+        force_device: Force a specific device ('cpu' or 'cuda'), overrides config
     
     Returns:
         Tuple of (segments, metadata_dict)
         - segments: List of dicts with keys: 'start', 'end', 'text'
         - metadata_dict: Dict with transcription parameters
     """
-    # Get or initialize model
-    model, model_size, device, compute_type = get_whisper_model()
+    # Get or initialize model (with optional device override)
+    model, model_size, device, compute_type = get_whisper_model(force_device=force_device)
     
     start_time = time.time()
     logger.info(f"Starting transcription of {audio_path}...")
@@ -159,7 +339,7 @@ def transcribe_lesson(
         if not audio_path.exists():
             logger.error(f"Audio file not found: {audio_path}")
             return False
-                    
+
         logger.info(f"Transcribing lesson {lesson_id}: {lesson.title}")
         
         # Load config
@@ -172,14 +352,35 @@ def transcribe_lesson(
         vad_filter = transcribe_config.get('vad_filter', True)
         initial_prompt = transcribe_config.get('initial_prompt', '')
         
-        # Transcribe audio
-        segments_data, metadata = transcribe_audio(
-            str(audio_path),
-            language=language,
-            beam_size=beam_size,
-            vad_filter=vad_filter,
-            initial_prompt=initial_prompt if initial_prompt else None
-        )
+        # Transcribe audio (with fallback to CPU if cuDNN fails)
+        try:
+            segments_data, metadata = transcribe_audio(
+                str(audio_path),
+                language=language,
+                beam_size=beam_size,
+                vad_filter=vad_filter,
+                initial_prompt=initial_prompt if initial_prompt else None
+            )
+        except RuntimeError as e:
+            if "cuDNN" in str(e) or "CUDA" in str(e):
+                logger.warning(f"CUDA/cuDNN error during transcription: {e}. Retrying with CPU...")
+                # Clear cached model to force reload
+                global _model, _model_config
+                _model = None
+                _model_config = None
+                
+                # Retry transcription with CPU (force_device='cpu' overrides config)
+                segments_data, metadata = transcribe_audio(
+                    str(audio_path),
+                    language=language,
+                    beam_size=beam_size,
+                    vad_filter=vad_filter,
+                    initial_prompt=initial_prompt if initial_prompt else None,
+                    force_device='cpu'
+                )
+                logger.info("Successfully transcribed on CPU after CUDA failure")
+            else:
+                raise
         
         # Update lesson with transcript
         lesson.transcript = segments_data

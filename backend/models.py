@@ -19,13 +19,16 @@ class Segment(BaseModel):
 class Source(BaseModel):
     """Source used in a lesson, a portion of text from another author"""
 
-    author: str  # Author name (e.g. Cicero)
-    work: str  # Work name (e.g. De Officiis)
-    reference: str  # Reference (e.g. Book I, Section 2)
-    text: str  # Source text
+    type: str  # Type of source (e.g., Torah, Mishnah, Gemara, Midrash, etc.)
+    work: str  # Work title (e.g., Pirkei Avot)
+    ref: str  # Reference to the source (e.g., 4.2)
+    standard_slug: str  # Standard slug in Sefaria for the source (e.g., Pirkei_Avot.4.2)
+    original_text: str  # Source text in the original language
+    translation_text: str  # Source text in the lesson language (fr)
     cited_excerpt: Optional[str] = (
         None  # The excerpt from edited text that cites this source
     )
+    confidence: Optional[float] = None  # Confidence score between 0 and 1
 
 
 class EditedPart(BaseModel):

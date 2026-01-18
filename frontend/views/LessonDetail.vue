@@ -312,7 +312,7 @@ const addSourceMarkers = (text, sources, globalStartIndex = 0) => {
     const excerpt = source.cited_excerpt;
     
     // Create a highlighted version with superscript marker
-    const highlighted = `<mark class="bg-yellow-100 dark:bg-yellow-900/30 px-0.5 rounded">${excerpt}<sup class="text-indigo-600 dark:text-indigo-400 font-bold ml-0.5">[${marker}]</sup></mark>`;
+    const highlighted = `<mark class="bg-yellow-100 dark:bg-yellow-900/30 dark:text-yellow-50 px-0.5 rounded">${excerpt}<sup class="text-indigo-600 dark:text-indigo-400 font-bold ml-0.5">[${marker}]</sup></mark>`;
     
     // Replace first occurrence
     markedText = markedText.replace(excerpt, highlighted);
@@ -321,23 +321,23 @@ const addSourceMarkers = (text, sources, globalStartIndex = 0) => {
   return markedText;
 };
 
-// Collect all sources from edited transcript, grouped by author
+// Collect all sources from edited transcript, grouped by type
 const allSources = computed(() => {
   if (!props.lesson.edited_transcript) return [];
   
-  const authorMap = new Map();
+  const typeMap = new Map();
   
   props.lesson.edited_transcript.forEach((part) => {
     if (part.sources && part.sources.length > 0) {
       part.sources.forEach((source) => {
-        const author = source.author || 'Unknown';
+        const type = source.type || 'Unknown';
         
-        if (!authorMap.has(author)) {
-          authorMap.set(author, []);
+        if (!typeMap.has(type)) {
+          typeMap.set(type, []);
         }
         
         // Add this source with its edited part
-        authorMap.get(author).push({
+        typeMap.get(type).push({
           ...source,
           editedPart: part
         });
@@ -345,10 +345,10 @@ const allSources = computed(() => {
     }
   });
   
-  // Convert to array of authors with their sources, sorted by author name
-  return Array.from(authorMap.entries())
-    .map(([author, sources]) => ({ author, sources }))
-    .sort((a, b) => a.author.localeCompare(b.author));
+  // Convert to array of types with their sources, sorted by type name
+  return Array.from(typeMap.entries())
+    .map(([type, sources]) => ({ type, sources }))
+    .sort((a, b) => a.type.localeCompare(b.type));
 });
 
 // Compute global source indices for each part
@@ -1467,19 +1467,19 @@ const saveSegment = async () => {
           <div v-else-if="activeView === 'sources'">
             <div v-if="allSources.length > 0" class="space-y-6 max-h-[600px] overflow-auto scroll-smooth print:max-h-none">
               <div
-                v-for="(authorGroup, authorIndex) in allSources"
-                :key="authorIndex"
+                v-for="(typeGroup, typeIndex) in allSources"
+                :key="typeIndex"
                 class="p-5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 transition-all"
               >
-                <!-- Author Name -->
+                <!-- Type Name -->
                 <div class="font-semibold text-lg text-gray-900 dark:text-white mb-4 pb-3 border-b border-gray-200 dark:border-gray-700">
-                  {{ authorGroup.author }}
+                  {{ typeGroup.type }}
                 </div>
                 
                 <!-- Sources List -->
                 <div class="space-y-2">
                   <div
-                    v-for="(source, sourceIndex) in authorGroup.sources"
+                    v-for="(source, sourceIndex) in typeGroup.sources"
                     :key="sourceIndex"
                     class="flex items-start gap-3 p-3 rounded-md bg-gray-50 dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
                   >
@@ -1492,9 +1492,30 @@ const saveSegment = async () => {
                       <DocumentTextIcon class="h-4 w-4" />
                     </button>
                     
-                    <!-- Work, Reference, and Text on same line -->
+                    <!-- Work, Reference, Standard Slug, Translation Text, Original Text, and Confidence -->
                     <div class="flex-1 text-sm text-gray-700 dark:text-gray-300">
-                      <span v-if="source.work" class="italic font-medium">{{ source.work }}</span><span v-if="source.work && source.reference">, </span><span v-if="source.reference" class="text-gray-500 dark:text-gray-400">{{ source.reference }}</span><span v-if="(source.work || source.reference) && source.text"> — </span><span v-if="source.text" class="italic">"{{ source.text }}"</span>
+                      <div class="flex items-center gap-2 flex-wrap mb-1">
+                        <span v-if="source.work" class="italic font-medium">{{ source.work }}</span>
+                        <span v-if="source.work && source.ref">, </span>
+                        <span v-if="source.ref" class="text-gray-500 dark:text-gray-400">{{ source.ref }}</span>
+                        <span v-if="source.standard_slug" class="text-xs text-gray-400 dark:text-gray-500 font-mono">({{ source.standard_slug }})</span>
+                        <span v-if="source.confidence !== null && source.confidence !== undefined" 
+                          :class="[
+                            'px-2 py-0.5 rounded text-xs font-medium',
+                            source.confidence >= 0.7 ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' :
+                            source.confidence >= 0.4 ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400' :
+                            'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
+                          ]"
+                          :title="`Confidence: ${(source.confidence * 100).toFixed(0)}%`">
+                          {{ (source.confidence * 100).toFixed(0) }}%
+                        </span>
+                      </div>
+                      <div v-if="source.translation_text" class="italic mb-1">
+                        "{{ source.translation_text }}"
+                      </div>
+                      <div v-if="source.original_text" class="text-gray-600 dark:text-gray-400 italic text-xs">
+                        <span class="font-medium">Original:</span> "{{ source.original_text }}"
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1597,14 +1618,29 @@ const saveSegment = async () => {
                       [{{ getGlobalSourceIndex(index) + srcIndex + 1 }}]
                     </div>
                     <div class="flex-1 text-sm">
-                      <div class="font-semibold text-gray-900 dark:text-white mb-1">
-                        {{ source.author }}<span v-if="source.work">, <em class="text-gray-600 dark:text-gray-400">{{ source.work }}</em></span>
+                      <div class="flex items-center gap-2 mb-1">
+                        <div class="font-semibold text-gray-900 dark:text-white">
+                          <span v-if="source.type" class="text-gray-600 dark:text-gray-400">{{ source.type }}</span><span v-if="source.type && source.work"> — </span><span v-if="source.work" class="italic">{{ source.work }}</span>
+                        </div>
+                        <span v-if="source.confidence !== null && source.confidence !== undefined" 
+                          :class="[
+                            'px-2 py-0.5 rounded text-xs font-medium',
+                            source.confidence >= 0.7 ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' :
+                            source.confidence >= 0.4 ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400' :
+                            'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
+                          ]"
+                          :title="`Confidence: ${(source.confidence * 100).toFixed(0)}%`">
+                          {{ (source.confidence * 100).toFixed(0) }}%
+                        </span>
                       </div>
-                      <div v-if="source.reference" class="text-xs text-gray-500 dark:text-gray-400 mb-1">
-                        {{ source.reference }}
+                      <div v-if="source.ref" class="text-xs text-gray-500 dark:text-gray-400 mb-1">
+                        {{ source.ref }}<span v-if="source.standard_slug" class="text-gray-400 dark:text-gray-500 font-mono ml-2">({{ source.standard_slug }})</span>
                       </div>
-                      <div v-if="source.text" class="text-gray-700 dark:text-gray-300 italic">
-                        "{{ source.text }}"
+                      <div v-if="source.translation_text" class="text-gray-700 dark:text-gray-300 italic mb-1">
+                        "{{ source.translation_text }}"
+                      </div>
+                      <div v-if="source.original_text" class="text-gray-600 dark:text-gray-400 italic text-xs mt-1">
+                        <span class="font-medium">Original:</span> "{{ source.original_text }}"
                       </div>
                     </div>
                   </div>

@@ -36,17 +36,13 @@ class SegmentInput(BaseModel):
 class SourceOutput(BaseModel):
     """A source citation used in the edited text"""
 
-    author: str = Field(description="Author name (e.g., Rashi, Cicero)")
-    work: str = Field(
-        description="Work title (e.g., Commentary on Genesis, De Officiis)"
-    )
-    reference: str = Field(
-        description="Specific reference (e.g., Chapter 1:5, Book II)"
-    )
-    text: str = Field(description="Relevant quote or text from the source")
-    cited_excerpt: str = Field(
-        description="The exact excerpt from the edited text that references this source (for marking/highlighting)"
-    )
+    type: str|None = Field(description="Type of source (e.g., Torah, Mishnah, Gemara, Midrash, etc.)")
+    work: str|None = Field(description="Work title (e.g., Pirkei Avot)")
+    ref: str|None = Field(description="Reference to the source (e.g., 4.2")
+    standard_slug: str|None = Field(description="Standard slug in Sefaria for the source (e.g., Pirkei_Avot.4.2)")
+    original_text: str|None = Field(description="Relevant quote or text from the source in the original language")
+    translation_text: str|None = Field(description="Relevant quote or text from the source in the lesson (fr)")
+    confidence: float|None = Field(description="Confidence score between 0 and 1 [1 = high confidence, 0 = low confidence, 0.5 = medium confidence]")
 
 
 class EditedPartOutput(BaseModel):
@@ -297,11 +293,14 @@ async def edit_transcript_async(
         for part in all_edited_parts:
             sources = [
                 Source(
-                    author=src.author,
+                    type=src.type,
                     work=src.work,
-                    reference=src.reference,
-                    text=src.text,
+                    ref=src.ref,
+                    standard_slug=src.standard_slug,
+                    original_text=src.original_text,
+                    translation_text=src.translation_text,
                     cited_excerpt=src.cited_excerpt,
+                    confidence=src.confidence,
                 )
                 for src in part.sources
             ]
