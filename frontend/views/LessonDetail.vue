@@ -653,6 +653,28 @@ const downloadSourcesPDF = async () => {
   }
 };
 
+const downloadDetailedSourcesPDF = async () => {
+  try {
+    const response = await axios.get(
+      `${API_URL}/lessons/${props.lesson.id}/pdf/sources/detailed`,
+      { responseType: 'blob' }
+    );
+    
+    // Create download link
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `${props.lesson.title}_sources_detailed.pdf`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  } catch (error) {
+    console.error('Failed to download detailed sources PDF:', error);
+    alert(t('lessons.downloadFailed'));
+  }
+};
+
 // Edit lesson functions
 const startEditLesson = async () => {
   // Fetch courses and themes for the dropdowns if not already loaded
@@ -1363,14 +1385,22 @@ const saveSegment = async () => {
                 {{ t('lessons.downloadPDF') }}
               </button>
               
-              <!-- Download Sources PDF Button (show for sources view) -->
+              <!-- Download Sources PDF Buttons (show for sources view) -->
               <button
                 v-if="activeView === 'sources' && !isEditingSummary"
                 @click="downloadSourcesPDF"
+                class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors mr-2"
+              >
+                <PrinterIcon class="h-4 w-4" />
+                {{ t('lessons.downloadSourcesPDF') }}
+              </button>
+              <button
+                v-if="activeView === 'sources' && !isEditingSummary"
+                @click="downloadDetailedSourcesPDF"
                 class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
               >
                 <PrinterIcon class="h-4 w-4" />
-                {{ t('lessons.downloadPDF') }}
+                {{ t('lessons.downloadDetailedSourcesPDF') }}
               </button>
               
               <!-- Edit Button (show for summary view) -->

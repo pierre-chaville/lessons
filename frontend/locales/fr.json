@@ -71,6 +71,8 @@
     "cancel": "Annuler",
     "saveFailed": "Échec de l'enregistrement. Veuillez réessayer.",
     "downloadPDF": "Télécharger PDF",
+    "downloadSourcesPDF": "Télécharger PDF Sources",
+    "downloadDetailedSourcesPDF": "Télécharger Revue Détaillée",
     "downloadFailed": "Échec du téléchargement du PDF. Veuillez réessayer.",
     "processLesson": "Traiter la Leçon",
     "processLessonTitle": "Traiter la Leçon",

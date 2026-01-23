@@ -71,6 +71,8 @@
     "cancel": "Cancel",
     "saveFailed": "Failed to save changes. Please try again.",
     "downloadPDF": "Download PDF",
+    "downloadSourcesPDF": "Download Sources PDF",
+    "downloadDetailedSourcesPDF": "Download Detailed Review",
     "downloadFailed": "Failed to download PDF. Please try again.",
     "processLesson": "Process Lesson",
     "processLessonTitle": "Process Lesson",
