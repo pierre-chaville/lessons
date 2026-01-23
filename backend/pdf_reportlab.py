@@ -7,7 +7,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
 from reportlab.lib.enums import TA_LEFT, TA_CENTER
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Table, TableStyle, KeepTogether
 from reportlab.lib import colors
 from reportlab.lib.colors import HexColor
 from reportlab.pdfbase import pdfmetrics
@@ -404,11 +404,59 @@ def generate_lesson_transcript_pdf(
     )
     story.append(Spacer(1, 0.5 * cm))
 
-    # Transcript segments
+    # Prepare transcript segments for two-column layout
+    transcript_segments = []
     for segment in transcript:
         text = segment.get("text", "").strip()
         if text:
-            story.append(Paragraph(f"• {text}", transcript_style))
+            transcript_segments.append(Paragraph(f"• {text}", transcript_style))
+    
+    if not transcript_segments:
+        story.append(Paragraph("No transcript segments available.", transcript_style))
+    else:
+        # Split segments into two columns (distribute evenly)
+        mid_point = (len(transcript_segments) + 1) // 2
+        left_column = transcript_segments[:mid_point]
+        right_column = transcript_segments[mid_point:]
+        
+        # Calculate column width
+        page_width = A4[0]
+        usable_width = page_width - (doc.leftMargin + doc.rightMargin)
+        column_width = (usable_width - 0.5 * cm) / 2  # Leave 0.5cm gap between columns
+        
+        # Create a table with two columns
+        # Each row contains one item from left and one from right
+        # Rows align at their tops, but each row can have different heights
+        # This allows paragraphs to flow independently - a tall paragraph in left
+        # won't force the right paragraph to be tall, and vice versa
+        max_items = max(len(left_column), len(right_column))
+        table_data = []
+        for i in range(max_items):
+            left_item = left_column[i] if i < len(left_column) else Spacer(1, 0.1 * cm)
+            right_item = right_column[i] if i < len(right_column) else Spacer(1, 0.1 * cm)
+            table_data.append([left_item, right_item])
+        
+        two_column_table = Table(
+            table_data,
+            colWidths=[column_width, column_width],
+            hAlign='LEFT'
+        )
+        
+        # Style: align to top, allow variable row heights, no forced alignment
+        # This allows each column to flow independently - rows align at top but
+        # can have different heights, so paragraphs don't need to align
+        two_column_style = TableStyle([
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),  # Top alignment - rows align at top, not forced to same height
+            ('LEFTPADDING', (0, 0), (0, -1), 0),  # Left column: no padding
+            ('RIGHTPADDING', (0, 0), (0, -1), 0),
+            ('LEFTPADDING', (1, 0), (1, -1), 0.25 * cm),  # Right column: left padding for gap
+            ('RIGHTPADDING', (1, 0), (1, -1), 0),
+            ('TOPPADDING', (0, 0), (-1, -1), 0),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+        ])
+        two_column_table.setStyle(two_column_style)
+        
+        story.append(two_column_table)
 
     # Build PDF with custom canvas for page numbering
     def create_canvas_with_footer(*args, **kwargs):
