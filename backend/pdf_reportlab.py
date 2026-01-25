@@ -799,10 +799,10 @@ def generate_lesson_sources_pdf(
             verification_confidence = source.get("verification_confidence")
             
             if slug_retrieved is not None:
-                status = "✓" if slug_retrieved else "✗"
+                status = "Yes" if slug_retrieved else "No"
                 verification_parts.append(f"Slug retrieved: {status}")
             if citation_found is not None:
-                status = "✓" if citation_found else "✗"
+                status = "Yes" if citation_found else "No"
                 verification_parts.append(f"Citation found: {status}")
             if verification_confidence is not None:
                 verification_parts.append(f"Verification confidence: {int(verification_confidence * 100)}%")
@@ -1009,10 +1009,10 @@ def generate_lesson_detailed_sources_pdf(
             
             verification_lines = []
             if source.get("slug_retrieved") is not None:
-                status = "✓ Yes" if source.get("slug_retrieved") else "✗ No"
+                status = "Yes" if source.get("slug_retrieved") else "No"
                 verification_lines.append(f"Slug Retrieved: {status}")
             if source.get("citation_found") is not None:
-                status = "✓ Yes" if source.get("citation_found") else "✗ No"
+                status = "Yes" if source.get("citation_found") else "No"
                 verification_lines.append(f"Citation Found: {status}")
             if source.get("verification_confidence") is not None:
                 conf_pct = int(source.get("verification_confidence") * 100)
