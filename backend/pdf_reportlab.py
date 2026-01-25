@@ -742,6 +742,59 @@ def generate_lesson_edited_transcript_pdf(
     return buffer.getvalue()
 
 
+def _calculate_source_statistics(edited_transcript: List[dict]) -> tuple:
+    """Calculate source statistics by type.
+    
+    Returns:
+        Tuple of (source_stats_by_type, total_stats)
+        source_stats_by_type: List of dicts with type, total, slugRetrieved, citationFound, checked
+        total_stats: Dict with total, slugRetrieved, citationFound, checked
+    """
+    type_stats_map = {}
+    
+    for part in edited_transcript:
+        if part.get("sources"):
+            for source in part["sources"]:
+                source_type = source.get("type") or "Unknown"
+                
+                if source_type not in type_stats_map:
+                    type_stats_map[source_type] = {
+                        "type": source_type,
+                        "total": 0,
+                        "slugRetrieved": 0,
+                        "citationFound": 0,
+                        "checked": 0
+                    }
+                
+                stats = type_stats_map[source_type]
+                stats["total"] += 1
+                
+                if source.get("slug_retrieved") is True:
+                    stats["slugRetrieved"] += 1
+                
+                if source.get("citation_found") is True:
+                    stats["citationFound"] += 1
+                
+                # Checked: citation found AND verification confidence > 90%
+                if (source.get("citation_found") is True and 
+                    source.get("verification_confidence") is not None and 
+                    source.get("verification_confidence") > 0.9):
+                    stats["checked"] += 1
+    
+    # Convert to sorted list
+    source_stats_by_type = sorted(type_stats_map.values(), key=lambda x: x["type"])
+    
+    # Calculate totals
+    total_stats = {
+        "total": sum(s["total"] for s in source_stats_by_type),
+        "slugRetrieved": sum(s["slugRetrieved"] for s in source_stats_by_type),
+        "citationFound": sum(s["citationFound"] for s in source_stats_by_type),
+        "checked": sum(s["checked"] for s in source_stats_by_type)
+    }
+    
+    return source_stats_by_type, total_stats
+
+
 def generate_lesson_sources_pdf(
     title: str,
     edited_transcript: List[dict],
@@ -835,6 +888,108 @@ def generate_lesson_sources_pdf(
     if course_name:
         story.append(Paragraph(f"<b>Course:</b> {course_name}", metadata_style))
     story.append(Paragraph("<b>Document Type:</b> Sources", metadata_style))
+    story.append(Spacer(1, 0.8 * cm))
+
+    # Calculate and add statistics table
+    source_stats_by_type, total_stats = _calculate_source_statistics(edited_transcript)
+    
+    # Statistics header style
+    stats_header_style = ParagraphStyle(
+        "StatsHeader",
+        parent=styles["Heading2"],
+        fontName="Helvetica-Bold",
+        fontSize=14,
+        textColor=HexColor("#1f2937"),
+        spaceAfter=8,
+        spaceBefore=0,
+    )
+    
+    # Statistics table style
+    stats_table_style = TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), HexColor("#f3f4f6")),
+        ('TEXTCOLOR', (0, 0), (-1, 0), HexColor("#374151")),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+        ('BACKGROUND', (0, 1), (-1, -1), HexColor("#ffffff")),
+        ('TEXTCOLOR', (0, 1), (-1, -1), HexColor("#374151")),
+        ('FONTNAME', (0, 1), (-1, -1), default_font),
+        ('FONTSIZE', (0, 1), (-1, -1), 9),
+        ('GRID', (0, 0), (-1, -1), 1, HexColor("#e5e7eb")),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 8),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+    ])
+    
+    # Add statistics section
+    story.append(Paragraph("Source Statistics", stats_header_style))
+    
+    # Total statistics row
+    total_row = [
+        "Total",
+        str(total_stats["total"]),
+        str(total_stats["slugRetrieved"]),
+        str(total_stats["citationFound"]),
+        str(total_stats["checked"])
+    ]
+    
+    # Statistics table data
+    table_data = [
+        ["Type", "Total", "Slug Retrieved", "Citation Found", "Checked"]
+    ]
+    
+    # Add rows for each type
+    for stats in source_stats_by_type:
+        # Calculate percentages
+        slug_pct_val = int((stats['slugRetrieved'] / stats['total']) * 100) if stats['total'] > 0 else 0
+        citation_pct_val = int((stats['citationFound'] / stats['total']) * 100) if stats['total'] > 0 else 0
+        checked_pct_val = int((stats['checked'] / stats['total']) * 100) if stats['total'] > 0 else 0
+        
+        slug_pct = f" ({slug_pct_val}%)" if stats['total'] > 0 else ""
+        citation_pct = f" ({citation_pct_val}%)" if stats['total'] > 0 else ""
+        checked_pct = f" ({checked_pct_val}%)" if stats['total'] > 0 else ""
+        
+        table_data.append([
+            stats["type"],
+            str(stats["total"]),
+            str(stats["slugRetrieved"]) + slug_pct,
+            str(stats["citationFound"]) + citation_pct,
+            str(stats["checked"]) + checked_pct
+        ])
+    
+    # Add total row at the end with percentages
+    total_slug_pct_val = int((total_stats['slugRetrieved'] / total_stats['total']) * 100) if total_stats['total'] > 0 else 0
+    total_citation_pct_val = int((total_stats['citationFound'] / total_stats['total']) * 100) if total_stats['total'] > 0 else 0
+    total_checked_pct_val = int((total_stats['checked'] / total_stats['total']) * 100) if total_stats['total'] > 0 else 0
+    
+    total_slug_pct = f" ({total_slug_pct_val}%)" if total_stats['total'] > 0 else ""
+    total_citation_pct = f" ({total_citation_pct_val}%)" if total_stats['total'] > 0 else ""
+    total_checked_pct = f" ({total_checked_pct_val}%)" if total_stats['total'] > 0 else ""
+    
+    total_row = [
+        "Total",
+        str(total_stats["total"]),
+        str(total_stats["slugRetrieved"]) + total_slug_pct,
+        str(total_stats["citationFound"]) + total_citation_pct,
+        str(total_stats["checked"]) + total_checked_pct
+    ]
+    table_data.append(total_row)
+    
+    # Create table
+    stats_table = Table(table_data, colWidths=[3*cm, 2*cm, 2.5*cm, 2.5*cm, 2*cm])
+    stats_table.setStyle(stats_table_style)
+    
+    # Apply bold to total row
+    total_row_style = TableStyle([
+        ('FONTNAME', (0, len(table_data)-1), (-1, len(table_data)-1), 'Helvetica-Bold'),
+        ('BACKGROUND', (0, len(table_data)-1), (-1, len(table_data)-1), HexColor("#e0e7ff")),
+    ])
+    stats_table.setStyle(total_row_style)
+    
+    story.append(stats_table)
     story.append(Spacer(1, 0.8 * cm))
 
     # Collect and group sources by type
@@ -1036,6 +1191,108 @@ def generate_lesson_detailed_sources_pdf(
     if course_name:
         story.append(Paragraph(f"<b>Course:</b> {course_name}", metadata_style))
     story.append(Paragraph("<b>Document Type:</b> Detailed Sources Review", metadata_style))
+    story.append(Spacer(1, 0.8 * cm))
+
+    # Calculate and add statistics table
+    source_stats_by_type, total_stats = _calculate_source_statistics(edited_transcript)
+    
+    # Statistics header style
+    stats_header_style = ParagraphStyle(
+        "StatsHeader",
+        parent=styles["Heading2"],
+        fontName="Helvetica-Bold",
+        fontSize=14,
+        textColor=HexColor("#1f2937"),
+        spaceAfter=8,
+        spaceBefore=0,
+    )
+    
+    # Statistics table style
+    stats_table_style = TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), HexColor("#f3f4f6")),
+        ('TEXTCOLOR', (0, 0), (-1, 0), HexColor("#374151")),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+        ('BACKGROUND', (0, 1), (-1, -1), HexColor("#ffffff")),
+        ('TEXTCOLOR', (0, 1), (-1, -1), HexColor("#374151")),
+        ('FONTNAME', (0, 1), (-1, -1), default_font),
+        ('FONTSIZE', (0, 1), (-1, -1), 9),
+        ('GRID', (0, 0), (-1, -1), 1, HexColor("#e5e7eb")),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 8),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+    ])
+    
+    # Add statistics section
+    story.append(Paragraph("Source Statistics", stats_header_style))
+    
+    # Total statistics row
+    total_row = [
+        "Total",
+        str(total_stats["total"]),
+        str(total_stats["slugRetrieved"]),
+        str(total_stats["citationFound"]),
+        str(total_stats["checked"])
+    ]
+    
+    # Statistics table data
+    table_data = [
+        ["Type", "Total", "Slug Retrieved", "Citation Found", "Checked"]
+    ]
+    
+    # Add rows for each type
+    for stats in source_stats_by_type:
+        # Calculate percentages
+        slug_pct_val = int((stats['slugRetrieved'] / stats['total']) * 100) if stats['total'] > 0 else 0
+        citation_pct_val = int((stats['citationFound'] / stats['total']) * 100) if stats['total'] > 0 else 0
+        checked_pct_val = int((stats['checked'] / stats['total']) * 100) if stats['total'] > 0 else 0
+        
+        slug_pct = f" ({slug_pct_val}%)" if stats['total'] > 0 else ""
+        citation_pct = f" ({citation_pct_val}%)" if stats['total'] > 0 else ""
+        checked_pct = f" ({checked_pct_val}%)" if stats['total'] > 0 else ""
+        
+        table_data.append([
+            stats["type"],
+            str(stats["total"]),
+            str(stats["slugRetrieved"]) + slug_pct,
+            str(stats["citationFound"]) + citation_pct,
+            str(stats["checked"]) + checked_pct
+        ])
+    
+    # Add total row at the end with percentages
+    total_slug_pct_val = int((total_stats['slugRetrieved'] / total_stats['total']) * 100) if total_stats['total'] > 0 else 0
+    total_citation_pct_val = int((total_stats['citationFound'] / total_stats['total']) * 100) if total_stats['total'] > 0 else 0
+    total_checked_pct_val = int((total_stats['checked'] / total_stats['total']) * 100) if total_stats['total'] > 0 else 0
+    
+    total_slug_pct = f" ({total_slug_pct_val}%)" if total_stats['total'] > 0 else ""
+    total_citation_pct = f" ({total_citation_pct_val}%)" if total_stats['total'] > 0 else ""
+    total_checked_pct = f" ({total_checked_pct_val}%)" if total_stats['total'] > 0 else ""
+    
+    total_row = [
+        "Total",
+        str(total_stats["total"]),
+        str(total_stats["slugRetrieved"]) + total_slug_pct,
+        str(total_stats["citationFound"]) + total_citation_pct,
+        str(total_stats["checked"]) + total_checked_pct
+    ]
+    table_data.append(total_row)
+    
+    # Create table
+    stats_table = Table(table_data, colWidths=[3*cm, 2*cm, 2.5*cm, 2.5*cm, 2*cm])
+    stats_table.setStyle(stats_table_style)
+    
+    # Apply bold to total row
+    total_row_style = TableStyle([
+        ('FONTNAME', (0, len(table_data)-1), (-1, len(table_data)-1), 'Helvetica-Bold'),
+        ('BACKGROUND', (0, len(table_data)-1), (-1, len(table_data)-1), HexColor("#e0e7ff")),
+    ])
+    stats_table.setStyle(total_row_style)
+    
+    story.append(stats_table)
     story.append(Spacer(1, 0.8 * cm))
 
     # Collect all sources with their edited part text
