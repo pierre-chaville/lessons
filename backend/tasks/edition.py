@@ -28,6 +28,7 @@ MAX_RETRY_DELAY = 60  # seconds
 class SegmentInput(BaseModel):
     """Input segment with timing for edition"""
 
+    segment_number: int = Field(description="Segment number (0-indexed or 1-indexed, consistent within a group)")
     start: float = Field(description="Start time in seconds")
     end: float = Field(description="End time in seconds")
     text: str = Field(description="Original transcript text")
@@ -46,10 +47,16 @@ class SourceOutput(BaseModel):
 
 
 class EditedPartOutput(BaseModel):
-    """Output: Edited part with timing and sources"""
+    """Output: Edited part with segment numbers and sources"""
 
-    start: float = Field(description="Start time in seconds (from first segment)")
-    end: float = Field(description="End time in seconds (from last segment)")
+    start_segment: int = Field(
+        description="Starting segment number (INCLUSIVE, 0-indexed within the group). "
+        "This segment IS included in this edited part."
+    )
+    end_segment: int = Field(
+        description="Ending segment number (INCLUSIVE, 0-indexed within the group). "
+        "This segment IS included in this edited part. Must be >= start_segment."
+    )
     text: str = Field(description="Rewritten text in clear, written style")
     sources: List[SourceOutput] = Field(
         default=[], description="List of sources cited in this section"
@@ -150,57 +157,129 @@ async def edit_segment_group(
     """
     try:
         # Prepare input data - handle both Segment objects and dicts
+        # Include segment numbers (0-indexed within the group)
         input_segments = []
-        for segment in group:
+        for idx, segment in enumerate(group):
             if isinstance(segment, dict):
                 input_segments.append(
                     SegmentInput(
-                        start=segment["start"], end=segment["end"], text=segment["text"]
+                        segment_number=idx,
+                        start=segment["start"],
+                        end=segment["end"],
+                        text=segment["text"]
                     )
                 )
             else:
                 input_segments.append(
                     SegmentInput(
-                        start=segment.start, end=segment.end, text=segment.text
+                        segment_number=idx,
+                        start=segment.start,
+                        end=segment.end,
+                        text=segment.text
                     )
                 )
 
         input_data = TranscriptGroupInput(segments=input_segments)
 
-        # Create the prompt with the segments
+        # Create the prompt with the segments, including segment numbers
         segments_text = "\n".join(
             [
-                f"[{seg.start:.1f}s - {seg.end:.1f}s] {seg.text}"
+                f"Segment {seg.segment_number}: [{seg.start:.1f}s - {seg.end:.1f}s] {seg.text}"
                 for seg in input_segments
             ]
         )
 
-        full_prompt = f"{edition_prompt}\n\nTranscript to edit:\n{segments_text}"
+        # Add clear instructions about segment numbering
+        num_segments = len(input_segments)
+        segment_instructions = (
+            f"\n\nIMPORTANT - Segment Numbering Rules:\n"
+            f"- Segment numbers are 0-indexed (first segment is 0, last segment is {num_segments - 1})\n"
+            f"- start_segment and end_segment are INCLUSIVE (both boundaries are included)\n"
+            f"- You MUST cover ALL segments from 0 to {num_segments - 1} without gaps\n"
+            f"- Each segment can only appear in ONE edited part (no overlaps)\n"
+            f"- Example: If you have segments 0-4, valid ranges are: [0,0], [1,2], [3,4] or [0,4] etc.\n"
+        )
+
+        full_prompt = (
+            f"{edition_prompt}\n\n"
+            f"Transcript to edit (use segment numbers for start_segment and end_segment):\n"
+            f"{segments_text}"
+            f"{segment_instructions}"
+        )
 
         # Call LLM with structured output
         result = await llm_with_structure.ainvoke(full_prompt)
 
+        # Validate that there are no gaps or overlaps in segment numbers and convert to timestamps
+        used_segments = set()
+        parts_with_timestamps = []
+        
+        for part_idx, part in enumerate(result.parts):
+            # Validate segment range
+            if part.start_segment < 0 or part.end_segment >= len(group):
+                raise ValueError(
+                    f"Invalid segment range in part {part_idx}: start_segment={part.start_segment}, "
+                    f"end_segment={part.end_segment} (valid range: 0-{len(group)-1})"
+                )
+            if part.start_segment > part.end_segment:
+                raise ValueError(
+                    f"Invalid range in part {part_idx}: start_segment ({part.start_segment}) must be <= end_segment ({part.end_segment})"
+                )
+            
+            # Check for overlaps (segments already used by another part)
+            part_segments = set(range(part.start_segment, part.end_segment + 1))
+            overlap = part_segments & used_segments
+            if overlap:
+                raise ValueError(
+                    f"Overlap detected in part {part_idx}: segments {sorted(overlap)} are already covered by another part. "
+                    f"This part covers segments {part.start_segment}-{part.end_segment}."
+                )
+            
+            # Track used segments
+            used_segments.update(part_segments)
+            
+            # Convert segment numbers to timestamps
+            start_seg = input_segments[part.start_segment]
+            end_seg = input_segments[part.end_segment]
+            
+            # Store timestamps separately (Pydantic models don't allow arbitrary attributes)
+            # We'll return a tuple: (EditedPartOutput, start_time, end_time)
+            parts_with_timestamps.append((part, start_seg.start, end_seg.end))
+        
+        # Check for gaps (missing segments)
+        expected_segments = set(range(len(group)))
+        missing_segments = expected_segments - used_segments
+        if missing_segments:
+            raise ValueError(
+                f"Gap in segment coverage: segments {sorted(missing_segments)} are not covered by any edited part. "
+                f"All segments from 0 to {len(group)-1} must be covered exactly once."
+            )
+
         # Log statistics
         logger.info(
-            f"Processed group: {len(group)} segments -> {len(result.parts)} edited parts"
+            f"Processed group: {len(group)} segments -> {len(parts_with_timestamps)} edited parts"
         )
 
-        return result.parts
+        return parts_with_timestamps
 
     except Exception as e:
         logger.error(f"Error editing segment group: {e}", exc_info=True)
         # Return single part with original text concatenated on error
+        # Cover all segments (0 to len(group)-1)
         start_time = group[0]["start"] if isinstance(group[0], dict) else group[0].start
         end_time = group[-1]["end"] if isinstance(group[-1], dict) else group[-1].end
         combined_text = " ".join(
             [seg["text"] if isinstance(seg, dict) else seg.text for seg in group]
         )
 
-        return [
-            EditedPartOutput(
-                start=start_time, end=end_time, text=combined_text, sources=[]
-            )
-        ]
+        part = EditedPartOutput(
+            start_segment=0,
+            end_segment=len(group) - 1,
+            text=combined_text,
+            sources=[]
+        )
+        # Return tuple with timestamps
+        return [(part, start_time, end_time)]
 
 
 async def edit_transcript_async(
@@ -248,7 +327,11 @@ async def edit_transcript_async(
 
         edition_prompt = edition_config.get(
             "prompt",
-            "Please rewrite the following transcript in a clear, written style while maintaining the original meaning and flow. Include timing information (start/end) and cite any sources mentioned.",
+            "Please rewrite the following transcript in a clear, written style while maintaining the original meaning and flow. "
+            "For each edited part, specify start_segment and end_segment (segment numbers, 0-indexed, INCLUSIVE boundaries) "
+            "to indicate which segments are covered by that part. "
+            "IMPORTANT: All segments must be covered exactly once without gaps or overlaps. "
+            "Each segment number can only appear in one edited part. Cite any sources mentioned.",
         )
 
         # Get LLM model
@@ -283,14 +366,17 @@ async def edit_transcript_async(
         tasks = [process_with_semaphore(group) for group in segment_groups]
         results = await asyncio.gather(*tasks)
 
-        # Flatten results - each result is a list of EditedPartOutput
+        # Flatten results - each result is a list of tuples: (EditedPartOutput, start_time, end_time)
         all_edited_parts = []
         for group_result in results:
             all_edited_parts.extend(group_result)
 
         # Convert to EditedPart model objects with Source objects
         edited_parts = []
-        for part in all_edited_parts:
+        for part_tuple in all_edited_parts:
+            # Unpack the tuple: (EditedPartOutput, start_time, end_time)
+            part, start_time, end_time = part_tuple
+            
             sources = [
                 Source(
                     type=src.type,
@@ -307,7 +393,7 @@ async def edit_transcript_async(
 
             edited_parts.append(
                 EditedPart(
-                    start=part.start, end=part.end, text=part.text, sources=sources
+                    start=start_time, end=end_time, text=part.text, sources=sources
                 )
             )
 
