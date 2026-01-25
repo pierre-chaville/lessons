@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, nextTick } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { Tab, TabGroup, TabList, TabPanel, TabPanels } from '@headlessui/vue';
 import {
@@ -10,7 +10,8 @@ import {
   MicrophoneIcon,
   PencilIcon,
   DocumentTextIcon,
-  BookOpenIcon
+  BookOpenIcon,
+  TrashIcon
 } from '@heroicons/vue/24/outline';
 import axios from 'axios';
 
@@ -32,11 +33,17 @@ const config = ref({
     prompt: '',
     temperature: 0.5
   },
+  extraction: {
+    model: '',
+    prompt: '',
+    temperature: 0.3
+  },
   sources: {
     model: '',
     prompt: '',
     temperature: 0.3
   },
+  source_types: {},
   summary: {
     max_length: 300,
     model: '',
@@ -74,6 +81,10 @@ const loadConfig = async () => {
     isLoading.value = true;
     const response = await axios.get(`${API_URL}/config`);
     config.value = response.data;
+    // Ensure source_types exists
+    if (!config.value.source_types) {
+      config.value.source_types = {};
+    }
   } catch (error) {
     console.error('Failed to load configuration:', error);
     saveError.value = t('preferences.loadFailed');
@@ -137,6 +148,58 @@ const removeSummaryPrompt = (index) => {
   if (config.value.summary.prompts.length > 1) {
     config.value.summary.prompts.splice(index, 1);
   }
+};
+
+const addSourceType = async () => {
+  // Ensure source_types exists
+  if (!config.value.source_types) {
+    config.value.source_types = {};
+  }
+  
+  // Generate a unique name for the new type
+  let newTypeName = 'New Type';
+  let counter = 1;
+  const currentTypes = { ...(config.value.source_types || {}) };
+  while (currentTypes[newTypeName] !== undefined) {
+    newTypeName = `New Type ${counter}`;
+    counter++;
+  }
+  
+  // Create new object with the added type
+  const newTypes = {
+    ...currentTypes,
+    [newTypeName]: ''
+  };
+  
+  // Update the entire config object to ensure reactivity
+  // Use Object.assign to maintain reactivity
+  config.value.source_types = newTypes;
+  
+  // Force Vue to detect the change
+  await nextTick();
+};
+
+const removeSourceType = (type) => {
+  if (config.value.source_types && config.value.source_types[type] !== undefined) {
+    delete config.value.source_types[type];
+    // Create a new object to trigger reactivity
+    config.value.source_types = { ...config.value.source_types };
+  }
+};
+
+const updateSourceType = (oldType, newType, description) => {
+  if (!config.value.source_types) {
+    config.value.source_types = {};
+  }
+  
+  // If the type name changed, remove the old one and add the new one
+  if (oldType !== newType) {
+    delete config.value.source_types[oldType];
+  }
+  
+  config.value.source_types[newType] = description;
+  // Create a new object to trigger reactivity
+  config.value.source_types = { ...config.value.source_types };
 };
 </script>
 
@@ -540,59 +603,185 @@ const removeSummaryPrompt = (index) => {
 
             <!-- Sources Tab -->
             <TabPanel class="rounded-lg bg-white dark:bg-gray-800 p-6 shadow">
-              <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-6">
                 {{ t('preferences.sourcesSettings') }}
               </h2>
               
-              <div class="space-y-6">
-                <!-- Model -->
-                <div>
-                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {{ t('preferences.model') }}
-                  </label>
-                  <input
-                    v-model="config.sources.model"
-                    type="text"
-                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-                    placeholder="gpt-4o"
-                  />
-                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    {{ t('preferences.modelDesc') }}
-                  </p>
-                </div>
-
-                <!-- Temperature -->
-                <div>
-                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {{ t('preferences.temperature') }}: {{ config.sources.temperature }}
-                  </label>
-                  <input
-                    v-model.number="config.sources.temperature"
-                    type="range"
-                    min="0"
-                    max="2"
-                    step="0.1"
-                    class="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer"
-                  />
-                  <div class="flex justify-between text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    <span>{{ t('preferences.precise') }}</span>
-                    <span>{{ t('preferences.creative') }}</span>
+              <div class="space-y-8">
+                <!-- Source Types Reference -->
+                <div class="border-b border-gray-200 dark:border-gray-700 pb-6">
+                  <h3 class="text-md font-semibold text-gray-900 dark:text-white mb-4">
+                    {{ t('preferences.sourceTypes') }}
+                  </h3>
+                  
+                  <div class="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-4">
+                    <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                      {{ t('preferences.sourceTypesDesc') }}
+                    </p>
+                    <div v-if="config.source_types && Object.keys(config.source_types || {}).length > 0" class="space-y-2">
+                      <div
+                        v-for="(description, type, index) in config.source_types"
+                        :key="type"
+                        class="flex items-center gap-2 p-2 bg-white dark:bg-gray-800 rounded-md border border-gray-200 dark:border-gray-700"
+                      >
+                        <input
+                          :value="type"
+                          @input="(e) => updateSourceType(type, e.target.value, description)"
+                          type="text"
+                          class="w-32 px-2 py-1 text-sm font-semibold text-gray-900 dark:text-white bg-transparent border-b border-gray-300 dark:border-gray-600 focus:border-indigo-500 dark:focus:border-indigo-400 focus:outline-none"
+                          :placeholder="t('preferences.sourceTypeName')"
+                        />
+                        <input
+                          :value="description"
+                          @input="(e) => updateSourceType(type, type, e.target.value)"
+                          type="text"
+                          class="flex-1 px-2 py-1 text-sm text-gray-700 dark:text-gray-300 bg-transparent border-b border-gray-300 dark:border-gray-600 focus:border-indigo-500 dark:focus:border-indigo-400 focus:outline-none"
+                          :placeholder="t('preferences.sourceTypeDescription')"
+                        />
+                        <button
+                          @click="removeSourceType(type)"
+                          type="button"
+                          class="px-2 py-1.5 text-sm font-medium text-white bg-red-600 hover:bg-red-700 dark:bg-red-500 dark:hover:bg-red-600 rounded-md transition-colors shadow-sm flex items-center justify-center flex-shrink-0"
+                          :title="t('preferences.remove')"
+                        >
+                          <TrashIcon class="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                    <div v-else class="text-sm text-gray-500 dark:text-gray-400 italic text-center py-4">
+                      {{ t('preferences.noSourceTypes') }}
+                    </div>
+                    
+                    <!-- Add Type button at the end -->
+                    <div class="mt-4 flex justify-end">
+                      <button
+                        @click="addSourceType"
+                        type="button"
+                        class="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 rounded-md transition-colors shadow-sm flex items-center gap-2"
+                      >
+                        <span>+</span>
+                        {{ t('preferences.addSourceType') }}
+                      </button>
+                    </div>
                   </div>
                 </div>
 
-                <!-- Prompt -->
+                <!-- Source Extraction Section -->
+                <div class="border-b border-gray-200 dark:border-gray-700 pb-6">
+                  <h3 class="text-md font-semibold text-gray-900 dark:text-white mb-4">
+                    {{ t('preferences.sourceExtraction') }}
+                  </h3>
+                  
+                  <div class="space-y-6">
+                    <!-- Model -->
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        {{ t('preferences.model') }}
+                      </label>
+                      <input
+                        v-model="config.extraction.model"
+                        type="text"
+                        class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                        placeholder="gpt-4o"
+                      />
+                      <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        {{ t('preferences.modelDesc') }}
+                      </p>
+                    </div>
+
+                    <!-- Temperature -->
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        {{ t('preferences.temperature') }}: {{ config.extraction.temperature }}
+                      </label>
+                      <input
+                        v-model.number="config.extraction.temperature"
+                        type="range"
+                        min="0"
+                        max="2"
+                        step="0.1"
+                        class="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer"
+                      />
+                      <div class="flex justify-between text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        <span>{{ t('preferences.precise') }}</span>
+                        <span>{{ t('preferences.creative') }}</span>
+                      </div>
+                    </div>
+
+                    <!-- Prompt -->
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        {{ t('preferences.prompt') }}
+                      </label>
+                      <textarea
+                        v-model="config.extraction.prompt"
+                        rows="10"
+                        class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
+                      ></textarea>
+                      <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        {{ t('preferences.extractionPromptDesc') }}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Source Verification Section -->
                 <div>
-                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {{ t('preferences.prompt') }}
-                  </label>
-                  <textarea
-                    v-model="config.sources.prompt"
-                    rows="10"
-                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
-                  ></textarea>
-                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    {{ t('preferences.sourcesPromptDesc') }}
-                  </p>
+                  <h3 class="text-md font-semibold text-gray-900 dark:text-white mb-4">
+                    {{ t('preferences.sourceVerification') }}
+                  </h3>
+                  
+                  <div class="space-y-6">
+                    <!-- Model -->
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        {{ t('preferences.model') }}
+                      </label>
+                      <input
+                        v-model="config.sources.model"
+                        type="text"
+                        class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                        placeholder="gpt-4o"
+                      />
+                      <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        {{ t('preferences.modelDesc') }}
+                      </p>
+                    </div>
+
+                    <!-- Temperature -->
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        {{ t('preferences.temperature') }}: {{ config.sources.temperature }}
+                      </label>
+                      <input
+                        v-model.number="config.sources.temperature"
+                        type="range"
+                        min="0"
+                        max="2"
+                        step="0.1"
+                        class="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer"
+                      />
+                      <div class="flex justify-between text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        <span>{{ t('preferences.precise') }}</span>
+                        <span>{{ t('preferences.creative') }}</span>
+                      </div>
+                    </div>
+
+                    <!-- Prompt -->
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        {{ t('preferences.prompt') }}
+                      </label>
+                      <textarea
+                        v-model="config.sources.prompt"
+                        rows="10"
+                        class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
+                      ></textarea>
+                      <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        {{ t('preferences.sourcesPromptDesc') }}
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
             </TabPanel>

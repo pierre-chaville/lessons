@@ -19,7 +19,8 @@ import {
   CogIcon,
   ChevronDownIcon,
   ChevronUpIcon,
-  MagnifyingGlassIcon
+  MagnifyingGlassIcon,
+  ChartBarIcon
 } from '@heroicons/vue/24/outline';
 import { SpeakerWaveIcon } from '@heroicons/vue/24/solid';
 import { Dialog, DialogPanel, DialogTitle } from '@headlessui/vue';
@@ -81,6 +82,9 @@ const selectedSourceEditedText = ref('');
 const selectedSource = ref(null);
 const sefariaText = ref('');
 const isLoadingSefaria = ref(false);
+
+// Source stats modal state
+const showSourceStatsModal = ref(false);
 
 // Transcript expander state (for edited view)
 const expandedTranscriptIndex = ref(null);
@@ -408,6 +412,64 @@ const allSources = computed(() => {
   return Array.from(typeMap.entries())
     .map(([type, sources]) => ({ type, sources }))
     .sort((a, b) => a.type.localeCompare(b.type));
+});
+
+// Compute source statistics by type
+const sourceStats = computed(() => {
+  if (!props.lesson.edited_transcript) return [];
+  
+  const typeStatsMap = new Map();
+  
+  props.lesson.edited_transcript.forEach((part) => {
+    if (part.sources && part.sources.length > 0) {
+      part.sources.forEach((source) => {
+        const type = source.type || 'Unknown';
+        
+        if (!typeStatsMap.has(type)) {
+          typeStatsMap.set(type, {
+            type,
+            total: 0,
+            slugRetrieved: 0,
+            citationFound: 0,
+            checked: 0 // verified with confidence > 90%
+          });
+        }
+        
+        const stats = typeStatsMap.get(type);
+        stats.total++;
+        
+        if (source.slug_retrieved === true) {
+          stats.slugRetrieved++;
+        }
+        
+        if (source.citation_found === true) {
+          stats.citationFound++;
+        }
+        
+        // Checked: citation found AND verification confidence > 90%
+        if (source.citation_found === true && 
+            source.verification_confidence !== null && 
+            source.verification_confidence > 0.9) {
+          stats.checked++;
+        }
+      });
+    }
+  });
+  
+  // Convert to array and sort by type name
+  return Array.from(typeStatsMap.values())
+    .sort((a, b) => a.type.localeCompare(b.type));
+});
+
+// Total statistics across all types
+const totalStats = computed(() => {
+  return sourceStats.value.reduce((acc, stats) => {
+    acc.total += stats.total;
+    acc.slugRetrieved += stats.slugRetrieved;
+    acc.citationFound += stats.citationFound;
+    acc.checked += stats.checked;
+    return acc;
+  }, { total: 0, slugRetrieved: 0, citationFound: 0, checked: 0 });
 });
 
 // Compute global source indices for each part
@@ -1425,7 +1487,15 @@ const saveSegment = async () => {
                 {{ t('lessons.downloadPDF') }}
               </button>
               
-              <!-- Download Sources PDF Buttons (show for sources view) -->
+              <!-- Download Sources PDF Buttons and Stats (show for sources view) -->
+              <button
+                v-if="activeView === 'sources' && !isEditingSummary"
+                @click="showSourceStatsModal = true"
+                class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors mr-2"
+              >
+                <ChartBarIcon class="h-4 w-4" />
+                {{ t('lessons.sourceStats') }}
+              </button>
               <button
                 v-if="activeView === 'sources' && !isEditingSummary"
                 @click="downloadSourcesPDF"
@@ -1944,6 +2014,138 @@ const saveSegment = async () => {
             <div class="mt-6 flex justify-end">
               <button
                 @click="showSourceModal = false"
+                class="px-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg transition-colors"
+              >
+                {{ t('lessons.close') }}
+              </button>
+            </div>
+          </div>
+        </DialogPanel>
+      </div>
+    </Dialog>
+
+    <!-- Source Stats Modal -->
+    <Dialog
+      :open="showSourceStatsModal"
+      @close="showSourceStatsModal = false"
+      class="relative z-50"
+    >
+      <div class="fixed inset-0 bg-black/30" aria-hidden="true" />
+      <div class="fixed inset-0 flex items-center justify-center p-4">
+        <DialogPanel class="w-full max-w-4xl bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-h-[90vh] overflow-auto">
+          <div class="p-6">
+            <DialogTitle class="text-2xl font-bold text-gray-900 dark:text-white mb-6 pb-4 border-b border-gray-200 dark:border-gray-700">
+              {{ t('lessons.sourceStatistics') }}
+            </DialogTitle>
+            
+            <div class="space-y-6">
+            <!-- Total Statistics -->
+            <div class="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-lg border border-indigo-200 dark:border-indigo-800">
+              <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                {{ t('lessons.totalStatistics') }}
+              </h3>
+              <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div class="text-center">
+                  <div class="text-2xl font-bold text-indigo-600 dark:text-indigo-400">
+                    {{ totalStats.total }}
+                  </div>
+                  <div class="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                    {{ t('lessons.totalSources') }}
+                  </div>
+                </div>
+                <div class="text-center">
+                  <div class="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                    {{ totalStats.slugRetrieved }}
+                  </div>
+                  <div class="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                    {{ t('lessons.slugRetrieved') }}
+                  </div>
+                </div>
+                <div class="text-center">
+                  <div class="text-2xl font-bold text-green-600 dark:text-green-400">
+                    {{ totalStats.citationFound }}
+                  </div>
+                  <div class="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                    {{ t('lessons.citationFound') }}
+                  </div>
+                </div>
+                <div class="text-center">
+                  <div class="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
+                    {{ totalStats.checked }}
+                  </div>
+                  <div class="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                    {{ t('lessons.checked') }}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Statistics by Type -->
+            <div>
+              <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                {{ t('lessons.statisticsByType') }}
+              </h3>
+              <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                  <thead class="bg-gray-50 dark:bg-gray-900">
+                    <tr>
+                      <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        {{ t('lessons.type') }}
+                      </th>
+                      <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        {{ t('lessons.total') }}
+                      </th>
+                      <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        {{ t('lessons.slugRetrieved') }}
+                      </th>
+                      <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        {{ t('lessons.citationFound') }}
+                      </th>
+                      <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        {{ t('lessons.checked') }}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                    <tr
+                      v-for="stats in sourceStats"
+                      :key="stats.type"
+                      class="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                    >
+                      <td class="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
+                        {{ stats.type }}
+                      </td>
+                      <td class="px-4 py-3 whitespace-nowrap text-sm text-center text-gray-700 dark:text-gray-300">
+                        {{ stats.total }}
+                      </td>
+                      <td class="px-4 py-3 whitespace-nowrap text-sm text-center text-blue-600 dark:text-blue-400">
+                        {{ stats.slugRetrieved }}
+                        <span v-if="stats.total > 0" class="text-xs text-gray-500 dark:text-gray-400 ml-1">
+                          ({{ ((stats.slugRetrieved / stats.total) * 100).toFixed(0) }}%)
+                        </span>
+                      </td>
+                      <td class="px-4 py-3 whitespace-nowrap text-sm text-center text-green-600 dark:text-green-400">
+                        {{ stats.citationFound }}
+                        <span v-if="stats.total > 0" class="text-xs text-gray-500 dark:text-gray-400 ml-1">
+                          ({{ ((stats.citationFound / stats.total) * 100).toFixed(0) }}%)
+                        </span>
+                      </td>
+                      <td class="px-4 py-3 whitespace-nowrap text-sm text-center text-emerald-600 dark:text-emerald-400">
+                        {{ stats.checked }}
+                        <span v-if="stats.total > 0" class="text-xs text-gray-500 dark:text-gray-400 ml-1">
+                          ({{ ((stats.checked / stats.total) * 100).toFixed(0) }}%)
+                        </span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            </div>
+            
+            <div class="mt-6 flex justify-end">
+              <button
+                @click="showSourceStatsModal = false"
                 class="px-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg transition-colors"
               >
                 {{ t('lessons.close') }}

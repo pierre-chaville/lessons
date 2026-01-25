@@ -128,6 +128,10 @@ const formatTimestamp = (seconds) => {
 };
 
 const openLesson = (lesson) => {
+  // Update URL to lesson detail page
+  const newUrl = `/lessons/${lesson.id}`;
+  window.history.pushState({ lessonId: lesson.id }, '', newUrl);
+  
   // Fetch full lesson details and open detail view
   axios.get(`${API_URL}/lessons/${lesson.id}`)
     .then((response) => {
@@ -135,6 +139,8 @@ const openLesson = (lesson) => {
     })
     .catch((error) => {
       console.error('Failed to fetch lesson details:', error);
+      // Revert URL on error
+      window.history.pushState({}, '', '/search');
     });
 };
 
@@ -192,6 +198,8 @@ const playLessonSegment = (lesson, startTime) => {
 
 const closeLesson = () => {
   selectedLessonDetail.value = null;
+  // Update URL back to search page
+  window.history.pushState({}, '', '/search');
 };
 
 onMounted(async () => {

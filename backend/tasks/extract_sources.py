@@ -1,8 +1,8 @@
 """Extract sources from edited transcript parts using LLM"""
 
 import asyncio
-from typing import List, Optional
-from pydantic import BaseModel, Field
+from typing import List, Optional, Literal
+from pydantic import BaseModel, Field, field_validator
 from sqlmodel import Session
 import sys
 from pathlib import Path
@@ -31,41 +31,90 @@ class EditedPartInput(BaseModel):
     text: str = Field(description="Edited text to extract sources from")
 
 
-class SourceOutput(BaseModel):
-    """A source citation found in the edited text"""
+def create_source_output_model(allowed_types: List[str], type_descriptions: dict = None):
+    """Create a SourceOutput model with enum constraint on type field"""
+    
+    # Build type description for prompt with descriptions if available
+    if allowed_types:
+        if type_descriptions:
+            # Format: "Type1 (description1), Type2 (description2), ..."
+            type_list_with_descriptions = [
+                f"{t} ({type_descriptions.get(t, '')})" if type_descriptions.get(t) else t
+                for t in allowed_types
+            ]
+            type_description = f"Type of source as per Sefaria documentation and api. Must be one of: {', '.join(type_list_with_descriptions)}"
+        else:
+            type_description = f"Type of source as per Sefaria documentation and api. Must be one of: {', '.join(allowed_types)}"
+    else:
+        type_description = "Type of source as per Sefaria documentation and api (e.g., Torah, Mishnah, Gemara, Midrash, etc.)"
+    
+    # Store allowed_types in closure for validator
+    allowed_types_set = set(allowed_types) if allowed_types else None
+    
+    class SourceOutput(BaseModel):
+        """A source citation found in the edited text"""
 
-    type: str | None = Field(
-        description="Type of source (e.g., Torah, Mishnah, Gemara, Midrash, etc.)"
-    )
-    work: str | None = Field(description="Work title (e.g., Pirkei Avot)")
-    ref: str | None = Field(description="Reference to the source (e.g., 4.2)")
-    standard_slug: str | None = Field(
-        description="Standard slug in Sefaria for the source (e.g., Pirkei_Avot.4.2)"
-    )
-    original_text: str | None = Field(
-        description="Relevant quote or text from the source in the original language"
-    )
-    translation_text: str | None = Field(
-        description="Relevant quote or text from the source in the lesson language (fr)"
-    )
-    cited_excerpt: str | None = Field(
-        description="The exact excerpt from the edited text that cites this source. "
-        "This should be the text as it appears in the edited version, matching exactly "
-        "how the source is mentioned in the text. This is used to mark the citation."
-    )
-    confidence: float | None = Field(
-        description="Confidence score between 0 and 1 [1 = high confidence, 0 = low confidence, 0.5 = medium confidence]"
-    )
+        type: str | None = Field(
+            default=None,
+            description=type_description,
+            json_schema_extra={
+                "enum": list(allowed_types) if allowed_types else None
+            }
+        )
+        work: str | None = Field(description="Work title (e.g., Pirkei Avot), as per Sefaria documentation and api")
+        ref: str | None = Field(description="Reference to the source (e.g., 4.2), as per Sefaria documentation and api")
+        standard_slug: str | None = Field(
+            description="Standard slug in Sefaria for the source (e.g., Pirkei_Avot.4.2), as per Sefaria api"
+        )
+        original_text: str | None = Field(
+            description="Relevant quote or text from the source in the original language"
+        )
+        translation_text: str | None = Field(
+            description="Relevant quote or text from the source in the lesson language (fr)"
+        )
+        cited_excerpt: str | None = Field(
+            description="The exact excerpt from the edited text that cites this source. "
+            "This should be the text as it appears in the edited version, matching exactly "
+            "how the source is mentioned in the text. This is used to mark the citation."
+        )
+        confidence: float | None = Field(
+            description="Confidence score between 0 and 1 [1 = high confidence, 0 = low confidence, 0.5 = medium confidence]"
+        )
+        
+        @field_validator('type')
+        @classmethod
+        def validate_type(cls, v, info):
+            if v is None:
+                return v
+            if allowed_types_set and v not in allowed_types_set:
+                # Log warning but don't fail - allow it but warn
+                logger.warning(f"Source type '{v}' not in allowed types: {list(allowed_types_set)}")
+            return v
+    
+    return SourceOutput
 
 
-class SourceExtractionOutput(BaseModel):
-    """Output: Extracted sources from edited part"""
+# Default SourceOutput (will be replaced with config-based one)
+SourceOutput = create_source_output_model([])
 
-    sources: List[SourceOutput] = Field(
-        default=[],
-        description="List of sources cited in this edited part. "
-        "If no sources are found, return an empty list.",
-    )
+
+def create_source_extraction_output_model(source_output_model):
+    """Create SourceExtractionOutput model with the specified SourceOutput model"""
+    
+    class SourceExtractionOutput(BaseModel):
+        """Output: Extracted sources from edited part"""
+
+        sources: List[source_output_model] = Field(
+            default=[],
+            description="List of sources cited in this edited part. "
+            "If no sources are found, return an empty list.",
+        )
+    
+    return SourceExtractionOutput
+
+
+# Default SourceExtractionOutput (will be replaced with config-based one)
+SourceExtractionOutput = create_source_extraction_output_model(SourceOutput)
 
 
 async def extract_sources_from_part_with_retry(
@@ -201,15 +250,39 @@ async def extract_sources_async(
         # Load config
         config = load_config()
         extraction_config = config.get("extraction", {})
+        
+        # Get allowed source types from config
+        source_types_config = config.get("source_types", {})
+        allowed_types = list(source_types_config.keys()) if source_types_config else []
+        type_descriptions = source_types_config if source_types_config else {}
+        
+        # Create models with enum constraint
+        SourceOutputModel = create_source_output_model(allowed_types, type_descriptions)
+        SourceExtractionOutputModel = create_source_extraction_output_model(SourceOutputModel)
+
+        # Build type description for prompt with descriptions
+        if allowed_types:
+            if type_descriptions:
+                # Format with descriptions: "Type1 (description1), Type2 (description2), ..."
+                type_list_with_descriptions = [
+                    f"{t} ({type_descriptions.get(t, '')})" if type_descriptions.get(t) else t
+                    for t in allowed_types
+                ]
+                type_instruction = f"Type of source. MUST be one of: {', '.join(type_list_with_descriptions)}"
+            else:
+                type_list = ", ".join(allowed_types)
+                type_instruction = f"Type of source. MUST be one of: {type_list}"
+        else:
+            type_instruction = "Type of source (e.g., Torah, Mishnah, Gemara, Midrash, Rashi, etc.)"
 
         extraction_prompt = extraction_config.get(
             "prompt",
             "Analyze the following edited text and extract all sources (citations, references to religious texts, etc.) mentioned in it. "
             "For each source, provide:\n"
-            "- type: Type of source (e.g., Torah, Mishnah, Gemara, Midrash, Rashi, etc.)\n"
-            "- work: Work title (e.g., Pirkei Avot, Bereshit, etc.)\n"
-            "- ref: Reference (e.g., 4.2, 18:1, etc.)\n"
-            "- standard_slug: Standard Sefaria slug if known (e.g., Pirkei_Avot.4.2)\n"
+            f"- type: {type_instruction}\n"
+            "- work: Work title (e.g., Pirkei Avot, Bereshit, etc.) using Sefaria classification\n"
+            "- ref: Reference (e.g., 4.2, 18:1, etc.) using Sefaria classification\n"
+            "- standard_slug: Standard Sefaria slug if known (e.g., Pirkei_Avot.4.2) using Sefaria api\n"
             "- original_text: The original text from the source in Hebrew/Aramaic if mentioned\n"
             "- translation_text: The translation of the source text if mentioned\n"
             "- cited_excerpt: The exact excerpt from the edited text that cites this source. "
@@ -218,12 +291,27 @@ async def extract_sources_async(
             "If no sources are found, return an empty list. "
             "Be thorough but only extract sources that are clearly mentioned in the text.",
         )
+        
+        # If we have allowed types, append them to the prompt with descriptions
+        if allowed_types:
+            if type_descriptions:
+                # Create a formatted list with descriptions
+                type_details = []
+                for t in allowed_types:
+                    desc = type_descriptions.get(t, '')
+                    if desc:
+                        type_details.append(f"  - {t}: {desc}")
+                    else:
+                        type_details.append(f"  - {t}")
+                extraction_prompt += f"\n\nIMPORTANT: The 'type' field MUST be one of these values:\n" + "\n".join(type_details)
+            else:
+                extraction_prompt += f"\n\nIMPORTANT: The 'type' field MUST be one of these values: {', '.join(allowed_types)}"
 
         # Get LLM model
         llm = get_llm_model(task_name="extraction")
 
-        # Add structured output
-        llm_with_structure = llm.with_structured_output(SourceExtractionOutput)
+        # Add structured output with the config-based model
+        llm_with_structure = llm.with_structured_output(SourceExtractionOutputModel)
 
         # Convert edited_transcript to EditedPart objects
         edited_parts = [
@@ -253,7 +341,7 @@ async def extract_sources_async(
             # Convert SourceOutput to Source objects
             part.sources = [
                 Source(
-                    type=src.type,
+                    type=str(src.type) if src.type is not None else None,
                     work=src.work,
                     ref=src.ref,
                     standard_slug=src.standard_slug,

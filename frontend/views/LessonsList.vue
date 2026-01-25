@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed, watch } from 'vue';
+import { ref, onMounted, computed, watch, onBeforeUnmount } from 'vue';
 import { useI18n } from 'vue-i18n';
 import axios from 'axios';
 import { 
@@ -26,6 +26,41 @@ const selectedTheme = ref(null);
 const showCreateModal = ref(false);
 
 const API_URL = 'http://localhost:8000';
+
+// Helper function to get lesson ID from URL
+const getLessonIdFromUrl = () => {
+  const path = window.location.pathname;
+  const match = path.match(/\/lessons\/(\d+)/);
+  return match ? parseInt(match[1], 10) : null;
+};
+
+// Helper function to update URL
+const updateUrl = (lessonId) => {
+  if (lessonId) {
+    const newUrl = `/lessons/${lessonId}`;
+    window.history.pushState({ lessonId }, '', newUrl);
+  } else {
+    window.history.pushState({}, '', '/lessons');
+  }
+};
+
+// Handle browser back/forward navigation
+const handlePopState = (event) => {
+  const lessonId = event.state?.lessonId || getLessonIdFromUrl();
+  if (lessonId) {
+    // Find and open the lesson
+    const lesson = lessons.value.find(l => l.id === lessonId);
+    if (lesson) {
+      openLesson(lesson);
+    } else {
+      // Lesson not in current list, fetch it
+      fetchLessonById(lessonId);
+    }
+  } else {
+    // Close lesson detail
+    closeLesson();
+  }
+};
 
 const fetchCourses = async () => {
   try {
@@ -82,7 +117,28 @@ const clearFilters = () => {
 };
 
 onMounted(async () => {
+  // Listen for browser back/forward navigation
+  window.addEventListener('popstate', handlePopState);
+  
   await Promise.all([fetchCourses(), fetchThemes(), fetchLessons()]);
+  
+  // Check if there's a lesson ID in the URL
+  const lessonId = getLessonIdFromUrl();
+  if (lessonId) {
+    // Find lesson in the list
+    const lesson = lessons.value.find(l => l.id === lessonId);
+    if (lesson) {
+      await openLesson(lesson);
+    } else {
+      // Lesson not in current list, fetch it directly
+      await fetchLessonById(lessonId);
+    }
+  }
+});
+
+onBeforeUnmount(() => {
+  // Clean up event listener
+  window.removeEventListener('popstate', handlePopState);
 });
 
 const formatDate = (dateString) => {
@@ -109,20 +165,38 @@ const formatDuration = (seconds) => {
   }
 };
 
+const fetchLessonById = async (lessonId) => {
+  try {
+    const response = await axios.get(`${API_URL}/lessons/${lessonId}`);
+    selectedLessonDetail.value = response.data;
+    selectedLesson.value = { id: lessonId, ...response.data };
+  } catch (error) {
+    console.error('Failed to fetch lesson details:', error);
+    // If lesson not found, redirect to lessons list
+    updateUrl(null);
+  }
+};
+
 const openLesson = async (lesson) => {
   try {
+    // Update URL first
+    updateUrl(lesson.id);
+    
     // Fetch full lesson details
     const response = await axios.get(`${API_URL}/lessons/${lesson.id}`);
     selectedLessonDetail.value = response.data;
     selectedLesson.value = lesson;
   } catch (error) {
     console.error('Failed to fetch lesson details:', error);
+    // Revert URL on error
+    updateUrl(null);
   }
 };
 
 const closeLesson = () => {
   selectedLesson.value = null;
   selectedLessonDetail.value = null;
+  updateUrl(null);
 };
 
 const openCreateModal = () => {

@@ -20,8 +20,37 @@ import Preferences from './views/Preferences.vue';
 
 const { locale, t } = useI18n();
 
+// Initialize current route from URL
+const getInitialRoute = () => {
+  const path = window.location.pathname;
+  // Check if we're on a lesson detail page
+  if (path.match(/^\/lessons\/\d+$/)) {
+    return '/lessons';
+  }
+  // Map common paths
+  if (path === '/' || path === '/lessons' || path.startsWith('/lessons')) {
+    return '/lessons';
+  }
+  if (path === '/search') {
+    return '/search';
+  }
+  if (path === '/courses') {
+    return '/courses';
+  }
+  if (path === '/themes') {
+    return '/themes';
+  }
+  if (path === '/processing') {
+    return '/processing';
+  }
+  if (path === '/preferences') {
+    return '/preferences';
+  }
+  return '/lessons';
+};
+
 // Current route/view
-const currentRoute = ref('/lessons');
+const currentRoute = ref(getInitialRoute());
 
 // Reference to components
 const lessonsListRef = ref(null);
@@ -36,6 +65,15 @@ const isViewingDetail = computed(() => {
 // Handle navigation
 const handleNavigation = (route) => {
   currentRoute.value = route;
+  // Update URL without lesson ID when navigating to main routes
+  if (route === '/lessons') {
+    // Only update if we're not on a lesson detail page
+    if (!window.location.pathname.match(/^\/lessons\/\d+$/)) {
+      window.history.pushState({}, '', route);
+    }
+  } else {
+    window.history.pushState({}, '', route);
+  }
 };
 
 // Get current page title
