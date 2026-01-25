@@ -10,6 +10,7 @@ from models import Task
 from tasks import (
     correct_transcript,
     edit_transcript,
+    extract_sources,
     generate_summary,
     transcribe_lesson,
     verify_lesson_sources,
@@ -157,7 +158,8 @@ def process_edition_task(session: Session, task: Task):
         if not lesson_id:
             raise ValueError("lesson_id is required in task parameters")
 
-        # Run edition
+        # Step 1: Run edition (rewrite text without sources)
+        logger.info(f"Step 1: Editing transcript for lesson {lesson_id}")
         success = edit_transcript(
             lesson_id=lesson_id,
             segments_per_group=segments_per_group,
@@ -165,20 +167,33 @@ def process_edition_task(session: Session, task: Task):
             session=session,
         )
 
-        if success:
-            update_task_status(
-                session,
-                task,
-                "completed",
-                result={
-                    "message": "Edition completed successfully",
-                    "lesson_id": lesson_id,
-                    "segments_per_group": segments_per_group,
-                    "max_concurrency": max_concurrency,
-                },
-            )
-        else:
+        if not success:
             update_task_status(session, task, "failed", error="Edition failed")
+            return
+
+        # Step 2: Extract sources from edited parts
+        logger.info(f"Step 2: Extracting sources from edited transcript for lesson {lesson_id}")
+        extraction_success = extract_sources(
+            lesson_id=lesson_id,
+            max_concurrency=max_concurrency,
+            session=session,
+        )
+
+        if not extraction_success:
+            update_task_status(session, task, "failed", error="Source extraction failed")
+            return
+
+        update_task_status(
+            session,
+            task,
+            "completed",
+            result={
+                "message": "Edition and source extraction completed successfully",
+                "lesson_id": lesson_id,
+                "segments_per_group": segments_per_group,
+                "max_concurrency": max_concurrency,
+            },
+        )
 
     except Exception as e:
         logger.error(f"Error in edition task: {e}", exc_info=True)

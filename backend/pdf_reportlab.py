@@ -84,23 +84,50 @@ def _apply_inline_formatting(text: str) -> str:
     if not text:
         return ""
     
-    # Escape HTML special characters first
+    import re
+    
+    # Escape HTML special characters first (but preserve tags we'll restore)
     text = text.replace("&", "&amp;")
     text = text.replace("<", "&lt;")
     text = text.replace(">", "&gt;")
     
+    # Restore valid HTML tags that ReportLab supports (after escaping)
+    # ReportLab supports <sup> for superscript, so preserve it
+    text = text.replace("&lt;sup&gt;", "<sup>")
+    text = text.replace("&lt;/sup&gt;", "</sup>")
+    text = text.replace("&lt;b&gt;", "<b>")
+    text = text.replace("&lt;/b&gt;", "</b>")
+    text = text.replace("&lt;i&gt;", "<i>")
+    text = text.replace("&lt;/i&gt;", "</i>")
+    text = text.replace("&lt;br/&gt;", "<br/>")
+    text = text.replace("&lt;br&gt;", "<br/>")
+    text = text.replace("&lt;font", "<font")
+    text = text.replace("&lt;/font&gt;", "</font>")
+    
+    # Handle headers (### Header -> <b>Header</b>)
+    # Process headers from largest to smallest to avoid conflicts
+    text = re.sub(r'^####\s+(.+?)$', r'<b>\1</b>', text, flags=re.MULTILINE)
+    text = re.sub(r'^###\s+(.+?)$', r'<b><font size="14">\1</font></b>', text, flags=re.MULTILINE)
+    text = re.sub(r'^##\s+(.+?)$', r'<b><font size="16">\1</font></b>', text, flags=re.MULTILINE)
+    text = re.sub(r'^#\s+(.+?)$', r'<b><font size="18">\1</font></b>', text, flags=re.MULTILINE)
+    
     # Apply formatting (simple markdown-like)
-    # Bold: **text** or __text__
-    import re
+    # Bold: **text** or __text__ (process first to avoid conflicts with italic)
     text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
     text = re.sub(r'__(.+?)__', r'<b>\1</b>', text)
     
-    # Italic: *text* or _text_
-    text = re.sub(r'\*(.+?)\*', r'<i>\1</i>', text)
-    text = re.sub(r'_(.+?)_', r'<i>\1</i>', text)
+    # Italic: *text* or _text_ (single asterisk/underscore, not double)
+    # Use negative lookahead/behind to avoid matching inside bold
+    text = re.sub(r'(?<!\*)\*([^*]+?)\*(?!\*)', r'<i>\1</i>', text)
+    text = re.sub(r'(?<!_)_([^_]+?)_(?!_)', r'<i>\1</i>', text)
     
     # Code: `text`
     text = re.sub(r'`(.+?)`', r'<font name="Courier">\1</font>', text)
+    
+    # Handle line breaks (double newline = paragraph break, single = line break)
+    # ReportLab handles <br/> for line breaks
+    text = re.sub(r'\n\n+', r'<br/><br/>', text)
+    text = re.sub(r'\n(?!<br/>)', r'<br/>', text)
     
     return text
 
@@ -658,8 +685,8 @@ def generate_lesson_edited_transcript_pdf(
                 for idx, source, excerpt in sources_with_match:
                     marker = source_counter + idx + 1
                     if excerpt and excerpt in marked_text:
-                        # Add superscript marker
-                        marked_excerpt = f"{excerpt}<super>[{marker}]</super>"
+                        # Add superscript marker (ReportLab uses <sup> for superscript)
+                        marked_excerpt = f"{excerpt}<sup>[{marker}]</sup>"
                         marked_text = marked_text.replace(excerpt, marked_excerpt, 1)
 
             # Add edited text with markers

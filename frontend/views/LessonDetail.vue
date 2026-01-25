@@ -307,20 +307,60 @@ const addSourceMarkers = (text, sources, globalStartIndex = 0) => {
   
   let markedText = text;
   
-  // Sort sources by cited_excerpt length (longest first) to avoid nested replacements
-  const sortedSources = [...sources]
-    .filter(src => src.cited_excerpt)
-    .sort((a, b) => b.cited_excerpt.length - a.cited_excerpt.length);
+  // Helper function to escape special regex characters
+  const escapeRegex = (str) => {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  };
   
-  sortedSources.forEach((source, index) => {
-    const marker = globalStartIndex + index + 1;
-    const excerpt = source.cited_excerpt;
+  // Use cited_excerpt if available (preferred), otherwise fall back to translation_text or original_text
+  const sourcesWithText = sources
+    .map((source, idx) => {
+      // Prefer cited_excerpt as it's the exact text from the edited version
+      const sourceText = source.cited_excerpt || source.translation_text || source.original_text;
+      if (!sourceText) return null;
+      
+      // Remove quotes if present (they might be added/removed during editing)
+      const cleanSourceText = sourceText.replace(/^["'«»""]|["'«»""]$/g, '').trim();
+      if (!cleanSourceText) return null;
+      
+      // Try case-insensitive search
+      const escapedText = escapeRegex(cleanSourceText);
+      const regex = new RegExp(escapedText, 'i');
+      
+      // Check if this text appears in the edited text (case-insensitive)
+      if (regex.test(text)) {
+        // Find the actual match (preserving original case)
+        const match = text.match(regex);
+        if (match) {
+          return {
+            source,
+            text: match[0], // Use the actual matched text (preserves case)
+            searchText: cleanSourceText,
+            index: idx,
+            length: cleanSourceText.length
+          };
+        }
+      }
+      return null;
+    })
+    .filter(item => item !== null);
+  
+  // Sort by text length (longest first) to avoid nested replacements
+  sourcesWithText.sort((a, b) => b.length - a.length);
+  
+  sourcesWithText.forEach((item) => {
+    const marker = globalStartIndex + item.index + 1;
+    const matchedText = item.text; // Use the actual matched text from the edited text
+    
+    // Escape the matched text for safe replacement
+    const escapedMatch = escapeRegex(matchedText);
+    const regex = new RegExp(escapedMatch);
     
     // Create a highlighted version with superscript marker
-    const highlighted = `<mark class="bg-yellow-100 dark:bg-yellow-900/30 dark:text-yellow-50 px-0.5 rounded">${excerpt}<sup class="text-indigo-600 dark:text-indigo-400 font-bold ml-0.5">[${marker}]</sup></mark>`;
+    const highlighted = `<mark class="bg-yellow-100 dark:bg-yellow-900/30 dark:text-yellow-50 px-0.5 rounded">${matchedText}<sup class="text-indigo-600 dark:text-indigo-400 font-bold ml-0.5">[${marker}]</sup></mark>`;
     
-    // Replace first occurrence
-    markedText = markedText.replace(excerpt, highlighted);
+    // Replace first occurrence (preserving case)
+    markedText = markedText.replace(regex, highlighted);
   });
   
   return markedText;
@@ -1672,7 +1712,7 @@ const saveSegment = async () => {
                     <div class="prose prose-sm dark:prose-invert max-w-none mb-3">
                       <div 
                         class="text-gray-900 dark:text-gray-100 leading-relaxed whitespace-pre-wrap print:text-black"
-                        v-html="addSourceMarkers(part.text, part.sources, getGlobalSourceIndex(index))"
+                        v-html="addSourceMarkers(renderMarkdown(part.text), part.sources, getGlobalSourceIndex(index))"
                       ></div>
                     </div>
                   </div>
@@ -1803,9 +1843,7 @@ const saveSegment = async () => {
               <div class="bg-gray-50 dark:bg-gray-900 p-4 rounded-lg">
                 <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-3">{{ t('lessons.editedText') }}</h3>
                 <div class="prose prose-sm dark:prose-invert max-w-none">
-                  <div class="text-gray-900 dark:text-gray-100 leading-relaxed whitespace-pre-wrap">
-                    {{ selectedSourceEditedText }}
-                  </div>
+                  <div class="text-gray-900 dark:text-gray-100 leading-relaxed whitespace-pre-wrap" v-html="renderMarkdown(selectedSourceEditedText)"></div>
                 </div>
               </div>
 
@@ -1817,6 +1855,12 @@ const saveSegment = async () => {
                   <div><span class="font-medium text-gray-700 dark:text-gray-300">Work:</span> <span class="text-gray-900 dark:text-white">{{ selectedSource.work || 'N/A' }}</span></div>
                   <div><span class="font-medium text-gray-700 dark:text-gray-300">Reference:</span> <span class="text-gray-900 dark:text-white">{{ selectedSource.ref || 'N/A' }}</span></div>
                   <div><span class="font-medium text-gray-700 dark:text-gray-300">Slug:</span> <span class="text-gray-900 dark:text-white font-mono text-xs">{{ selectedSource.standard_slug || 'N/A' }}</span></div>
+                  <div v-if="selectedSource.cited_excerpt">
+                    <span class="font-medium text-gray-700 dark:text-gray-300">Cited Excerpt (in edited text):</span>
+                    <div class="text-gray-900 dark:text-white mt-1 bg-yellow-50 dark:bg-yellow-900/20 p-2 rounded border border-yellow-200 dark:border-yellow-800">
+                      "{{ selectedSource.cited_excerpt }}"
+                    </div>
+                  </div>
                   <div v-if="selectedSource.original_text">
                     <span class="font-medium text-gray-700 dark:text-gray-300">Original Text:</span>
                     <div class="text-gray-900 dark:text-white italic mt-1">{{ selectedSource.original_text }}</div>

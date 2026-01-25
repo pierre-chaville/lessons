@@ -34,20 +34,8 @@ class SegmentInput(BaseModel):
     text: str = Field(description="Original transcript text")
 
 
-class SourceOutput(BaseModel):
-    """A source citation used in the edited text"""
-
-    type: str|None = Field(description="Type of source (e.g., Torah, Mishnah, Gemara, Midrash, etc.)")
-    work: str|None = Field(description="Work title (e.g., Pirkei Avot)")
-    ref: str|None = Field(description="Reference to the source (e.g., 4.2")
-    standard_slug: str|None = Field(description="Standard slug in Sefaria for the source (e.g., Pirkei_Avot.4.2)")
-    original_text: str|None = Field(description="Relevant quote or text from the source in the original language")
-    translation_text: str|None = Field(description="Relevant quote or text from the source in the lesson (fr)")
-    confidence: float|None = Field(description="Confidence score between 0 and 1 [1 = high confidence, 0 = low confidence, 0.5 = medium confidence]")
-
-
 class EditedPartOutput(BaseModel):
-    """Output: Edited part with segment numbers and sources"""
+    """Output: Edited part with segment numbers (no sources - extracted separately)"""
 
     start_segment: int = Field(
         description="Starting segment number (INCLUSIVE, 0-indexed within the group). "
@@ -58,9 +46,6 @@ class EditedPartOutput(BaseModel):
         "This segment IS included in this edited part. Must be >= start_segment."
     )
     text: str = Field(description="Rewritten text in clear, written style")
-    sources: List[SourceOutput] = Field(
-        default=[], description="List of sources cited in this section"
-    )
 
 
 class TranscriptGroupInput(BaseModel):
@@ -275,8 +260,7 @@ async def edit_segment_group(
         part = EditedPartOutput(
             start_segment=0,
             end_segment=len(group) - 1,
-            text=combined_text,
-            sources=[]
+            text=combined_text
         )
         # Return tuple with timestamps
         return [(part, start_time, end_time)]
@@ -331,7 +315,8 @@ async def edit_transcript_async(
             "For each edited part, specify start_segment and end_segment (segment numbers, 0-indexed, INCLUSIVE boundaries) "
             "to indicate which segments are covered by that part. "
             "IMPORTANT: All segments must be covered exactly once without gaps or overlaps. "
-            "Each segment number can only appear in one edited part. Cite any sources mentioned.",
+            "Each segment number can only appear in one edited part. "
+            "Focus only on rewriting the text - do not extract or mention sources.",
         )
 
         # Get LLM model
@@ -371,29 +356,15 @@ async def edit_transcript_async(
         for group_result in results:
             all_edited_parts.extend(group_result)
 
-        # Convert to EditedPart model objects with Source objects
+        # Convert to EditedPart model objects (without sources - they will be extracted separately)
         edited_parts = []
         for part_tuple in all_edited_parts:
             # Unpack the tuple: (EditedPartOutput, start_time, end_time)
             part, start_time, end_time = part_tuple
-            
-            sources = [
-                Source(
-                    type=src.type,
-                    work=src.work,
-                    ref=src.ref,
-                    standard_slug=src.standard_slug,
-                    original_text=src.original_text,
-                    translation_text=src.translation_text,
-                    cited_excerpt=getattr(src, 'cited_excerpt', None),
-                    confidence=src.confidence,
-                )
-                for src in part.sources
-            ]
 
             edited_parts.append(
                 EditedPart(
-                    start=start_time, end=end_time, text=part.text, sources=sources
+                    start=start_time, end=end_time, text=part.text, sources=[]
                 )
             )
 
