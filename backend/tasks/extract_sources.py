@@ -66,13 +66,13 @@ def create_source_output_model(allowed_types: List[str], type_descriptions: dict
         standard_slug: str | None = Field(
             description="Standard slug in Sefaria for the source (e.g., Pirkei_Avot.4.2), as per Sefaria api"
         )
-        original_text: str | None = Field(
-            description="Relevant quote or text from the source in the original language"
+        original_text: str = Field(
+            description="Text from the source in the original language"
         )
-        translation_text: str | None = Field(
-            description="Relevant quote or text from the source in the lesson language (fr)"
+        translation_text: str = Field(
+            description="Text from the source in the lesson language (fr)"
         )
-        cited_excerpt: str | None = Field(
+        cited_excerpt: str = Field(
             description="The exact excerpt from the edited text that cites this source. "
             "This should be the text as it appears in the edited version, matching exactly "
             "how the source is mentioned in the text. This is used to mark the citation."
@@ -283,8 +283,8 @@ async def extract_sources_async(
             "- work: Work title (e.g., Pirkei Avot, Bereshit, etc.) using Sefaria classification\n"
             "- ref: Reference (e.g., 4.2, 18:1, etc.) using Sefaria classification\n"
             "- standard_slug: Standard Sefaria slug if known (e.g., Pirkei_Avot.4.2) using Sefaria api\n"
-            "- original_text: The original text from the source in Hebrew/Aramaic if mentioned\n"
-            "- translation_text: The translation of the source text if mentioned\n"
+            "- original_text: The original text from the source in Hebrew/Aramaic\n"
+            "- translation_text: The translation of the source text\n"
             "- cited_excerpt: The exact excerpt from the edited text that cites this source. "
             "This must match exactly how the source appears in the text.\n"
             "- confidence: Your confidence in this extraction (0-1)\n\n"

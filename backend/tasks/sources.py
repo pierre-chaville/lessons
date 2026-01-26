@@ -2,6 +2,7 @@
 
 import asyncio
 from typing import List, Optional, Dict, Any
+from enum import Enum
 from pydantic import BaseModel, Field
 from sqlmodel import Session
 import sys
@@ -25,11 +26,21 @@ SEFARIA_API_BASE = "https://www.sefaria.org/api/texts"
 MAX_CONCURRENCY = 10
 
 
+class VerificationStatus(str, Enum):
+    """Status of citation verification"""
+    
+    FOUND = "exactly_found"
+    SIMILAR = "paraphrase_or_similar"
+    PARTIAL = "partially_found"
+    NOT_FOUND = "not_found"
+    WRONG_REF = "reference_exists_but_text_differs"
+
+
 class SourceVerificationOutput(BaseModel):
     """Structured output for source verification"""
 
-    citation_found: bool = Field(
-        description="Whether the citation was found in the source text"
+    verification_status: VerificationStatus = Field(
+        description="Verification status: exactly_found, paraphrase_or_similar, partially_found, not_found, or reference_exists_but_text_differs"
     )
     confidence: float = Field(
         description="Confidence score between 0 and 1 [1 = high confidence, 0 = low confidence]"
@@ -137,7 +148,14 @@ Source Information:
 Text from Sefaria API (slug: {slug}):
 {sefaria_text}
 
-Please verify if the claimed citation matches the text from Sefaria. Check if the original_text or translation_text appears in the Sefaria text, and provide your assessment."""
+Please verify if the claimed citation matches the text from Sefaria. Check if the original_text or translation_text appears in the Sefaria text, and provide your assessment.
+
+Return verification_status as one of:
+- exactly_found: The citation matches exactly
+- paraphrase_or_similar: The citation is a paraphrase or similar wording
+- partially_found: Only part of the citation is found
+- not_found: The citation is not found in the source
+- reference_exists_but_text_differs: The reference exists but the text is different"""
 
         # Call LLM with structured output
         result = await llm_with_structure.ainvoke(prompt)
@@ -147,7 +165,7 @@ Please verify if the claimed citation matches the text from Sefaria. Check if th
         logger.error(f"Error verifying source with LLM: {e}")
         # Return default negative result on error
         return SourceVerificationOutput(
-            citation_found=False,
+            verification_status=VerificationStatus.NOT_FOUND,
             confidence=0.0,
             explanation=f"Error during verification: {str(e)}",
             matched_text=None,
@@ -173,7 +191,7 @@ async def verify_single_source(
     
     # Initialize verification fields
     source.slug_retrieved = False
-    source.citation_found = False
+    source.verification_status = None
     source.verification_confidence = None
     source.verification_explanation = None
     source.matched_text = None
@@ -223,7 +241,7 @@ async def verify_single_source(
     )
 
     # Update source with verification results
-    source.citation_found = verification_result.citation_found
+    source.verification_status = verification_result.verification_status.value
     source.verification_confidence = verification_result.confidence
     source.verification_explanation = verification_result.explanation
     source.matched_text = verification_result.matched_text
@@ -263,7 +281,7 @@ async def verify_sources_async(
     logger.info(
         f"Completed verification of {len(sources)} sources. "
         f"Retrieved: {sum(1 for s in results if s.slug_retrieved)}, "
-        f"Found: {sum(1 for s in results if s.citation_found)}"
+        f"Found: {sum(1 for s in results if s.verification_status and s.verification_status in [VerificationStatus.FOUND.value, VerificationStatus.SIMILAR.value, VerificationStatus.PARTIAL.value])}"
     )
 
     return results

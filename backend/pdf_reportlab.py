@@ -772,11 +772,14 @@ def _calculate_source_statistics(edited_transcript: List[dict]) -> tuple:
                 if source.get("slug_retrieved") is True:
                     stats["slugRetrieved"] += 1
                 
-                if source.get("citation_found") is True:
+                # Citation found: FOUND, SIMILAR, or PARTIAL
+                verification_status = source.get("verification_status")
+                if verification_status and verification_status in ["exactly_found", "paraphrase_or_similar", "partially_found"]:
                     stats["citationFound"] += 1
                 
-                # Checked: citation found AND verification confidence > 90%
-                if (source.get("citation_found") is True and 
+                # Checked: FOUND or SIMILAR AND verification confidence > 90%
+                if (verification_status and 
+                    verification_status in ["exactly_found", "paraphrase_or_similar"] and
                     source.get("verification_confidence") is not None and 
                     source.get("verification_confidence") > 0.9):
                     stats["checked"] += 1
@@ -1046,15 +1049,16 @@ def generate_lesson_sources_pdf(
             # Add verification information if available
             verification_parts = []
             slug_retrieved = source.get("slug_retrieved")
-            citation_found = source.get("citation_found")
+            verification_status = source.get("verification_status")
             verification_confidence = source.get("verification_confidence")
             
             if slug_retrieved is not None:
                 status = "Yes" if slug_retrieved else "No"
                 verification_parts.append(f"Slug retrieved: {status}")
-            if citation_found is not None:
-                status = "Yes" if citation_found else "No"
-                verification_parts.append(f"Citation found: {status}")
+            if verification_status is not None:
+                # Format status: replace underscores with spaces and capitalize
+                formatted_status = verification_status.replace("_", " ").title()
+                verification_parts.append(f"Verification status: {formatted_status}")
             if verification_confidence is not None:
                 verification_parts.append(f"Verification confidence: {int(verification_confidence * 100)}%")
             
@@ -1357,16 +1361,18 @@ def generate_lesson_detailed_sources_pdf(
         story.append(Spacer(1, 0.3 * cm))
         
         # Verification Status
-        if source.get("slug_retrieved") is not None or source.get("citation_found") is not None:
+        if source.get("slug_retrieved") is not None or source.get("verification_status") is not None:
             story.append(Paragraph("<b>Verification Status:</b>", source_info_style))
             
             verification_lines = []
             if source.get("slug_retrieved") is not None:
                 status = "Yes" if source.get("slug_retrieved") else "No"
                 verification_lines.append(f"Slug Retrieved: {status}")
-            if source.get("citation_found") is not None:
-                status = "Yes" if source.get("citation_found") else "No"
-                verification_lines.append(f"Citation Found: {status}")
+            verification_status = source.get("verification_status")
+            if verification_status is not None:
+                # Format status: replace underscores with spaces and capitalize
+                formatted_status = verification_status.replace("_", " ").title()
+                verification_lines.append(f"Verification Status: {formatted_status}")
             if source.get("verification_confidence") is not None:
                 conf_pct = int(source.get("verification_confidence") * 100)
                 verification_lines.append(f"Verification Confidence: {conf_pct}%")

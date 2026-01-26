@@ -139,13 +139,13 @@ def display_lesson_edition(lesson_id: int):
 def main():
     """Main test function"""
     if len(sys.argv) < 2:
-        print("Usage: python test_edition.py <lesson_id> [segments_per_group] [max_concurrency]")
+        print("Usage: python test_edition.py <lesson_id> [words_per_group] [max_concurrency]")
         print("\nOptions:")
         print("  lesson_id           ID of the lesson to edit")
-        print("  segments_per_group  Number of segments per group (default: 100)")
+        print("  words_per_group     Target words per group (default: 1000)")
         print("  max_concurrency      Maximum concurrent LLM calls (default: 10)")
         print("\nExample:")
-        print("  python test_edition.py 5 50 5")
+        print("  python test_edition.py 5 1000 5")
         sys.exit(1)
     
     try:
@@ -155,14 +155,14 @@ def main():
         sys.exit(1)
     
     # Parse optional parameters
-    segments_per_group = 100
+    words_per_group = 1000
     max_concurrency = 10
     
     if len(sys.argv) >= 3:
         try:
-            segments_per_group = int(sys.argv[2])
+            words_per_group = int(sys.argv[2])
         except ValueError:
-            logger.warning(f"Invalid segments_per_group, using default: {segments_per_group}")
+            logger.warning(f"Invalid words_per_group, using default: {words_per_group}")
     
     if len(sys.argv) >= 4:
         try:
@@ -177,13 +177,13 @@ def main():
     # Run edition
     logger.info(f"Starting edition for lesson {lesson_id}...")
     print(f"\n🔄 Running edition (this may take a moment)...")
-    print(f"   - Segments per group: {segments_per_group}")
+    print(f"   - Words per group: {words_per_group}")
     print(f"   - Max concurrency: {max_concurrency}")
     print(f"   - Processing with segment numbers (reduces timestamp errors)\n")
     
     success = edit_transcript(
         lesson_id=lesson_id,
-        segments_per_group=segments_per_group,
+        words_per_group=words_per_group,
         max_concurrency=max_concurrency
     )
     

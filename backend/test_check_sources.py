@@ -75,7 +75,18 @@ def display_lesson_sources(lesson_id: int):
             if source.slug_retrieved is not None:
                 print(f"\n  🔍 Verification Status:")
                 print(f"    Slug Retrieved: {'✅' if source.slug_retrieved else '❌'}")
-                print(f"    Citation Found: {'✅' if source.citation_found else '❌' if source.citation_found is False else '⏳ Not verified'}")
+                verification_status = source.verification_status
+                if verification_status:
+                    status_display = {
+                        "exactly_found": "✅ Exactly Found",
+                        "paraphrase_or_similar": "✅ Paraphrase/Similar",
+                        "partially_found": "⚠️ Partially Found",
+                        "not_found": "❌ Not Found",
+                        "reference_exists_but_text_differs": "⚠️ Wrong Reference"
+                    }.get(verification_status, f"⏳ {verification_status}")
+                    print(f"    Verification Status: {status_display}")
+                else:
+                    print(f"    Verification Status: ⏳ Not verified")
                 if source.verification_confidence is not None:
                     print(f"    Confidence: {source.verification_confidence:.2f}")
                 if source.verification_explanation:
@@ -92,7 +103,7 @@ def display_lesson_sources(lesson_id: int):
         # Summary statistics
         if any(s.slug_retrieved is not None for s in all_sources):
             retrieved_count = sum(1 for s in all_sources if s.slug_retrieved)
-            found_count = sum(1 for s in all_sources if s.citation_found)
+            found_count = sum(1 for s in all_sources if s.verification_status and s.verification_status in ["exactly_found", "paraphrase_or_similar", "partially_found"])
             print("\n📊 VERIFICATION SUMMARY:")
             print("-"*80)
             print(f"Total sources: {len(all_sources)}")

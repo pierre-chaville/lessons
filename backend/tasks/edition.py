@@ -35,7 +35,7 @@ class SegmentInput(BaseModel):
 
 
 class EditedPartOutput(BaseModel):
-    """Output: Edited part with segment numbers (no sources - extracted separately)"""
+    """Output: Edited paragraph with segment numbers"""
 
     start_segment: int = Field(
         description="Starting segment number (INCLUSIVE, 0-indexed within the group). "
@@ -45,7 +45,7 @@ class EditedPartOutput(BaseModel):
         description="Ending segment number (INCLUSIVE, 0-indexed within the group). "
         "This segment IS included in this edited part. Must be >= start_segment."
     )
-    text: str = Field(description="Rewritten text in clear, written style")
+    text: str = Field(description="Rewritten text as a paragraph in clear, written style")
 
 
 class TranscriptGroupInput(BaseModel):
@@ -55,10 +55,10 @@ class TranscriptGroupInput(BaseModel):
 
 
 class EditedTranscriptGroupOutput(BaseModel):
-    """Output: Group of edited parts with sources"""
+    """Output: Group of edited paragraphs"""
 
     parts: List[EditedPartOutput] = Field(
-        description="List of edited parts (can combine multiple segments into one part)"
+        description="List of edited paragraphs (can combine multiple segments into one paragraph)"
     )
 
 
@@ -181,7 +181,7 @@ async def edit_segment_group(
             f"- Segment numbers are 0-indexed (first segment is 0, last segment is {num_segments - 1})\n"
             f"- start_segment and end_segment are INCLUSIVE (both boundaries are included)\n"
             f"- You MUST cover ALL segments from 0 to {num_segments - 1} without gaps\n"
-            f"- Each segment can only appear in ONE edited part (no overlaps)\n"
+            f"- Each segment can only appear in ONE edited paragraph (no overlaps)\n"
             f"- Example: If you have segments 0-4, valid ranges are: [0,0], [1,2], [3,4] or [0,4] etc.\n"
         )
 
@@ -268,7 +268,7 @@ async def edit_segment_group(
 
 async def edit_transcript_async(
     lesson_id: int,
-    segments_per_group: int = 100,
+    words_per_group: int = 1000,
     max_concurrency: int = 10,
     session: Optional[Session] = None,
 ) -> bool:
@@ -277,7 +277,7 @@ async def edit_transcript_async(
 
     Args:
         lesson_id: ID of the lesson to edit
-        segments_per_group: Number of segments to process in each group
+        words_per_group: Target number of words to process in each group
         max_concurrency: Maximum number of concurrent LLM calls
         session: Optional SQLModel session (will create one if not provided)
 
@@ -325,17 +325,34 @@ async def edit_transcript_async(
         # Add structured output
         llm_with_structure = llm.with_structured_output(EditedTranscriptGroupOutput)
 
-        # Split segments into groups
+        if words_per_group <= 0:
+            raise ValueError("words_per_group must be a positive integer")
+
+        # Split segments into groups by word count
         segments = source_transcript
         segment_groups = []
+        current_group = []
+        current_word_count = 0
 
-        for i in range(0, len(segments), segments_per_group):
-            group = segments[i : i + segments_per_group]
-            segment_groups.append(group)
+        for segment in segments:
+            text = segment["text"] if isinstance(segment, dict) else segment.text
+            segment_word_count = len(text.split()) if text else 0
+
+            if current_group and current_word_count + segment_word_count > words_per_group:
+                segment_groups.append(current_group)
+                current_group = []
+                current_word_count = 0
+
+            current_group.append(segment)
+            current_word_count += segment_word_count
+
+        if current_group:
+            segment_groups.append(current_group)
 
         logger.info(
             f"Editing lesson {lesson_id}: {len(segments)} segments "
-            f"in {len(segment_groups)} groups with max concurrency {max_concurrency}"
+            f"in {len(segment_groups)} groups (~{words_per_group} words/group) "
+            f"with max concurrency {max_concurrency}"
         )
 
         # Create semaphore for concurrency control
@@ -403,7 +420,7 @@ async def edit_transcript_async(
 
 def edit_transcript(
     lesson_id: int,
-    segments_per_group: int = 100,
+    words_per_group: int = 1000,
     max_concurrency: int = 10,
     session: Optional[Session] = None,
 ) -> bool:
@@ -412,7 +429,7 @@ def edit_transcript(
 
     Args:
         lesson_id: ID of the lesson to edit
-        segments_per_group: Number of segments to process in each group
+        words_per_group: Target number of words to process in each group
         max_concurrency: Maximum number of concurrent LLM calls
         session: Optional SQLModel session
 
@@ -422,7 +439,7 @@ def edit_transcript(
     return asyncio.run(
         edit_transcript_async(
             lesson_id=lesson_id,
-            segments_per_group=segments_per_group,
+            words_per_group=words_per_group,
             max_concurrency=max_concurrency,
             session=session,
         )

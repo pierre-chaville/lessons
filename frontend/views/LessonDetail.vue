@@ -442,12 +442,15 @@ const sourceStats = computed(() => {
           stats.slugRetrieved++;
         }
         
-        if (source.citation_found === true) {
+        // Citation found: FOUND, SIMILAR, or PARTIAL
+        if (source.verification_status && 
+            ['exactly_found', 'paraphrase_or_similar', 'partially_found'].includes(source.verification_status)) {
           stats.citationFound++;
         }
         
-        // Checked: citation found AND verification confidence > 90%
-        if (source.citation_found === true && 
+        // Checked: FOUND or SIMILAR AND verification confidence > 90%
+        if (source.verification_status && 
+            ['exactly_found', 'paraphrase_or_similar'].includes(source.verification_status) &&
             source.verification_confidence !== null && 
             source.verification_confidence > 0.9) {
           stats.checked++;
@@ -1727,14 +1730,14 @@ const saveSegment = async () => {
                         <span v-if="source.ref" class="text-gray-500 dark:text-gray-400">{{ source.ref }}</span>
                         <span v-if="source.standard_slug" class="text-xs text-gray-400 dark:text-gray-500 font-mono">({{ source.standard_slug }})</span>
                         <!-- Verification status icon -->
-                        <span v-if="source.citation_found === true && source.verification_confidence !== null && source.verification_confidence > 0.9" 
+                        <span v-if="source.verification_status && ['exactly_found', 'paraphrase_or_similar'].includes(source.verification_status) && source.verification_confidence !== null && source.verification_confidence > 0.9" 
                           class="text-green-600 dark:text-green-400"
                           title="Verified (confidence > 90%)">
                           <CheckIcon class="h-5 w-5" />
                         </span>
-                        <span v-else-if="source.citation_found === false || (source.verification_confidence !== null && source.verification_confidence <= 0.9) || source.slug_retrieved === false"
+                        <span v-else-if="!source.verification_status || ['not_found', 'reference_exists_but_text_differs'].includes(source.verification_status) || (source.verification_confidence !== null && source.verification_confidence <= 0.9) || source.slug_retrieved === false"
                           class="text-yellow-600 dark:text-yellow-400"
-                          :title="source.citation_found === false ? 'Citation not found' : source.verification_confidence !== null ? `Verification confidence: ${(source.verification_confidence * 100).toFixed(0)}%` : 'Not verified'">
+                          :title="!source.verification_status || ['not_found', 'reference_exists_but_text_differs'].includes(source.verification_status) ? 'Citation not found or differs' : source.verification_confidence !== null ? `Verification confidence: ${(source.verification_confidence * 100).toFixed(0)}%` : 'Not verified'">
                           <ExclamationTriangleIcon class="h-5 w-5" />
                         </span>
                       </div>
@@ -1852,14 +1855,14 @@ const saveSegment = async () => {
                           <span v-if="source.type" class="text-gray-600 dark:text-gray-400">{{ source.type }}</span><span v-if="source.type && source.work"> — </span><span v-if="source.work" class="italic">{{ source.work }}</span>
                         </div>
                         <!-- Verification status icon -->
-                        <span v-if="source.citation_found === true && source.verification_confidence !== null && source.verification_confidence > 0.9" 
+                        <span v-if="source.verification_status && ['exactly_found', 'paraphrase_or_similar'].includes(source.verification_status) && source.verification_confidence !== null && source.verification_confidence > 0.9" 
                           class="text-green-600 dark:text-green-400"
                           title="Verified (confidence > 90%)">
                           <CheckIcon class="h-5 w-5" />
                         </span>
-                        <span v-else-if="source.citation_found === false || (source.verification_confidence !== null && source.verification_confidence <= 0.9) || source.slug_retrieved === false"
+                        <span v-else-if="!source.verification_status || ['not_found', 'reference_exists_but_text_differs'].includes(source.verification_status) || (source.verification_confidence !== null && source.verification_confidence <= 0.9) || source.slug_retrieved === false"
                           class="text-yellow-600 dark:text-yellow-400"
-                          :title="source.citation_found === false ? 'Citation not found' : source.verification_confidence !== null ? `Verification confidence: ${(source.verification_confidence * 100).toFixed(0)}%` : 'Not verified'">
+                          :title="!source.verification_status || ['not_found', 'reference_exists_but_text_differs'].includes(source.verification_status) ? 'Citation not found or differs' : source.verification_confidence !== null ? `Verification confidence: ${(source.verification_confidence * 100).toFixed(0)}%` : 'Not verified'">
                           <ExclamationTriangleIcon class="h-5 w-5" />
                         </span>
                       </div>
@@ -1964,9 +1967,9 @@ const saveSegment = async () => {
                     </span>
                   </div>
                   <div v-if="selectedSource.slug_retrieved">
-                    <span class="font-medium text-gray-700 dark:text-gray-300">Citation Found:</span>
-                    <span :class="selectedSource.citation_found ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'" class="ml-2">
-                      {{ selectedSource.citation_found ? '✅ Yes' : '❌ No' }}
+                    <span class="font-medium text-gray-700 dark:text-gray-300">Verification Status:</span>
+                    <span :class="selectedSource.verification_status && ['exactly_found', 'paraphrase_or_similar', 'partially_found'].includes(selectedSource.verification_status) ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'" class="ml-2">
+                      {{ selectedSource.verification_status ? selectedSource.verification_status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) : 'Not verified' }}
                     </span>
                   </div>
                   <div v-if="selectedSource.verification_confidence !== null && selectedSource.verification_confidence !== undefined">

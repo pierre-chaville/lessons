@@ -152,7 +152,9 @@ def process_edition_task(session: Session, task: Task):
         # Get parameters from task
         params = task.parameters or {}
         lesson_id = params.get("lesson_id")
-        segments_per_group = params.get("segments_per_group", 100)
+        words_per_group = params.get("words_per_group")
+        if words_per_group is None:
+            words_per_group = params.get("segments_per_group", 1000)
         max_concurrency = params.get("max_concurrency", 10)
 
         if not lesson_id:
@@ -162,7 +164,7 @@ def process_edition_task(session: Session, task: Task):
         logger.info(f"Step 1: Editing transcript for lesson {lesson_id}")
         success = edit_transcript(
             lesson_id=lesson_id,
-            segments_per_group=segments_per_group,
+            words_per_group=words_per_group,
             max_concurrency=max_concurrency,
             session=session,
         )
@@ -190,7 +192,7 @@ def process_edition_task(session: Session, task: Task):
             result={
                 "message": "Edition and source extraction completed successfully",
                 "lesson_id": lesson_id,
-                "segments_per_group": segments_per_group,
+                "words_per_group": words_per_group,
                 "max_concurrency": max_concurrency,
             },
         )
