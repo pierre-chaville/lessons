@@ -17,6 +17,7 @@ import os
 import httpx
 import re
 from html import unescape
+from config import load_config
 import re
 from html import unescape
 
@@ -650,6 +651,13 @@ def generate_lesson_edited_transcript_pdf(
     if course_name:
         story.append(Paragraph(f"<b>Course:</b> {course_name}", metadata_style))
     story.append(Paragraph("<b>Document Type:</b> Edited Transcript", metadata_style))
+    config = load_config()
+    edition_prompt = config.get("edition", {}).get("prompt", "")
+    if edition_prompt:
+        prompt_html = _apply_inline_formatting(edition_prompt)
+        story.append(
+            Paragraph(f"<b>Edition Prompt:</b><br/>{prompt_html}", metadata_style)
+        )
     story.append(Spacer(1, 0.5 * cm))
 
     # Edited transcript parts
