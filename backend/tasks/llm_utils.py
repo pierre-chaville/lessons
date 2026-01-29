@@ -43,10 +43,21 @@ def get_llm_model(
     # Load task-specific config if task_name is provided
     if task_name and task_name in config:
         task_config = config[task_name]
+        task_provider = task_config.get('provider')
+        if task_provider:
+            provider = task_provider
         if temperature is None:
             temperature = task_config.get('temperature', 0.7)
         if model is None:
-            model = task_config.get('model', 'gpt-4o')
+            task_model = task_config.get('model')
+            if task_model:
+                model = task_model
+            else:
+                model = (
+                    'gpt-4o'
+                    if provider.lower() == 'openai'
+                    else 'claude-3-5-sonnet-20241022'
+                )
     else:
         # Use defaults if no task specified
         if temperature is None:

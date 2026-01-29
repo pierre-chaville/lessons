@@ -652,7 +652,20 @@ def generate_lesson_edited_transcript_pdf(
         story.append(Paragraph(f"<b>Course:</b> {course_name}", metadata_style))
     story.append(Paragraph("<b>Document Type:</b> Edited Transcript", metadata_style))
     config = load_config()
-    edition_prompt = config.get("edition", {}).get("prompt", "")
+    edition_config = config.get("edition", {})
+    edition_model = edition_config.get("model")
+    edition_temperature = edition_config.get("temperature")
+    edition_prompt = edition_config.get("prompt", "")
+    if edition_model:
+        story.append(
+            Paragraph(f"<b>Edition Model:</b> {edition_model}", metadata_style)
+        )
+    if edition_temperature is not None:
+        story.append(
+            Paragraph(
+                f"<b>Edition Temperature:</b> {edition_temperature}", metadata_style
+            )
+        )
     if edition_prompt:
         prompt_html = _apply_inline_formatting(edition_prompt)
         story.append(

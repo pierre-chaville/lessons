@@ -389,8 +389,9 @@ async def edit_transcript_async(
         lesson.edited_transcript = [part.model_dump() for part in edited_parts]
 
         # Save edition metadata
+        edition_provider = edition_config.get("provider", config.get("provider"))
         metadata = Metadata(
-            provider=config.get("provider"),
+            provider=edition_provider,
             model=edition_config.get("model"),
             temperature=edition_config.get("temperature"),
             prompt=edition_prompt,

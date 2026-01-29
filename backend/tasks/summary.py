@@ -214,8 +214,9 @@ async def generate_summary_async(
         if selected_prompt_name:
             prompt_info = f"[{selected_prompt_name}] {summary_prompt}"
 
+        summary_provider = summary_config.get("provider", config.get("provider"))
         metadata = Metadata(
-            provider=config.get("provider"),
+            provider=summary_provider,
             model=summary_config.get("model"),
             temperature=summary_config.get("temperature"),
             prompt=prompt_info,

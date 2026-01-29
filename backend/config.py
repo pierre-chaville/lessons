@@ -13,17 +13,20 @@ DEFAULT_CONFIG = {
     "api_key": "",
     "provider": "OpenAI",
     "correction": {
+        "provider": "OpenAI",
         "model": "gpt-4o",
         "prompt": "Please correct the following transcript, fixing any errors while maintaining the original meaning and style.",
         "temperature": 0.3,
     },
     "edition": {
+        "provider": "OpenAI",
         "model": "gpt-4o",
         "prompt": "Please rewrite the following transcript in a clear, written style, maintaining the original meaning and flow. Include timing information (start/end) and cite any sources mentioned.",
         "temperature": 0.5,
     },
     "summary": {
         "max_length": 300,
+        "provider": "OpenAI",
         "model": "gpt-4o",
         "prompts": [
             {
@@ -32,6 +35,18 @@ DEFAULT_CONFIG = {
             }
         ],
         "temperature": 0.7,
+    },
+    "extraction": {
+        "provider": "OpenAI",
+        "model": "gpt-4o",
+        "prompt": "Please extract any sources mentioned in the edited transcript.",
+        "temperature": 0.3,
+    },
+    "sources": {
+        "provider": "OpenAI",
+        "model": "gpt-4o",
+        "prompt": "Please verify sources and provide standardized references.",
+        "temperature": 0.3,
     },
     "transcribe": {
         "beam_size": 5,

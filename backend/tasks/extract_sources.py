@@ -357,8 +357,9 @@ async def extract_sources_async(
         lesson.edited_transcript = [part.model_dump() for part in edited_parts]
 
         # Save extraction metadata
+        extraction_provider = extraction_config.get("provider", config.get("provider"))
         metadata = Metadata(
-            provider=config.get("provider"),
+            provider=extraction_provider,
             model=extraction_config.get("model"),
             temperature=extraction_config.get("temperature"),
             prompt=extraction_prompt,

@@ -297,8 +297,9 @@ async def correct_transcript_async(
         lesson.corrected_transcript = [seg.model_dump() for seg in corrected_segments]
         
         # Save correction metadata
+        correction_provider = correction_config.get("provider", config.get("provider"))
         metadata = Metadata(
-            provider=config.get('provider'),
+            provider=correction_provider,
             model=correction_config.get('model'),
             temperature=correction_config.get('temperature'),
             prompt=correction_prompt
