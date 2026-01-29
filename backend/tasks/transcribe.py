@@ -201,7 +201,7 @@ def get_whisper_model(force_device=None):
     """
     global _model, _model_config
     
-    # Load config from config.yaml
+    # Load config from database (seeded from config.yaml)
     config = load_config()
     
     # Get whisper config with defaults

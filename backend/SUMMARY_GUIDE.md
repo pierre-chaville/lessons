@@ -18,10 +18,10 @@ The summary generation feature creates concise summaries of lesson transcripts u
 
 ### 1. Configuration
 
-Make sure your `backend/data/config.yaml` is configured:
+Configuration is stored in the database and seeded from `backend/data/config.yaml` on first load.
+API keys are read from `.env`.
 
 ```yaml
-api_key: "sk-your-api-key-here"
 provider: OpenAI  # or Anthropic
 
 summary:
@@ -29,6 +29,13 @@ summary:
   model: gpt-4o
   prompt: "Please provide a concise summary of the following lesson transcript."
   temperature: 0.7
+```
+
+`.env`:
+
+```
+OPENAI_API_KEY=your-openai-key
+ANTHROPIC_API_KEY=your-anthropic-key
 ```
 
 ### 2. Generate Summary
@@ -276,9 +283,10 @@ Prompt: Please provide a concise summary of the following lesson transcript...
 ## 🔧 Troubleshooting
 
 ### "API key not found in config"
-**Solution**: Add your API key to `config.yaml`:
+**Solution**: Add your API key to `.env`:
 ```yaml
-api_key: "sk-your-api-key-here"
+OPENAI_API_KEY=your-openai-key
+ANTHROPIC_API_KEY=your-anthropic-key
 ```
 
 ### "Lesson has no transcript to summarize"

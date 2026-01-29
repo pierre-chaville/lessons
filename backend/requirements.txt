@@ -8,3 +8,4 @@ langchain-openai==0.2.14
 langchain-anthropic==0.3.8
 faster-whisper==1.0.3
 python-bidi==0.4.2
+python-dotenv==1.0.1

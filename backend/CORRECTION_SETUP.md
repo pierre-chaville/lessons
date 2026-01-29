@@ -30,11 +30,12 @@ This will install:
 
 ### Step 2: Configure API Key
 
-Edit `backend/data/config.yaml` and add your API key:
+Configuration is stored in the database and seeded from `backend/data/config.yaml` on first load.
+API keys are read from `.env`:
 
 ```yaml
-api_key: "sk-your-api-key-here"
-provider: OpenAI  # or Anthropic
+OPENAI_API_KEY=your-openai-key
+ANTHROPIC_API_KEY=your-anthropic-key
 ```
 
 ## 🧪 Testing
@@ -129,10 +130,9 @@ asyncio.run(my_app())
 
 ## 🎛️ Configuration
 
-All settings are in `backend/data/config.yaml`:
+All settings are stored in the database and seeded from `backend/data/config.yaml`:
 
 ```yaml
-api_key: "your-api-key"
 provider: OpenAI  # or Anthropic
 
 correction:
@@ -169,7 +169,7 @@ correction:
 ## 🐛 Troubleshooting
 
 ### "API key not found in config"
-- Make sure `api_key` is set in `config.yaml`
+- Make sure `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` is set in `.env`
 
 ### Rate Limit Errors
 - Reduce `max_concurrency` (try 5 or less)

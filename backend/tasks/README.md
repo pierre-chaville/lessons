@@ -8,7 +8,7 @@ This module contains utilities and tasks for processing lessons, including LLM-b
 Utility functions for working with LLM models via LangChain.
 
 **Key Function:**
-- `get_llm_model(task_name=None, temperature=None, model=None)` - Returns a configured ChatOpenAI or ChatAnthropic model based on the provider in config.yaml
+- `get_llm_model(task_name=None, temperature=None, model=None)` - Returns a configured ChatOpenAI or ChatAnthropic model based on the provider in the DB config (seeded from config.yaml)
 
 ### `transcribe.py`
 Audio transcription using Faster Whisper.
@@ -179,10 +179,10 @@ response = llm.invoke("Your prompt here")
 
 ## Configuration
 
-Both correction and summary functions use settings from `backend/data/config.yaml`:
+Settings are stored in the database and are seeded from `backend/data/config.yaml` on first load.
+API keys are read from `.env`.
 
 ```yaml
-api_key: "your-api-key-here"
 provider: OpenAI  # or Anthropic
 
 correction:
@@ -195,6 +195,13 @@ summary:
   model: gpt-4o
   prompt: "Please provide a concise summary of the following lesson transcript."
   temperature: 0.7
+```
+
+`.env`:
+
+```
+OPENAI_API_KEY=your-openai-key
+ANTHROPIC_API_KEY=your-anthropic-key
 ```
 
 ## How It Works

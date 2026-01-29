@@ -2,16 +2,19 @@
 
 from pathlib import Path
 from typing import Dict, Any
-import os
 import json
 import yaml
+from sqlmodel import Session
+from dotenv import load_dotenv, find_dotenv
+
+from database import engine, create_db_and_tables
+from models import AppConfig
 
 CONFIG_FILE = Path(__file__).parent / "data/config.yaml"
+CONFIG_RECORD_ID = 1
 
 # Default configuration
 DEFAULT_CONFIG = {
-    "api_key": "",
-    "provider": "OpenAI",
     "correction": {
         "provider": "OpenAI",
         "model": "gpt-4o",
@@ -58,30 +61,73 @@ DEFAULT_CONFIG = {
 }
 
 
+def _load_env_file() -> None:
+    """Load environment variables from .env files if present."""
+    load_dotenv(find_dotenv(usecwd=True), override=True, encoding="utf-8-sig")
+    load_dotenv(Path(__file__).parent / ".env", override=True, encoding="utf-8-sig")
+    load_dotenv(Path(__file__).parent.parent / ".env", override=True, encoding="utf-8-sig")
+
+
+def _sanitize_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Remove sensitive keys before persisting configuration."""
+    if not config:
+        return {}
+    cleaned = dict(config)
+    cleaned.pop("api_key", None)
+    return cleaned
+
+
+def _get_db_config(session: Session) -> Dict[str, Any]:
+    record = session.get(AppConfig, CONFIG_RECORD_ID)
+    if record and isinstance(record.data, dict):
+        return record.data
+    return {}
+
+
+def _save_db_config(session: Session, config: Dict[str, Any]) -> None:
+    record = session.get(AppConfig, CONFIG_RECORD_ID)
+    if record is None:
+        record = AppConfig(id=CONFIG_RECORD_ID, data=config)
+        session.add(record)
+    else:
+        record.data = config
+    session.commit()
+
+
 def load_config() -> Dict[str, Any]:
-    """Load configuration from YAML or JSON file"""
+    """Load configuration from DB (seeded from config.yaml if empty)."""
+    _load_env_file()
     try:
-        if CONFIG_FILE.exists():
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                config = yaml.safe_load(f)
-                # Merge with defaults to ensure all keys exist
-                return merge_dicts(DEFAULT_CONFIG.copy(), config or {})
-        else:
-            # Create default config file if it doesn't exist
-            save_config(DEFAULT_CONFIG)
-            return DEFAULT_CONFIG.copy()
+        create_db_and_tables()
+        with Session(engine) as session:
+            db_config = _get_db_config(session)
+            if not db_config:
+                file_config = {}
+                if CONFIG_FILE.exists():
+                    with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                        file_config = yaml.safe_load(f) or {}
+                merged = merge_dicts(DEFAULT_CONFIG.copy(), file_config)
+                merged = _sanitize_config(merged)
+                _save_db_config(session, merged)
+                return merged
+
+            merged = merge_dicts(DEFAULT_CONFIG.copy(), db_config)
+            cleaned = _sanitize_config(merged)
+            if "api_key" in db_config:
+                _save_db_config(session, cleaned)
+            return cleaned
     except Exception as e:
         print(f"Error loading config: {e}")
         return DEFAULT_CONFIG.copy()
 
 
 def save_config(config: Dict[str, Any]) -> bool:
-    """Save configuration to YAML or JSON file"""
+    """Save configuration to DB."""
     try:
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            yaml.dump(
-                config, f, default_flow_style=False, allow_unicode=True, sort_keys=False
-            )
+        create_db_and_tables()
+        with Session(engine) as session:
+            cleaned = _sanitize_config(config)
+            _save_db_config(session, cleaned)
         return True
     except Exception as e:
         print(f"Error saving config: {e}")
@@ -102,6 +148,7 @@ def merge_dicts(default: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, 
 def update_config(updates: Dict[str, Any]) -> Dict[str, Any]:
     """Update configuration with new values"""
     config = load_config()
+    updates = _sanitize_config(updates or {})
     config = merge_dicts(config, updates)
     save_config(config)
     return config

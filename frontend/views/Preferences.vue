@@ -6,7 +6,6 @@ import {
   CogIcon,
   CheckIcon,
   ArrowPathIcon,
-  KeyIcon,
   MicrophoneIcon,
   PencilIcon,
   DocumentTextIcon,
@@ -21,24 +20,26 @@ const API_URL = 'http://localhost:8000';
 
 // Configuration state
 const config = ref({
-  api_key: '',
-  provider: 'OpenAI',
   correction: {
+    provider: 'OpenAI',
     model: '',
     prompt: '',
     temperature: 0.3
   },
   edition: {
+    provider: 'OpenAI',
     model: '',
     prompt: '',
     temperature: 0.5
   },
   extraction: {
+    provider: 'OpenAI',
     model: '',
     prompt: '',
     temperature: 0.3
   },
   sources: {
+    provider: 'OpenAI',
     model: '',
     prompt: '',
     temperature: 0.3
@@ -46,6 +47,7 @@ const config = ref({
   source_types: {},
   summary: {
     max_length: 300,
+    provider: 'OpenAI',
     model: '',
     prompts: [
       { name: 'Default', text: '' }
@@ -266,17 +268,6 @@ const updateSourceType = (oldType, newType, description) => {
                   ? 'bg-white dark:bg-gray-800 text-indigo-700 dark:text-indigo-400 shadow'
                   : 'text-gray-700 dark:text-gray-300 hover:bg-white/[0.12] dark:hover:bg-gray-600'
               ]">
-                <KeyIcon class="h-5 w-5" />
-                {{ t('preferences.llmSettings') }}
-              </div>
-            </Tab>
-            <Tab v-slot="{ selected }" class="w-full rounded-md py-2.5 text-sm font-medium leading-5 transition-colors focus:outline-none">
-              <div :class="[
-                'flex items-center justify-center gap-2',
-                selected
-                  ? 'bg-white dark:bg-gray-800 text-indigo-700 dark:text-indigo-400 shadow'
-                  : 'text-gray-700 dark:text-gray-300 hover:bg-white/[0.12] dark:hover:bg-gray-600'
-              ]">
                 <MicrophoneIcon class="h-5 w-5" />
                 {{ t('preferences.transcription') }}
               </div>
@@ -328,48 +319,6 @@ const updateSourceType = (oldType, newType, description) => {
           </TabList>
 
           <TabPanels class="mt-6">
-            <!-- LLM Settings Tab -->
-            <TabPanel class="rounded-lg bg-white dark:bg-gray-800 p-6 shadow">
-              <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                {{ t('preferences.llmSettings') }}
-              </h2>
-              
-              <div class="space-y-6">
-                <!-- Provider -->
-                <div>
-                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {{ t('preferences.provider') }}
-                  </label>
-                  <select
-                    v-model="config.provider"
-                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-                  >
-                    <option value="OpenAI">OpenAI</option>
-                    <option value="Anthropic">Anthropic</option>
-                  </select>
-                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    {{ t('preferences.providerDesc') }}
-                  </p>
-                </div>
-
-                <!-- API Key -->
-                <div>
-                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {{ t('preferences.apiKey') }}
-                  </label>
-                  <input
-                    v-model="config.api_key"
-                    type="password"
-                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
-                    :placeholder="t('preferences.apiKeyPlaceholder')"
-                  />
-                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    {{ t('preferences.apiKeyDesc') }}
-                  </p>
-                </div>
-              </div>
-            </TabPanel>
-
             <!-- Transcription Tab -->
             <TabPanel class="rounded-lg bg-white dark:bg-gray-800 p-6 shadow">
               <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">
@@ -490,6 +439,20 @@ const updateSourceType = (oldType, newType, description) => {
               </h2>
               
               <div class="space-y-6">
+                <!-- Provider -->
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    {{ t('preferences.provider') }}
+                  </label>
+                  <select
+                    v-model="config.correction.provider"
+                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="OpenAI">OpenAI</option>
+                    <option value="Anthropic">Anthropic</option>
+                  </select>
+                </div>
+
                 <!-- Model -->
                 <div>
                   <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -549,6 +512,20 @@ const updateSourceType = (oldType, newType, description) => {
               </h2>
               
               <div class="space-y-6">
+                <!-- Provider -->
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    {{ t('preferences.provider') }}
+                  </label>
+                  <select
+                    v-model="config.edition.provider"
+                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="OpenAI">OpenAI</option>
+                    <option value="Anthropic">Anthropic</option>
+                  </select>
+                </div>
+
                 <!-- Model -->
                 <div>
                   <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -673,6 +650,20 @@ const updateSourceType = (oldType, newType, description) => {
                   </h3>
                   
                   <div class="space-y-6">
+                    <!-- Provider -->
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        {{ t('preferences.provider') }}
+                      </label>
+                      <select
+                        v-model="config.extraction.provider"
+                        class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                      >
+                        <option value="OpenAI">OpenAI</option>
+                        <option value="Anthropic">Anthropic</option>
+                      </select>
+                    </div>
+
                     <!-- Model -->
                     <div>
                       <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -732,6 +723,20 @@ const updateSourceType = (oldType, newType, description) => {
                   </h3>
                   
                   <div class="space-y-6">
+                    <!-- Provider -->
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        {{ t('preferences.provider') }}
+                      </label>
+                      <select
+                        v-model="config.sources.provider"
+                        class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                      >
+                        <option value="OpenAI">OpenAI</option>
+                        <option value="Anthropic">Anthropic</option>
+                      </select>
+                    </div>
+
                     <!-- Model -->
                     <div>
                       <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -793,6 +798,20 @@ const updateSourceType = (oldType, newType, description) => {
               </h2>
               
               <div class="space-y-6">
+                <!-- Provider -->
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    {{ t('preferences.provider') }}
+                  </label>
+                  <select
+                    v-model="config.summary.provider"
+                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="OpenAI">OpenAI</option>
+                    <option value="Anthropic">Anthropic</option>
+                  </select>
+                </div>
+
                 <!-- Model -->
                 <div>
                   <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
