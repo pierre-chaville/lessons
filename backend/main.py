@@ -513,10 +513,12 @@ def get_lesson_summary_pdf(lesson_id: int, session: Session = Depends(get_sessio
     pdf_bytes = generate_lesson_summary_pdf(
         title=lesson.title,
         summary_markdown=lesson.summary,
+        brief_text=lesson.brief,
         filename=lesson.filename,
         date=lesson.date,
         course_name=lesson.course.name if lesson.course else None,
         prompt_name=prompt_name,
+        summary_metadata=lesson.summary_metadata,
     )
 
     # Create safe filename

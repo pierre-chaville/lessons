@@ -171,20 +171,24 @@ class NumberedCanvas(canvas.Canvas):
 def generate_lesson_summary_pdf(
     title: str,
     summary_markdown: str,
+    brief_text: Optional[str],
     filename: str,
     date: Optional[datetime] = None,
     course_name: Optional[str] = None,
     prompt_name: Optional[str] = None,
+    summary_metadata: Optional[dict] = None,
 ) -> bytes:
     """Generate a PDF from a lesson summary (markdown).
 
     Args:
         title: Lesson title
         summary_markdown: Summary text in markdown format
+        brief_text: Optional brief summary text
         filename: Original audio filename
         date: Lesson date
         course_name: Associated course name
         prompt_name: Optional prompt name used for summary
+        summary_metadata: Optional summary metadata dict (provider/model/temperature/max_tokens/prompt)
 
     Returns:
         PDF file as bytes
@@ -255,10 +259,53 @@ def generate_lesson_summary_pdf(
         story.append(Paragraph(f"<b>Course:</b> {course_name}", metadata_style))
     if prompt_name:
         story.append(Paragraph(f"<b>Prompt:</b> {prompt_name}", metadata_style))
+    if summary_metadata:
+        summary_provider = summary_metadata.get("provider")
+        summary_model = summary_metadata.get("model")
+        summary_temperature = summary_metadata.get("temperature")
+        summary_max_tokens = summary_metadata.get("max_tokens")
+        summary_prompt = summary_metadata.get("prompt")
+
+        if summary_provider:
+            story.append(
+                Paragraph(f"<b>Summary Provider:</b> {summary_provider}", metadata_style)
+            )
+        if summary_model:
+            story.append(
+                Paragraph(f"<b>Summary Model:</b> {summary_model}", metadata_style)
+            )
+        if summary_temperature is not None:
+            story.append(
+                Paragraph(
+                    f"<b>Summary Temperature:</b> {summary_temperature}",
+                    metadata_style,
+                )
+            )
+        if summary_max_tokens is not None:
+            story.append(
+                Paragraph(
+                    f"<b>Summary Max Tokens:</b> {summary_max_tokens}",
+                    metadata_style,
+                )
+            )
+        if summary_prompt:
+            prompt_html = _apply_inline_formatting(str(summary_prompt))
+            story.append(
+                Paragraph(
+                    f"<b>Summary Prompt:</b><br/>{prompt_html}",
+                    metadata_style,
+                )
+            )
     story.append(
         Paragraph("<b>Document Type:</b> Summary", metadata_style)
     )
     story.append(Spacer(1, 0.5 * cm))
+
+    if brief_text:
+        story.append(Paragraph("<b>Brief:</b>", metadata_style))
+        story.append(Paragraph(_apply_inline_formatting(brief_text), summary_style))
+        story.append(Spacer(1, 0.4 * cm))
+        story.append(Paragraph("<b>Summary:</b>", metadata_style))
 
     # Convert markdown to HTML-like format for ReportLab
     # Simple markdown parsing

@@ -242,6 +242,7 @@ async def generate_summary_async(
             provider=summary_provider,
             model=summary_config.get("model"),
             temperature=summary_config.get("temperature"),
+            max_tokens=summary_config.get("max_tokens"),
             prompt=prompt_info,
         )
         lesson.set_summary_metadata(metadata)

@@ -52,6 +52,7 @@ class Metadata(BaseModel):
     provider: Optional[str] = None
     model: Optional[str] = None
     temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
     prompt: Optional[str] = None
 
 
