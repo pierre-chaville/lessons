@@ -48,7 +48,8 @@ def _get_api_key_for_provider(provider: str) -> str:
 def get_llm_model(
     task_name: str = None,
     temperature: float = None,
-    model: str = None
+    model: str = None,
+    max_tokens: int = None,
 ) -> Union[ChatOpenAI, ChatAnthropic]:
     """
     Get an LLM model instance based on the configured provider.
@@ -87,6 +88,8 @@ def get_llm_model(
                     if provider.lower() == 'openai'
                     else 'claude-3-5-sonnet-20241022'
                 )
+        if max_tokens is None:
+            max_tokens = task_config.get('max_tokens')
     else:
         # Use defaults if no task specified
         if temperature is None:
@@ -117,22 +120,28 @@ def get_llm_model(
             raise ValueError(
                 f"API key not found for provider {provider}. Set {provider.upper()}_API_KEY in .env"
             )
-        return ChatOpenAI(
-            api_key=api_key,
-            model=model,
-            temperature=temperature
-        )
+        params = {
+            "api_key": api_key,
+            "model": model,
+            "temperature": temperature,
+        }
+        if max_tokens is not None:
+            params["max_tokens"] = max_tokens
+        return ChatOpenAI(**params)
     elif provider.lower() == 'anthropic':
         api_key = _get_api_key_for_provider(provider)
         if not api_key:
             raise ValueError(
                 "Anthropic API key not found. Set ANTHROPIC_API_KEY in .env"
             )
-        return ChatAnthropic(
-            api_key=api_key,
-            model=model,
-            temperature=temperature
-        )
+        params = {
+            "api_key": api_key,
+            "model": model,
+            "temperature": temperature,
+        }
+        if max_tokens is not None:
+            params["max_tokens"] = max_tokens
+        return ChatAnthropic(**params)
     else:
         raise ValueError(
             f"Unsupported provider: {provider}. "

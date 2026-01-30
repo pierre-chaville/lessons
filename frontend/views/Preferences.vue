@@ -24,25 +24,29 @@ const config = ref({
     provider: 'OpenAI',
     model: '',
     prompt: '',
-    temperature: 0.3
+    temperature: 0.3,
+    max_tokens: 16000
   },
   edition: {
     provider: 'OpenAI',
     model: '',
     prompt: '',
-    temperature: 0.5
+    temperature: 0.5,
+    max_tokens: 16000
   },
   extraction: {
     provider: 'OpenAI',
     model: '',
     prompt: '',
-    temperature: 0.3
+    temperature: 0.3,
+    max_tokens: 4000
   },
   sources: {
     provider: 'OpenAI',
     model: '',
     prompt: '',
-    temperature: 0.3
+    temperature: 0.3,
+    max_tokens: 4000
   },
   source_types: {},
   summary: {
@@ -52,7 +56,15 @@ const config = ref({
     prompts: [
       { name: 'Default', text: '' }
     ],
-    temperature: 0.7
+    temperature: 0.7,
+    max_tokens: 4000,
+    brief: {
+      provider: 'OpenAI',
+      model: '',
+      prompt: '',
+      temperature: 0.5,
+      max_tokens: 1000
+    }
   },
   transcribe: {
     beam_size: 5,
@@ -488,6 +500,24 @@ const updateSourceType = (oldType, newType, description) => {
                   </div>
                 </div>
 
+                <!-- Max Tokens -->
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    {{ t('preferences.maxTokens') }}
+                  </label>
+                  <input
+                    v-model.number="config.correction.max_tokens"
+                    type="number"
+                    min="256"
+                    max="200000"
+                    step="256"
+                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('preferences.maxTokensDesc') }}
+                  </p>
+                </div>
+
                 <!-- Prompt -->
                 <div>
                   <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -559,6 +589,24 @@ const updateSourceType = (oldType, newType, description) => {
                     <span>{{ t('preferences.precise') }}</span>
                     <span>{{ t('preferences.creative') }}</span>
                   </div>
+                </div>
+
+                <!-- Max Tokens -->
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    {{ t('preferences.maxTokens') }}
+                  </label>
+                  <input
+                    v-model.number="config.edition.max_tokens"
+                    type="number"
+                    min="256"
+                    max="200000"
+                    step="256"
+                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('preferences.maxTokensDesc') }}
+                  </p>
                 </div>
 
                 <!-- Prompt -->
@@ -699,6 +747,24 @@ const updateSourceType = (oldType, newType, description) => {
                       </div>
                     </div>
 
+                    <!-- Max Tokens -->
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        {{ t('preferences.maxTokens') }}
+                      </label>
+                      <input
+                        v-model.number="config.extraction.max_tokens"
+                        type="number"
+                        min="256"
+                        max="200000"
+                        step="256"
+                        class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                      />
+                      <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        {{ t('preferences.maxTokensDesc') }}
+                      </p>
+                    </div>
+
                     <!-- Prompt -->
                     <div>
                       <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -770,6 +836,24 @@ const updateSourceType = (oldType, newType, description) => {
                         <span>{{ t('preferences.precise') }}</span>
                         <span>{{ t('preferences.creative') }}</span>
                       </div>
+                    </div>
+
+                    <!-- Max Tokens -->
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        {{ t('preferences.maxTokens') }}
+                      </label>
+                      <input
+                        v-model.number="config.sources.max_tokens"
+                        type="number"
+                        min="256"
+                        max="200000"
+                        step="256"
+                        class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                      />
+                      <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        {{ t('preferences.maxTokensDesc') }}
+                      </p>
                     </div>
 
                     <!-- Prompt -->
@@ -847,6 +931,24 @@ const updateSourceType = (oldType, newType, description) => {
                   </div>
                 </div>
 
+                <!-- Max Tokens -->
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    {{ t('preferences.maxTokens') }}
+                  </label>
+                  <input
+                    v-model.number="config.summary.max_tokens"
+                    type="number"
+                    min="256"
+                    max="200000"
+                    step="256"
+                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('preferences.maxTokensDesc') }}
+                  </p>
+                </div>
+
                 <!-- Max Length -->
                 <div>
                   <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -913,6 +1015,97 @@ const updateSourceType = (oldType, newType, description) => {
                   <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
                     {{ t('preferences.summaryPromptDesc') }}
                   </p>
+                </div>
+
+                <!-- Brief Summary Settings -->
+                <div class="border-t border-gray-200 dark:border-gray-700 pt-6">
+                  <h3 class="text-md font-semibold text-gray-900 dark:text-white mb-4">
+                    {{ t('preferences.briefSettings') }}
+                  </h3>
+
+                  <div class="space-y-6">
+                    <!-- Provider -->
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        {{ t('preferences.provider') }}
+                      </label>
+                      <select
+                        v-model="config.summary.brief.provider"
+                        class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                      >
+                        <option value="OpenAI">OpenAI</option>
+                        <option value="Anthropic">Anthropic</option>
+                      </select>
+                    </div>
+
+                    <!-- Model -->
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        {{ t('preferences.model') }}
+                      </label>
+                      <input
+                        v-model="config.summary.brief.model"
+                        type="text"
+                        class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                        placeholder="gpt-4o"
+                      />
+                      <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        {{ t('preferences.modelDesc') }}
+                      </p>
+                    </div>
+
+                    <!-- Temperature -->
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        {{ t('preferences.temperature') }}: {{ config.summary.brief.temperature }}
+                      </label>
+                      <input
+                        v-model.number="config.summary.brief.temperature"
+                        type="range"
+                        min="0"
+                        max="2"
+                        step="0.1"
+                        class="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer"
+                      />
+                      <div class="flex justify-between text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        <span>{{ t('preferences.precise') }}</span>
+                        <span>{{ t('preferences.creative') }}</span>
+                      </div>
+                    </div>
+
+                    <!-- Max Tokens -->
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        {{ t('preferences.maxTokens') }}
+                      </label>
+                      <input
+                        v-model.number="config.summary.brief.max_tokens"
+                        type="number"
+                        min="256"
+                        max="200000"
+                        step="256"
+                        class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                      />
+                      <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        {{ t('preferences.maxTokensDesc') }}
+                      </p>
+                    </div>
+
+                    <!-- Prompt -->
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        {{ t('preferences.prompt') }}
+                      </label>
+                      <textarea
+                        v-model="config.summary.brief.prompt"
+                        rows="6"
+                        class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
+                      ></textarea>
+                      <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        {{ t('preferences.briefPromptDesc') }}
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
             </TabPanel>

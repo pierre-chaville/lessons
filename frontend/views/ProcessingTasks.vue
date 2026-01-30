@@ -9,6 +9,7 @@ import {
   PlayIcon,
   TrashIcon,
   DocumentTextIcon,
+  BookOpenIcon,
   ChatBubbleBottomCenterTextIcon,
   SparklesIcon
 } from '@heroicons/vue/24/outline';
@@ -117,6 +118,12 @@ const getTaskTypeIcon = (taskType) => {
       return DocumentTextIcon;
     case 'correction':
       return ChatBubbleBottomCenterTextIcon;
+    case 'edition':
+      return DocumentTextIcon;
+    case 'extraction':
+      return DocumentTextIcon;
+    case 'sources':
+      return BookOpenIcon;
     case 'summary':
       return SparklesIcon;
     default:

@@ -26,22 +26,20 @@ def display_lesson_summary(lesson_id: int):
         print(f"Lesson: {lesson.title}")
         print("="*80)
         
-        # Check for transcripts
-        has_original = bool(lesson.transcript)
-        has_corrected = bool(lesson.corrected_transcript)
+        # Check for edited transcript
+        has_edited = bool(lesson.edited_transcript)
         
-        print(f"\n📄 Transcript Status:")
+        print(f"\n📄 Edited Transcript Status:")
         print("-"*80)
-        print(f"Original transcript: {'✅ Available' if has_original else '❌ Not available'}")
-        print(f"Corrected transcript: {'✅ Available' if has_corrected else '❌ Not available'}")
+        print(f"Edited transcript: {'✅ Available' if has_edited else '❌ Not available'}")
         
-        if has_original or has_corrected:
-            transcript = lesson.corrected_transcript if has_corrected else lesson.transcript
+        if has_edited:
+            edited_transcript = lesson.edited_transcript
             total_chars = sum(
-                len(seg['text'] if isinstance(seg, dict) else seg.text)
-                for seg in transcript
+                len(part['text'] if isinstance(part, dict) else part.text)
+                for part in edited_transcript
             )
-            print(f"Segments: {len(transcript)}")
+            print(f"Edited parts: {len(edited_transcript)}")
             print(f"Total characters: {total_chars:,}")
         
         # Display summary
@@ -64,18 +62,17 @@ def display_lesson_summary(lesson_id: int):
         else:
             print("No summary available")
         
-        # Show a preview of the transcript
-        if has_original or has_corrected:
-            print("\n📖 TRANSCRIPT PREVIEW (first 3 segments):")
-            print("-"*80)
-            transcript = lesson.corrected_transcript if has_corrected else lesson.transcript
-            for i, seg in enumerate(transcript[:3], 1):
-                if isinstance(seg, dict):
-                    text = seg['text']
-                else:
-                    text = seg.text
-                preview = text[:100] + "..." if len(text) > 100 else text
-                print(f"{i}. {preview}")
+    # Show a preview of the edited transcript
+    if has_edited:
+        print("\n📖 EDITED TRANSCRIPT PREVIEW (first 3 parts):")
+        print("-"*80)
+        for i, part in enumerate(edited_transcript[:3], 1):
+            if isinstance(part, dict):
+                text = part.get('text', '')
+            else:
+                text = part.text
+            preview = text[:200] + "..." if len(text) > 200 else text
+            print(f"{i}. {preview}")
         
         print("\n" + "="*80 + "\n")
 
@@ -83,9 +80,9 @@ def display_lesson_summary(lesson_id: int):
 def main():
     """Main test function"""
     if len(sys.argv) < 2:
-        print("Usage: python test_summary.py <lesson_id> [--use-original]")
+        print("Usage: python test_summary.py <lesson_id> [prompt_name]")
         print("\nOptions:")
-        print("  --use-original    Use original transcript instead of corrected")
+        print("  prompt_name     Name of the prompt to use (optional)")
         sys.exit(1)
     
     try:
@@ -94,20 +91,19 @@ def main():
         logger.error("Invalid lesson ID provided")
         sys.exit(1)
     
-    # Check for use_original flag
-    use_corrected = '--use-original' not in sys.argv
+    # Optional prompt name
+    prompt_name = sys.argv[2] if len(sys.argv) >= 3 else None
     
     # Display lesson info before summary
     display_lesson_summary(lesson_id)
     
     # Generate summary
     logger.info(f"Generating summary for lesson {lesson_id}...")
-    transcript_type = "corrected" if use_corrected else "original"
-    print(f"\n🔄 Generating summary using {transcript_type} transcript (this may take a moment)...\n")
+    print("\n🔄 Generating summary from edited transcript (this may take a moment)...\n")
     
     success = generate_summary(
         lesson_id=lesson_id,
-        use_corrected=use_corrected
+        prompt_type=prompt_name
     )
     
     if success:

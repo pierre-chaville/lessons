@@ -95,6 +95,7 @@ const selectedProcesses = ref({
   transcribe: false,
   correct: false,
   edition: false,
+  extraction: false,
   summary: false,
   sources: false
 });
@@ -896,6 +897,7 @@ const openProcessModal = async () => {
     transcribe: false,
     correct: false,
     edition: false,
+    extraction: false,
     summary: false,
     sources: false
   };
@@ -933,7 +935,14 @@ const createTasks = async () => {
     isCreatingTasks.value = true;
     
     // Define the correct order for task execution
-    const taskOrder = ['transcribe', 'correct', 'edition', 'summary', 'sources'];
+    const taskOrder = [
+      'transcribe',
+      'correct',
+      'edition',
+      'extraction',
+      'summary',
+      'sources'
+    ];
     
     // Filter selected tasks and sort them by the defined order
     const orderedTasks = taskOrder.filter(task => selectedTasks.includes(task));
@@ -949,10 +958,11 @@ const createTasks = async () => {
         parameters.segments_per_group = 100;
         parameters.max_concurrency = 10;
       } else if (taskType === 'edition') {
-        parameters.segments_per_group = 100;
+        parameters.words_per_group = 1000;
+        parameters.max_concurrency = 10;
+      } else if (taskType === 'extraction') {
         parameters.max_concurrency = 10;
       } else if (taskType === 'summary') {
-        parameters.use_corrected = true;
         parameters.prompt_type = selectedSummaryPrompt.value;
       }
       
@@ -961,6 +971,7 @@ const createTasks = async () => {
         'transcribe': 'transcription',
         'correct': 'correction',
         'edition': 'edition',
+        'extraction': 'extraction',
         'summary': 'summary',
         'sources': 'sources'
       };
@@ -1150,6 +1161,22 @@ const saveSegment = async () => {
                 </div>
                 <div class="text-xs text-gray-500 dark:text-gray-400">
                   {{ t('lessons.processEditionDesc') }}
+                </div>
+              </div>
+            </label>
+            
+            <label class="flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors">
+              <input
+                type="checkbox"
+                v-model="selectedProcesses.extraction"
+                class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+              />
+              <div>
+                <div class="text-sm font-medium text-gray-900 dark:text-white">
+                  {{ t('lessons.processExtraction') }}
+                </div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('lessons.processExtractionDesc') }}
                 </div>
               </div>
             </label>

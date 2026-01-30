@@ -24,13 +24,17 @@ MAX_RETRY_DELAY = 60  # seconds
 
 
 async def generate_summary_with_retry(
-    transcript_text: str, llm, summary_prompt: str, max_retries: int = MAX_RETRIES
+    input_text: str,
+    llm,
+    summary_prompt: str,
+    input_label: str = "Text",
+    max_retries: int = MAX_RETRIES,
 ) -> str:
     """
     Generate summary with retry logic for rate limits.
 
     Args:
-        transcript_text: Full transcript text to summarize
+        input_text: Full text to summarize
         llm: LLM model instance
         summary_prompt: Prompt for summary generation
         max_retries: Maximum number of retry attempts
@@ -43,7 +47,7 @@ async def generate_summary_with_retry(
     for attempt in range(max_retries):
         try:
             # Create the full prompt
-            full_prompt = f"{summary_prompt}\n\nTranscript:\n{transcript_text}"
+            full_prompt = f"{summary_prompt}\n\n{input_label}:\n{input_text}"
 
             # Call LLM
             response = await llm.ainvoke(full_prompt)
@@ -96,7 +100,6 @@ async def generate_summary_with_retry(
 
 async def generate_summary_async(
     lesson_id: int,
-    use_corrected: bool = True,
     prompt_type: Optional[str] = None,
     session: Optional[Session] = None,
 ) -> bool:
@@ -105,7 +108,6 @@ async def generate_summary_async(
 
     Args:
         lesson_id: ID of the lesson to summarize
-        use_corrected: Whether to use corrected_transcript (falls back to transcript if not available)
         prompt_type: Name of the prompt to use from config.summary.prompts (uses first if not specified)
         session: Optional SQLModel session (will create one if not provided)
 
@@ -126,35 +128,28 @@ async def generate_summary_async(
             logger.error(f"Lesson {lesson_id} not found")
             return False
 
-        # Get transcript to summarize
-        transcript = None
-        if use_corrected and lesson.corrected_transcript:
-            transcript = lesson.corrected_transcript
-            logger.info(f"Using corrected transcript for lesson {lesson_id}")
-        elif lesson.transcript:
-            transcript = lesson.transcript
-            logger.info(f"Using original transcript for lesson {lesson_id}")
-        else:
-            logger.error(f"Lesson {lesson_id} has no transcript to summarize")
+        # Get edited transcript to summarize
+        if not lesson.edited_transcript:
+            logger.error(f"Lesson {lesson_id} has no edited transcript to summarize")
             return False
 
-        # Combine all segment texts into one string
-        transcript_text = ""
-        for seg in transcript:
-            if isinstance(seg, dict):
-                transcript_text += seg["text"] + " "
+        # Combine all edited part texts into one string
+        edited_text = ""
+        for part in lesson.edited_transcript:
+            if isinstance(part, dict):
+                edited_text += part.get("text", "") + " "
             else:
-                transcript_text += seg.text + " "
+                edited_text += part.text + " "
 
-        transcript_text = transcript_text.strip()
+        edited_text = edited_text.strip()
 
-        if not transcript_text:
-            logger.error(f"Lesson {lesson_id} has empty transcript")
+        if not edited_text:
+            logger.error(f"Lesson {lesson_id} has empty edited transcript")
             return False
 
         logger.info(
             f"Generating summary for lesson {lesson_id} "
-            f"({len(transcript_text)} characters, {len(transcript)} segments)"
+            f"({len(edited_text)} characters, {len(lesson.edited_transcript)} parts)"
         )
 
         # Load config
@@ -168,18 +163,16 @@ async def generate_summary_async(
         if not prompts and "prompt" in summary_config:
             prompts = [{"name": "Default", "text": summary_config["prompt"]}]
 
-        # Find the requested prompt or use the first one
+        # Use selected prompt for the main summary
         summary_prompt = None
         selected_prompt_name = None
         if prompt_type:
-            # Find prompt by name
             for p in prompts:
                 if p.get("name") == prompt_type:
                     summary_prompt = p.get("text")
                     selected_prompt_name = p.get("name")
                     break
 
-        # If not found or not specified, use the first prompt
         if not summary_prompt and prompts:
             summary_prompt = prompts[0].get("text")
             selected_prompt_name = prompts[0].get("name")
@@ -187,7 +180,7 @@ async def generate_summary_async(
         # Fallback to a default prompt if nothing is configured
         if not summary_prompt:
             summary_prompt = (
-                "Please provide a concise summary of the following lesson transcript."
+                "Please provide a concise summary of the following lesson."
             )
 
         max_length = summary_config.get("max_length", 300)
@@ -198,21 +191,51 @@ async def generate_summary_async(
                 f"{summary_prompt}\n\nPlease keep the summary under {max_length} words."
             )
 
-        # Get LLM model
+        # Get LLM model for summary
         llm = get_llm_model(task_name="summary")
 
         # Generate summary
         summary = await generate_summary_with_retry(
-            transcript_text=transcript_text, llm=llm, summary_prompt=summary_prompt
+            input_text=edited_text,
+            llm=llm,
+            summary_prompt=summary_prompt,
+            input_label="Edited Text",
         )
 
         # Update lesson with summary
         lesson.summary = summary.strip()
 
-        # Save summary metadata (including prompt type name)
+        # Generate brief abstract from summary using the second prompt
+        brief_config = summary_config.get("brief", {})
+        brief_prompt = brief_config.get("prompt")
+        brief_prompt_name = "brief"
+
+        if not brief_prompt:
+            logger.error("No brief prompt configured in summary.brief.")
+            return False
+
+        brief_llm = get_llm_model(
+            task_name="summary",
+            temperature=brief_config.get("temperature"),
+            model=brief_config.get("model"),
+            max_tokens=brief_config.get("max_tokens"),
+        )
+        brief = await generate_summary_with_retry(
+            input_text=summary.strip(),
+            llm=brief_llm,
+            summary_prompt=brief_prompt,
+            input_label="Summary",
+        )
+
+        # Update lesson with brief
+        lesson.brief = brief.strip()
+
+        # Save summary metadata (including prompt type names)
         prompt_info = summary_prompt
         if selected_prompt_name:
-            prompt_info = f"[{selected_prompt_name}] {summary_prompt}"
+            prompt_info = f"[summary:{selected_prompt_name}] {summary_prompt}"
+        if brief_prompt_name:
+            prompt_info += f"\n[brief:{brief_prompt_name}] {brief_prompt}"
 
         summary_provider = summary_config.get("provider", config.get("provider"))
         metadata = Metadata(
@@ -248,7 +271,6 @@ async def generate_summary_async(
 
 def generate_summary(
     lesson_id: int,
-    use_corrected: bool = True,
     prompt_type: Optional[str] = None,
     session: Optional[Session] = None,
 ) -> bool:
@@ -257,7 +279,6 @@ def generate_summary(
 
     Args:
         lesson_id: ID of the lesson to summarize
-        use_corrected: Whether to use corrected_transcript (falls back to transcript if not available)
         prompt_type: Name of the prompt to use from config.summary.prompts
         session: Optional SQLModel session
 
@@ -267,7 +288,6 @@ def generate_summary(
     return asyncio.run(
         generate_summary_async(
             lesson_id=lesson_id,
-            use_corrected=use_corrected,
             prompt_type=prompt_type,
             session=session,
         )

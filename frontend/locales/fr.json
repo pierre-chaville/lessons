@@ -92,7 +92,9 @@
     "processCorrect": "Corriger",
     "processCorrectDesc": "Corriger les erreurs de transcription avec l'IA",
     "processEdition": "Éditer",
-    "processEditionDesc": "Réécrire la transcription avec style écrit et sources",
+    "processEditionDesc": "Réécrire la transcription dans un style écrit",
+    "processExtraction": "Extraire les Sources",
+    "processExtractionDesc": "Extraire les sources du texte édité",
     "processSummary": "Résumé",
     "processSummaryDesc": "Générer un résumé concis",
     "processSources": "Vérifier les Sources",
@@ -189,6 +191,8 @@
       "transcription": "Transcription",
       "correction": "Correction",
       "edition": "Édition",
+      "extraction": "Extraction des Sources",
+      "sources": "Vérification des Sources",
       "summary": "Résumé"
     },
     "statuses": {
@@ -247,6 +251,7 @@
     "editionSettings": "Paramètres d'Édition",
     "sourcesSettings": "Paramètres de Sources",
     "summarySettings": "Paramètres de Résumé",
+    "briefSettings": "Paramètres de Résumé Bref",
     "provider": "Fournisseur",
     "providerDesc": "Choisir entre OpenAI ou Anthropic",
     "apiKey": "Clé API",
@@ -265,6 +270,8 @@
     "model": "Modèle",
     "modelDesc": "Modèle LLM à utiliser (ex: gpt-4o, claude-3-5-sonnet-20241022)",
     "temperature": "Température",
+    "maxTokens": "Tokens max",
+    "maxTokensDesc": "Nombre maximal de tokens pour la réponse du modèle",
     "precise": "Précis",
     "creative": "Créatif",
     "prompt": "Prompt",
@@ -286,6 +293,7 @@
     "noSourceTypes": "Aucun type de source défini. Cliquez sur 'Ajouter un Type' pour en ajouter un.",
     "extractionPromptDesc": "Instructions pour le LLM lors de l'extraction de sources depuis le texte édité",
     "summaryPromptDesc": "Créez plusieurs modèles de prompts de résumé pour utiliser différents styles ou niveaux de détail",
+    "briefPromptDesc": "Instructions pour le LLM lors de la génération de résumés brefs",
     "maxLength": "Longueur Max (mots)",
     "maxLengthDesc": "Nombre maximum de mots dans le résumé"
   }

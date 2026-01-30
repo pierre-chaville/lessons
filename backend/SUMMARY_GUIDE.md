@@ -58,7 +58,7 @@ python test_summary.py <lesson_id>
 ```
 
 Options:
-- `--use-original` - Use original transcript instead of corrected
+- `prompt_name` - Name of the prompt to use (optional)
 
 ## 📖 Usage Examples
 
@@ -67,11 +67,8 @@ Options:
 ```python
 from backend.tasks import generate_summary
 
-# Use corrected transcript (default)
+# Uses edited transcript
 success = generate_summary(lesson_id=1)
-
-# Use original transcript
-success = generate_summary(lesson_id=1, use_corrected=False)
 ```
 
 ### Async Usage
@@ -81,10 +78,7 @@ import asyncio
 from backend.tasks import generate_summary_async
 
 async def main():
-    success = await generate_summary_async(
-        lesson_id=1,
-        use_corrected=True
-    )
+    success = await generate_summary_async(lesson_id=1)
     print(f"Summary generation {'succeeded' if success else 'failed'}")
 
 asyncio.run(main())
@@ -104,7 +98,7 @@ with Session(engine) as session:
         status="pending",
         parameters={
             "lesson_id": 1,
-            "use_corrected": True
+            "prompt_type": "Default"
         }
     )
     session.add(task)
@@ -355,7 +349,7 @@ if correct_transcript(lesson_id, segments_per_group=10, max_concurrency=5):
     
     # Step 2: Generate summary from corrected transcript
     print("Generating summary...")
-    if generate_summary(lesson_id, use_corrected=True):
+    if generate_summary(lesson_id):
         print("✅ Summary complete")
     else:
         print("❌ Summary failed")

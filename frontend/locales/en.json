@@ -92,7 +92,9 @@
     "processCorrect": "Correct",
     "processCorrectDesc": "Correct transcription errors using AI",
     "processEdition": "Edit",
-    "processEditionDesc": "Rewrite transcript in written style with sources",
+    "processEditionDesc": "Rewrite transcript in written style",
+    "processExtraction": "Extract Sources",
+    "processExtractionDesc": "Extract sources from edited transcript",
     "processSummary": "Summary",
     "processSummaryDesc": "Generate a concise summary",
     "processSources": "Verify Sources",
@@ -189,6 +191,8 @@
       "transcription": "Transcription",
       "correction": "Correction",
       "edition": "Edition",
+      "extraction": "Source Extraction",
+      "sources": "Source Verification",
       "summary": "Summary"
     },
     "statuses": {
@@ -256,6 +260,7 @@
     "noSourceTypes": "No source types defined. Click 'Add Type' to add one.",
     "extractionPromptDesc": "Instructions for the LLM when extracting sources from edited text",
     "summarySettings": "Summary Settings",
+    "briefSettings": "Brief Summary Settings",
     "provider": "Provider",
     "providerDesc": "Choose between OpenAI or Anthropic",
     "apiKey": "API Key",
@@ -274,6 +279,8 @@
     "model": "Model",
     "modelDesc": "LLM model to use (e.g., gpt-4o, claude-3-5-sonnet-20241022)",
     "temperature": "Temperature",
+    "maxTokens": "Max tokens",
+    "maxTokensDesc": "Maximum tokens for the model response",
     "precise": "Precise",
     "creative": "Creative",
     "prompt": "Prompt",
@@ -286,6 +293,7 @@
     "editionPromptDesc": "Instructions for the LLM when rewriting transcripts with sources and timing",
     "sourcesPromptDesc": "Instructions for the LLM when identifying and verifying sources using Sefaria.org",
     "summaryPromptDesc": "Create multiple summary prompt templates to use different styles or levels of detail",
+    "briefPromptDesc": "Instructions for the LLM when generating brief summaries",
     "maxLength": "Max Length (words)",
     "maxLengthDesc": "Maximum number of words in the summary"
   }

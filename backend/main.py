@@ -921,10 +921,20 @@ def delete_task(task_id: int, session: Session = Depends(get_session)):
 @app.post("/tasks/test/{task_type}", response_model=TaskResponse, tags=["Tasks"])
 def create_test_task(task_type: str, session: Session = Depends(get_session)):
     """Create a test task for development/testing purposes"""
-    if task_type not in ["transcription", "correction", "summary"]:
+    if task_type not in [
+        "transcription",
+        "correction",
+        "edition",
+        "extraction",
+        "sources",
+        "summary",
+    ]:
         raise HTTPException(
             status_code=400,
-            detail="Invalid task type. Must be: transcription, correction, or summary",
+            detail=(
+                "Invalid task type. Must be: transcription, correction, edition, "
+                "extraction, sources, or summary"
+            ),
         )
 
     new_task = crud.create_task(

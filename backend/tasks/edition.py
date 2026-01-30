@@ -1,8 +1,9 @@
 """Lesson transcript edition using LLM - rewrite in written style with sources"""
 
 import asyncio
-from typing import List, Optional
-from pydantic import BaseModel, Field
+import json
+from typing import List, Optional, Any
+from pydantic import BaseModel, Field, ValidationError
 from sqlmodel import Session
 import sys
 from pathlib import Path
@@ -66,6 +67,7 @@ async def edit_segment_group_with_retry(
     group: List[Segment],
     llm_with_structure,
     edition_prompt: str,
+    llm_fallback=None,
     max_retries: int = MAX_RETRIES,
 ) -> List[EditedPartOutput]:
     """
@@ -84,11 +86,39 @@ async def edit_segment_group_with_retry(
 
     for attempt in range(max_retries):
         try:
-            return await edit_segment_group(group, llm_with_structure, edition_prompt)
+            return await edit_segment_group(
+                group, llm_with_structure, edition_prompt, llm_fallback
+            )
 
         except Exception as e:
             last_error = e
             error_message = str(e).lower()
+
+            # If output was truncated, split group and retry
+            if "max_tokens" in error_message or "stop reason" in error_message:
+                if len(group) > 1:
+                    mid = len(group) // 2
+                    logger.warning(
+                        "Structured output truncated; splitting group of %s into %s and %s segments.",
+                        len(group),
+                        mid,
+                        len(group) - mid,
+                    )
+                    first = await edit_segment_group_with_retry(
+                        group[:mid],
+                        llm_with_structure,
+                        edition_prompt,
+                        llm_fallback=llm_fallback,
+                        max_retries=max_retries,
+                    )
+                    second = await edit_segment_group_with_retry(
+                        group[mid:],
+                        llm_with_structure,
+                        edition_prompt,
+                        llm_fallback=llm_fallback,
+                        max_retries=max_retries,
+                    )
+                    return first + second
 
             # Check if it's a rate limit error
             is_rate_limit = (
@@ -126,8 +156,54 @@ async def edit_segment_group_with_retry(
     raise last_error if last_error else Exception("Unknown error in retry logic")
 
 
+def _extract_json_from_text(text: str) -> Optional[Any]:
+    """Extract JSON object from LLM output."""
+    if not text:
+        return None
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return None
+    try:
+        return json.loads(text[start : end + 1])
+    except json.JSONDecodeError:
+        return None
+
+
+def _coerce_structured_result(result: Any) -> Optional[EditedTranscriptGroupOutput]:
+    """Coerce structured output or tool calls into a validated output model."""
+    if result is None:
+        return None
+
+    if isinstance(result, EditedTranscriptGroupOutput):
+        return result
+
+    if isinstance(result, dict):
+        parsed = result.get("parsed")
+        if isinstance(parsed, EditedTranscriptGroupOutput):
+            return parsed
+        if isinstance(parsed, dict):
+            return EditedTranscriptGroupOutput.model_validate(parsed)
+
+        raw = result.get("raw")
+        tool_calls = getattr(raw, "tool_calls", None) if raw else None
+        if tool_calls:
+            args = tool_calls[0].get("args")
+            if isinstance(args, dict):
+                return EditedTranscriptGroupOutput.model_validate(args)
+            if isinstance(args, str):
+                parsed_args = _extract_json_from_text(args)
+                if parsed_args is not None:
+                    return EditedTranscriptGroupOutput.model_validate(parsed_args)
+
+    return None
+
+
 async def edit_segment_group(
-    group: List[Segment], llm_with_structure, edition_prompt: str
+    group: List[Segment],
+    llm_with_structure,
+    edition_prompt: str,
+    llm_fallback=None,
 ) -> List[EditedPartOutput]:
     """
     Edit a group of segments using the LLM with structured output.
@@ -193,7 +269,36 @@ async def edit_segment_group(
         )
 
         # Call LLM with structured output
-        result = await llm_with_structure.ainvoke(full_prompt)
+        result = None
+        structured_error = None
+        try:
+            result = await llm_with_structure.ainvoke(full_prompt)
+        except Exception as e:
+            structured_error = e
+
+        structured_output = _coerce_structured_result(result)
+        if structured_output is None or not structured_output.parts:
+            if llm_fallback is None:
+                raise structured_error or ValueError(
+                    "Structured output missing 'parts'"
+                )
+
+            # Fallback: ask for plain JSON and parse manually
+            fallback_prompt = (
+                f"{full_prompt}\n\n"
+                "Return ONLY valid JSON with this schema:\n"
+                '{"parts":[{"start_segment":0,"end_segment":0,"text":"..."}]}'
+            )
+            raw = await llm_fallback.ainvoke(fallback_prompt)
+            raw_text = raw.content if hasattr(raw, "content") else str(raw)
+            parsed = _extract_json_from_text(raw_text)
+            if parsed is None:
+                raise ValueError("Failed to parse JSON from fallback response")
+            try:
+                structured_output = EditedTranscriptGroupOutput.model_validate(parsed)
+            except ValidationError as e:
+                raise ValueError(f"Invalid fallback JSON: {e}") from e
+        result = structured_output
 
         # Validate that there are no gaps or overlaps in segment numbers and convert to timestamps
         used_segments = set()
@@ -322,8 +427,12 @@ async def edit_transcript_async(
         # Get LLM model
         llm = get_llm_model(task_name="edition")
 
-        # Add structured output
-        llm_with_structure = llm.with_structured_output(EditedTranscriptGroupOutput)
+        # Add structured output (include_raw helps recover tool calls for Anthropic)
+        edition_provider = edition_config.get("provider", "")
+        include_raw = edition_provider.lower() == "anthropic"
+        llm_with_structure = llm.with_structured_output(
+            EditedTranscriptGroupOutput, include_raw=include_raw
+        )
 
         if words_per_group <= 0:
             raise ValueError("words_per_group must be a positive integer")
@@ -361,7 +470,7 @@ async def edit_transcript_async(
         async def process_with_semaphore(group):
             async with semaphore:
                 return await edit_segment_group_with_retry(
-                    group, llm_with_structure, edition_prompt
+                    group, llm_with_structure, edition_prompt, llm_fallback=llm
                 )
 
         # Process all groups in parallel (with concurrency limit)
@@ -372,7 +481,7 @@ async def edit_transcript_async(
         all_edited_parts = []
         for group_result in results:
             all_edited_parts.extend(group_result)
-
+        print(results)
         # Convert to EditedPart model objects (without sources - they will be extracted separately)
         edited_parts = []
         for part_tuple in all_edited_parts:

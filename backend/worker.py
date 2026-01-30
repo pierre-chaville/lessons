@@ -160,8 +160,8 @@ def process_edition_task(session: Session, task: Task):
         if not lesson_id:
             raise ValueError("lesson_id is required in task parameters")
 
-        # Step 1: Run edition (rewrite text without sources)
-        logger.info(f"Step 1: Editing transcript for lesson {lesson_id}")
+        # Run edition (rewrite text without sources)
+        logger.info(f"Editing transcript for lesson {lesson_id}")
         success = edit_transcript(
             lesson_id=lesson_id,
             words_per_group=words_per_group,
@@ -173,24 +173,12 @@ def process_edition_task(session: Session, task: Task):
             update_task_status(session, task, "failed", error="Edition failed")
             return
 
-        # Step 2: Extract sources from edited parts
-        logger.info(f"Step 2: Extracting sources from edited transcript for lesson {lesson_id}")
-        extraction_success = extract_sources(
-            lesson_id=lesson_id,
-            max_concurrency=max_concurrency,
-            session=session,
-        )
-
-        if not extraction_success:
-            update_task_status(session, task, "failed", error="Source extraction failed")
-            return
-
         update_task_status(
             session,
             task,
             "completed",
             result={
-                "message": "Edition and source extraction completed successfully",
+                "message": "Edition completed successfully",
                 "lesson_id": lesson_id,
                 "words_per_group": words_per_group,
                 "max_concurrency": max_concurrency,
@@ -210,7 +198,6 @@ def process_summary_task(session: Session, task: Task):
         # Get parameters from task
         params = task.parameters or {}
         lesson_id = params.get("lesson_id")
-        use_corrected = params.get("use_corrected", True)
         prompt_type = params.get("prompt_type")  # Get the prompt type from parameters
 
         if not lesson_id:
@@ -219,7 +206,6 @@ def process_summary_task(session: Session, task: Task):
         # Generate summary
         success = generate_summary(
             lesson_id=lesson_id,
-            use_corrected=use_corrected,
             prompt_type=prompt_type,
             session=session,
         )
@@ -232,7 +218,6 @@ def process_summary_task(session: Session, task: Task):
                 result={
                     "message": "Summary generated successfully",
                     "lesson_id": lesson_id,
-                    "use_corrected": use_corrected,
                     "prompt_type": prompt_type,
                 },
             )
@@ -243,6 +228,45 @@ def process_summary_task(session: Session, task: Task):
 
     except Exception as e:
         logger.error(f"Error in summary task: {e}", exc_info=True)
+        raise
+
+
+def process_extraction_task(session: Session, task: Task):
+    """Process a source extraction task"""
+    logger.info(f"Processing extraction task {task.id}")
+
+    try:
+        params = task.parameters or {}
+        lesson_id = params.get("lesson_id")
+        max_concurrency = params.get("max_concurrency", 10)
+
+        if not lesson_id:
+            raise ValueError("lesson_id is required in task parameters")
+
+        success = extract_sources(
+            lesson_id=lesson_id,
+            max_concurrency=max_concurrency,
+            session=session,
+        )
+
+        if success:
+            update_task_status(
+                session,
+                task,
+                "completed",
+                result={
+                    "message": "Source extraction completed successfully",
+                    "lesson_id": lesson_id,
+                    "max_concurrency": max_concurrency,
+                },
+            )
+        else:
+            update_task_status(
+                session, task, "failed", error="Source extraction failed"
+            )
+
+    except Exception as e:
+        logger.error(f"Error in extraction task: {e}", exc_info=True)
         raise
 
 
@@ -299,6 +323,8 @@ def process_task(session: Session, task: Task):
             process_edition_task(session, task)
         elif task.task_type == "summary":
             process_summary_task(session, task)
+        elif task.task_type == "extraction":
+            process_extraction_task(session, task)
         elif task.task_type == "sources":
             process_sources_task(session, task)
         else:

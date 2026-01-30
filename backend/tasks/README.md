@@ -28,8 +28,8 @@ Lesson transcript correction using LLM with parallel processing.
 Lesson summary generation using LLM.
 
 **Key Functions:**
-- `generate_summary(lesson_id, use_corrected=True, session=None)` - Synchronous summary generation
-- `generate_summary_async(lesson_id, use_corrected=True, session=None)` - Async version
+- `generate_summary(lesson_id, session=None, prompt_type=None)` - Synchronous summary generation (uses edited transcript)
+- `generate_summary_async(lesson_id, session=None, prompt_type=None)` - Async version
 
 ## Usage Examples
 
@@ -54,10 +54,7 @@ from backend.tasks import generate_summary
 success = generate_summary(lesson_id=1)
 
 # Generate summary using original transcript
-success = generate_summary(
-    lesson_id=1,
-    use_corrected=False
-)
+success = generate_summary(lesson_id=1)
 
 if success:
     print("Summary generated successfully!")
@@ -131,7 +128,7 @@ with Session(engine) as session:
         status="pending",
         parameters={
             "lesson_id": 1,
-            "use_corrected": True
+            "prompt_type": "Default"
         }
     )
     session.add(task)
