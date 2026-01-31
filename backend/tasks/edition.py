@@ -12,7 +12,7 @@ import time
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from database import engine
-from models import Lesson, Segment, EditedPart, Source, Metadata
+from models import Lesson, Segment, EditedParagraph, Source, Metadata
 from config import load_config
 from .llm_utils import get_llm_model
 import logging
@@ -35,7 +35,7 @@ class SegmentInput(BaseModel):
     text: str = Field(description="Original transcript text")
 
 
-class EditedPartOutput(BaseModel):
+class EditedParagraphOutput(BaseModel):
     """Output: Edited paragraph with segment numbers"""
 
     start_segment: int = Field(
@@ -58,7 +58,7 @@ class TranscriptGroupInput(BaseModel):
 class EditedTranscriptGroupOutput(BaseModel):
     """Output: Group of edited paragraphs"""
 
-    parts: List[EditedPartOutput] = Field(
+    parts: List[EditedParagraphOutput] = Field(
         description="List of edited paragraphs (can combine multiple segments into one paragraph)"
     )
 
@@ -69,7 +69,7 @@ async def edit_segment_group_with_retry(
     edition_prompt: str,
     llm_fallback=None,
     max_retries: int = MAX_RETRIES,
-) -> List[EditedPartOutput]:
+) -> List[EditedParagraphOutput]:
     """
     Edit a group of segments with retry logic for rate limits.
 
@@ -204,7 +204,7 @@ async def edit_segment_group(
     llm_with_structure,
     edition_prompt: str,
     llm_fallback=None,
-) -> List[EditedPartOutput]:
+) -> List[EditedParagraphOutput]:
     """
     Edit a group of segments using the LLM with structured output.
 
@@ -333,7 +333,7 @@ async def edit_segment_group(
             end_seg = input_segments[part.end_segment]
             
             # Store timestamps separately (Pydantic models don't allow arbitrary attributes)
-            # We'll return a tuple: (EditedPartOutput, start_time, end_time)
+            # We'll return a tuple: (EditedParagraphOutput, start_time, end_time)
             parts_with_timestamps.append((part, start_seg.start, end_seg.end))
         
         # Check for gaps (missing segments)
@@ -362,7 +362,7 @@ async def edit_segment_group(
             [seg["text"] if isinstance(seg, dict) else seg.text for seg in group]
         )
 
-        part = EditedPartOutput(
+        part = EditedParagraphOutput(
             start_segment=0,
             end_segment=len(group) - 1,
             text=combined_text
@@ -477,19 +477,19 @@ async def edit_transcript_async(
         tasks = [process_with_semaphore(group) for group in segment_groups]
         results = await asyncio.gather(*tasks)
 
-        # Flatten results - each result is a list of tuples: (EditedPartOutput, start_time, end_time)
+        # Flatten results - each result is a list of tuples: (EditedParagraphOutput, start_time, end_time)
         all_edited_parts = []
         for group_result in results:
             all_edited_parts.extend(group_result)
         print(results)
-        # Convert to EditedPart model objects (without sources - they will be extracted separately)
+        # Convert to EditedParagraph model objects (without sources - they will be extracted separately)
         edited_parts = []
         for part_tuple in all_edited_parts:
-            # Unpack the tuple: (EditedPartOutput, start_time, end_time)
+            # Unpack the tuple: (EditedParagraphOutput, start_time, end_time)
             part, start_time, end_time = part_tuple
 
             edited_parts.append(
-                EditedPart(
+                EditedParagraph(
                     start=start_time, end=end_time, text=part.text, sources=[]
                 )
             )

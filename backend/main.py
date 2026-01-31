@@ -8,7 +8,7 @@ import shutil
 from pathlib import Path
 
 from database import create_db_and_tables, get_session
-from models import Lesson, Course, Theme, Segment, Task, EditedPart, Source
+from models import Lesson, Course, Theme, Segment, Task, EditedParagraph, Source
 import crud
 import config as config_module
 import search_utils
@@ -180,7 +180,7 @@ class LessonUpdate(BaseModel):
     duration: Optional[float] = None
     transcript: Optional[List[Segment]] = None
     corrected_transcript: Optional[List[Segment]] = None
-    edited_transcript: Optional[List[EditedPart]] = None
+    edited_transcript: Optional[List[EditedParagraph]] = None
     brief: Optional[str] = None
     summary: Optional[str] = None
     theme_ids: Optional[List[int]] = None
@@ -217,7 +217,7 @@ class LessonResponse(BaseModel):
     duration: Optional[float]
     transcript: Optional[List[Segment]]
     corrected_transcript: Optional[List[Segment]]
-    edited_transcript: Optional[List[EditedPart]]
+    edited_transcript: Optional[List[EditedParagraph]]
     brief: Optional[str]
     summary: Optional[str]
     theme_ids: List[int]
@@ -421,7 +421,7 @@ def update_lesson(
             for seg in lesson_data.corrected_transcript
         ]
 
-    # Convert EditedPart objects to dicts for JSON storage
+    # Convert EditedParagraph objects to dicts for JSON storage
     edited_transcript_data = None
     if lesson_data.edited_transcript is not None:
         edited_transcript_data = [

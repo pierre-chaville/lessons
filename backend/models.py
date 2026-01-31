@@ -37,8 +37,8 @@ class Source(BaseModel):
     matched_text: Optional[str] = None  # The matched text found in the source
 
 
-class EditedPart(BaseModel):
-    """Edited part of the transcript"""
+class EditedParagraph(BaseModel):
+    """Edited paragraph of the transcript"""
 
     start: float  # Start time in seconds
     end: float  # End time in seconds
@@ -116,7 +116,7 @@ class Lesson(SQLModel, table=True):
     corrected_transcript: Optional[List[Segment]] = Field(
         default=None, sa_column=Column(JSON)
     )  # List of segments
-    edited_transcript: Optional[List[EditedPart]] = Field(
+    edited_transcript: Optional[List[EditedParagraph]] = Field(
         default=None, sa_column=Column(JSON)
     )  # List of edited parts with sources
     brief: Optional[str] = None  # Short 1-3 line summary

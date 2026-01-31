@@ -1,7 +1,7 @@
 """Extract sources from edited transcript parts using LLM"""
 
 import asyncio
-from typing import List, Optional, Literal
+from typing import List, Optional, Literal, Tuple
 from pydantic import BaseModel, Field, field_validator
 from sqlmodel import Session
 import sys
@@ -11,7 +11,7 @@ import time
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from database import engine
-from models import Lesson, EditedPart, Source, Metadata
+from models import Lesson, EditedParagraph, Source, Metadata
 from config import load_config
 from .llm_utils import get_llm_model
 import logging
@@ -25,10 +25,11 @@ MAX_RETRY_DELAY = 60  # seconds
 
 
 # Input/Output models for structured output
-class EditedPartInput(BaseModel):
-    """Input: Edited part text for source extraction"""
+class EditedParagraphInput(BaseModel):
+    """Input: Edited paragraph text for source extraction"""
 
-    text: str = Field(description="Edited text to extract sources from")
+    paragraph_number: int = Field(description="Paragraph number (0-indexed)")
+    text: str = Field(description="Edited paragraph text to extract sources from")
 
 
 def create_source_output_model(allowed_types: List[str], type_descriptions: dict = None):
@@ -54,6 +55,9 @@ def create_source_output_model(allowed_types: List[str], type_descriptions: dict
     class SourceOutput(BaseModel):
         """A source citation found in the edited text"""
 
+        paragraph_number: int = Field(
+            description="Paragraph number (0-indexed) where the source is cited"
+        )
         type: str | None = Field(
             default=None,
             description=type_description,
@@ -102,11 +106,11 @@ def create_source_extraction_output_model(source_output_model):
     """Create SourceExtractionOutput model with the specified SourceOutput model"""
     
     class SourceExtractionOutput(BaseModel):
-        """Output: Extracted sources from edited part"""
+        """Output: Extracted sources from edited paragraphs"""
 
         sources: List[source_output_model] = Field(
             default=[],
-            description="List of sources cited in this edited part. "
+            description="List of sources cited in these edited paragraphs. "
             "If no sources are found, return an empty list.",
         )
     
@@ -117,17 +121,17 @@ def create_source_extraction_output_model(source_output_model):
 SourceExtractionOutput = create_source_extraction_output_model(SourceOutput)
 
 
-async def extract_sources_from_part_with_retry(
-    edited_text: str,
+async def extract_sources_from_paragraphs_with_retry(
+    paragraphs: List[EditedParagraphInput],
     llm_with_structure,
     extraction_prompt: str,
     max_retries: int = MAX_RETRIES,
 ) -> List[SourceOutput]:
     """
-    Extract sources from an edited part with retry logic for rate limits.
+    Extract sources from edited paragraphs with retry logic for rate limits.
 
     Args:
-        edited_text: The edited text to extract sources from
+        paragraphs: The edited paragraphs to extract sources from
         llm_with_structure: LLM model with structured output
         extraction_prompt: Prompt for source extraction
         max_retries: Maximum number of retry attempts
@@ -139,8 +143,8 @@ async def extract_sources_from_part_with_retry(
 
     for attempt in range(max_retries):
         try:
-            return await extract_sources_from_part(
-                edited_text, llm_with_structure, extraction_prompt
+            return await extract_sources_from_paragraphs(
+                paragraphs, llm_with_structure, extraction_prompt
             )
 
         except Exception as e:
@@ -183,14 +187,14 @@ async def extract_sources_from_part_with_retry(
     raise last_error if last_error else Exception("Unknown error in retry logic")
 
 
-async def extract_sources_from_part(
-    edited_text: str, llm_with_structure, extraction_prompt: str
+async def extract_sources_from_paragraphs(
+    paragraphs: List[EditedParagraphInput], llm_with_structure, extraction_prompt: str
 ) -> List[SourceOutput]:
     """
-    Extract sources from an edited part using the LLM with structured output.
+    Extract sources from edited paragraphs using the LLM with structured output.
 
     Args:
-        edited_text: The edited text to extract sources from
+        paragraphs: The edited paragraphs to extract sources from
         llm_with_structure: LLM model with structured output
         extraction_prompt: Prompt for source extraction
 
@@ -198,8 +202,19 @@ async def extract_sources_from_part(
         List of SourceOutput objects
     """
     try:
-        # Create the prompt with the edited text
-        full_prompt = f"{extraction_prompt}\n\nEdited text to analyze:\n{edited_text}"
+        # Create the prompt with the edited paragraphs
+        paragraphs_text = "\n".join(
+            [
+                f"Paragraph {p.paragraph_number}: {p.text}"
+                for p in paragraphs
+                if p.text
+            ]
+        )
+        full_prompt = (
+            f"{extraction_prompt}\n\n"
+            "Edited paragraphs to analyze (use the paragraph number in your output):\n"
+            f"{paragraphs_text}"
+        )
 
         # Call LLM with structured output
         result = await llm_with_structure.ainvoke(full_prompt)
@@ -277,8 +292,9 @@ async def extract_sources_async(
 
         extraction_prompt = extraction_config.get(
             "prompt",
-            "Analyze the following edited text and extract all sources (citations, references to religious texts, etc.) mentioned in it. "
+            "Analyze the following edited paragraphs and extract all sources (citations, references to religious texts, etc.) mentioned in them. "
             "For each source, provide:\n"
+            "- paragraph_number: Paragraph number (0-indexed) where the source appears\n"
             f"- type: {type_instruction}\n"
             "- work: Work title (e.g., Pirkei Avot, Bereshit, etc.) using Sefaria classification\n"
             "- ref: Reference (e.g., 4.2, 18:1, etc.) using Sefaria classification\n"
@@ -313,45 +329,78 @@ async def extract_sources_async(
         # Add structured output with the config-based model
         llm_with_structure = llm.with_structured_output(SourceExtractionOutputModel)
 
-        # Convert edited_transcript to EditedPart objects
+        # Convert edited_transcript to EditedParagraph objects
         edited_parts = [
-            EditedPart(**part_dict) for part_dict in lesson.edited_transcript
+            EditedParagraph(**part_dict) for part_dict in lesson.edited_transcript
         ]
 
+        # Group paragraphs by word count
+        words_per_group = extraction_config.get("words_per_group", 1000)
+        paragraph_inputs: List[EditedParagraphInput] = []
+        for idx, part in enumerate(edited_parts):
+            paragraph_inputs.append(
+                EditedParagraphInput(paragraph_number=idx, text=part.text)
+            )
+
+        paragraph_groups: List[List[EditedParagraphInput]] = []
+        current_group: List[EditedParagraphInput] = []
+        current_word_count = 0
+        for paragraph in paragraph_inputs:
+            word_count = len(paragraph.text.split()) if paragraph.text else 0
+            if current_group and current_word_count + word_count > words_per_group:
+                paragraph_groups.append(current_group)
+                current_group = []
+                current_word_count = 0
+            current_group.append(paragraph)
+            current_word_count += word_count
+        if current_group:
+            paragraph_groups.append(current_group)
+
         logger.info(
-            f"Extracting sources from lesson {lesson_id}: {len(edited_parts)} edited parts "
+            f"Extracting sources from lesson {lesson_id}: {len(edited_parts)} edited paragraphs "
+            f"in {len(paragraph_groups)} groups (~{words_per_group} words/group) "
             f"with max concurrency {max_concurrency}"
         )
 
         # Create semaphore for concurrency control
         semaphore = asyncio.Semaphore(max_concurrency)
 
-        async def process_with_semaphore(part):
+        async def process_with_semaphore(group):
             async with semaphore:
-                return await extract_sources_from_part_with_retry(
-                    part.text, llm_with_structure, extraction_prompt
+                return await extract_sources_from_paragraphs_with_retry(
+                    group, llm_with_structure, extraction_prompt
                 )
 
-        # Process all parts in parallel (with concurrency limit)
-        tasks = [process_with_semaphore(part) for part in edited_parts]
+        # Process all groups in parallel (with concurrency limit)
+        tasks = [process_with_semaphore(group) for group in paragraph_groups]
         results = await asyncio.gather(*tasks)
 
-        # Update edited parts with extracted sources
-        for part, sources_output in zip(edited_parts, results):
-            # Convert SourceOutput to Source objects
-            part.sources = [
-                Source(
-                    type=str(src.type) if src.type is not None else None,
-                    work=src.work,
-                    ref=src.ref,
-                    standard_slug=src.standard_slug,
-                    original_text=src.original_text,
-                    translation_text=src.translation_text,
-                    cited_excerpt=src.cited_excerpt,
-                    confidence=src.confidence,
+        # Accumulate sources per paragraph
+        sources_by_paragraph: List[List[Source]] = [[] for _ in edited_parts]
+        for group_sources in results:
+            for src in group_sources:
+                if src.paragraph_number < 0 or src.paragraph_number >= len(edited_parts):
+                    logger.warning(
+                        "Skipping source with invalid paragraph_number %s",
+                        src.paragraph_number,
+                    )
+                    continue
+                sources_by_paragraph[src.paragraph_number].append(
+                    Source(
+                        type=str(src.type) if src.type is not None else None,
+                        work=src.work,
+                        ref=src.ref,
+                        standard_slug=src.standard_slug,
+                        original_text=src.original_text,
+                        translation_text=src.translation_text,
+                        cited_excerpt=src.cited_excerpt,
+                        confidence=src.confidence,
+                    )
                 )
-                for src in sources_output
-            ]
+
+        # Update edited parts with extracted sources
+        for idx, part in enumerate(edited_parts):
+            part.sources = sources_by_paragraph[idx]
 
         # Update lesson with edited transcript (convert to dicts for JSON storage)
         lesson.edited_transcript = [part.model_dump() for part in edited_parts]
@@ -375,7 +424,7 @@ async def extract_sources_async(
         total_sources = sum(len(part.sources) for part in edited_parts)
         logger.info(
             f"Successfully extracted sources from lesson {lesson_id}: "
-            f"{total_sources} sources found across {len(edited_parts)} edited parts"
+            f"{total_sources} sources found across {len(edited_parts)} edited paragraphs"
         )
         return True
 
