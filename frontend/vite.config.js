@@ -6,17 +6,16 @@ export default defineConfig({
   plugins: [vue()],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './frontend'),
+      '@': path.resolve(__dirname, './'),
     },
   },
   root: './',
-  publicDir: 'frontend/public',
+  publicDir: 'public',
   build: {
-    outDir: 'dist',
+    outDir: '../dist',
     emptyOutDir: true,
   },
   server: {
     port: 5173,
   },
 });
-

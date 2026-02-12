@@ -41,6 +41,7 @@ const props = defineProps({
 const emit = defineEmits(['close']);
 
 const { t } = useI18n();
+const audioUrl = ref(null);
 
 // Audio player ref and state
 const audioPlayer = ref(null);
@@ -130,12 +131,23 @@ const hasSegments = (transcript) => {
   return transcript && Array.isArray(transcript);
 };
 
-// Audio file URL
-const audioUrl = computed(() => {
-  if (!props.lesson.id) return null;
-  // Use the lesson-specific audio endpoint
-  return `http://localhost:8000/lessons/${props.lesson.id}/audio`;
-});
+const loadAudioUrl = async () => {
+  if (!props.lesson.id) {
+    audioUrl.value = null;
+    return;
+  }
+  try {
+    const response = await axios.get(`${API_URL}/lessons/${props.lesson.id}/audio-url`);
+    audioUrl.value = response.data?.url || null;
+  } catch (error) {
+    console.error('Failed to fetch audio URL:', error);
+    audioUrl.value = null;
+  }
+};
+
+watch(() => props.lesson.id, () => {
+  loadAudioUrl();
+}, { immediate: true });
 
 // Play audio from specific timestamp
 const playFromTimestamp = (startTime) => {

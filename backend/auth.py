@@ -90,10 +90,14 @@ def require_auth(
 ) -> Dict[str, Any]:
     if request.method == "OPTIONS":
         return {}
-    if not authorization or not authorization.startswith("Bearer "):
+    token = ""
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+    if not token:
+        token = request.query_params.get("token", "").strip()
+    if not token:
         raise HTTPException(status_code=401, detail="Missing Bearer token")
 
-    token = authorization.split(" ", 1)[1].strip()
     if not token:
         raise HTTPException(status_code=401, detail="Empty Bearer token")
 

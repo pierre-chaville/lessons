@@ -14,6 +14,13 @@ from models import Lesson, Course, Theme, Segment, Task, EditedParagraph, Source
 import crud
 import config as config_module
 from auth import require_auth, require_roles
+from storage import (
+    create_presigned_audio_url,
+    get_audio_object_key,
+    rename_audio_object,
+    s3_enabled,
+    upload_audio_fileobj,
+)
 import search_utils
 
 bearer_scheme = HTTPBearer()
@@ -416,21 +423,20 @@ def create_lesson(
         theme_ids=lesson_data.theme_ids,
     )
 
-    # Rename audio file to include lesson ID
-    audio_dir = Path(__file__).parent / "data" / "audio"
-    temp_file = audio_dir / lesson_data.filename
-    if temp_file.exists():
-        new_filename = (
-            f"{lesson.id}_{lesson_data.filename.replace('temp_', '').split('_', 1)[-1]}"
-        )
-        new_path = audio_dir / new_filename
-        temp_file.rename(new_path)
+    if not s3_enabled():
+        raise HTTPException(status_code=500, detail="S3 is not configured")
 
-        # Update lesson with new filename
-        lesson.filename = new_filename.split("_", 1)[-1]  # Store without the ID prefix
-        session.add(lesson)
-        session.commit()
-        session.refresh(lesson)
+    # Rename audio object to include lesson ID
+    new_filename = (
+        f"{lesson.id}_{lesson_data.filename.replace('temp_', '').split('_', 1)[-1]}"
+    )
+    rename_audio_object(lesson_data.filename, new_filename)
+
+    # Update lesson with new filename
+    lesson.filename = new_filename.split("_", 1)[-1]  # Store without the ID prefix
+    session.add(lesson)
+    session.commit()
+    session.refresh(lesson)
 
     # Return with enriched data
     theme_ids = lesson.get_themes()
@@ -770,103 +776,40 @@ def get_lesson_detailed_sources_pdf(lesson_id: int, session: Session = Depends(g
 async def upload_audio(
     file: UploadFile = File(...), session: Session = Depends(get_session)
 ):
-    """Upload an audio file for a lesson"""
+    """Upload an audio file for a lesson to S3/R2"""
     # Validate file type
     if not file.content_type or not file.content_type.startswith("audio/"):
         raise HTTPException(status_code=400, detail="File must be an audio file")
 
-    # Create audio directory if it doesn't exist
-    audio_dir = Path(__file__).parent / "data" / "audio"
-    audio_dir.mkdir(parents=True, exist_ok=True)
+    if not s3_enabled():
+        raise HTTPException(status_code=500, detail="S3 is not configured")
 
     # Save file with temporary name (will be renamed when lesson is created)
     temp_filename = f"temp_{datetime.now().strftime('%Y%m%d%H%M%S')}_{file.filename}"
-    temp_path = audio_dir / temp_filename
-
     try:
-        with open(temp_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        upload_audio_fileobj(file.file, temp_filename)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to upload file: {str(e)}")
 
     return {"filename": temp_filename, "original_filename": file.filename}
 
 
-@app.get("/lessons/{lesson_id}/audio", tags=["Lessons"])
-def get_lesson_audio(
-    lesson_id: int, request: Request, session: Session = Depends(get_session)
-):
-    """Get audio file for a specific lesson with range request support"""
-    from pathlib import Path
-    from fastapi.responses import StreamingResponse
-    import os
-
+@app.get("/lessons/{lesson_id}/audio-url", tags=["Lessons"])
+def get_lesson_audio_url(lesson_id: int, session: Session = Depends(get_session)):
+    """Get a presigned URL for a lesson audio file"""
     lesson = crud.get_lesson(session, lesson_id)
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
 
-    # Construct audio file path: data/audio/{id}_{filename}
-    audio_filename = f"{lesson_id}_{lesson.filename}"
-    audio_path = Path(__file__).parent / "data" / "audio" / audio_filename
+    if not s3_enabled():
+        raise HTTPException(status_code=500, detail="S3 is not configured")
 
-    if not audio_path.exists():
+    audio_key = get_audio_object_key(lesson_id, lesson.filename)
+    presigned_url = create_presigned_audio_url(audio_key)
+    if not presigned_url:
         raise HTTPException(status_code=404, detail="Audio file not found")
 
-    file_size = os.path.getsize(audio_path)
-    range_header = request.headers.get("range")
-
-    # Handle range request for seeking
-    if range_header:
-        # Parse range header (format: "bytes=start-end")
-        byte_range = range_header.replace("bytes=", "").split("-")
-        start = int(byte_range[0]) if byte_range[0] else 0
-        end = (
-            int(byte_range[1])
-            if len(byte_range) > 1 and byte_range[1]
-            else file_size - 1
-        )
-
-        # Validate range
-        if start >= file_size or end >= file_size:
-            raise HTTPException(status_code=416, detail="Range not satisfiable")
-
-        chunk_size = end - start + 1
-
-        def iter_file():
-            with open(audio_path, "rb") as f:
-                f.seek(start)
-                remaining = chunk_size
-                while remaining > 0:
-                    chunk = f.read(min(8192, remaining))
-                    if not chunk:
-                        break
-                    remaining -= len(chunk)
-                    yield chunk
-
-        headers = {
-            "Content-Range": f"bytes {start}-{end}/{file_size}",
-            "Accept-Ranges": "bytes",
-            "Content-Length": str(chunk_size),
-            "Content-Type": "audio/mpeg",
-        }
-
-        return StreamingResponse(
-            iter_file(), status_code=206, headers=headers, media_type="audio/mpeg"
-        )
-
-    # Normal request without range
-    def iter_file_full():
-        with open(audio_path, "rb") as f:
-            while chunk := f.read(8192):
-                yield chunk
-
-    headers = {
-        "Accept-Ranges": "bytes",
-        "Content-Length": str(file_size),
-        "Content-Type": "audio/mpeg",
-    }
-
-    return StreamingResponse(iter_file_full(), headers=headers, media_type="audio/mpeg")
+    return {"url": presigned_url}
 
 
 @app.get("/search", response_model=List[SearchLessonResult], tags=["Search"])

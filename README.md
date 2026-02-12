@@ -1,10 +1,9 @@
 # Lessons Manager
 
-A desktop application for managing lessons with audio transcription and summaries.
+A web application for managing lessons with audio transcription and summaries.
 
 ## Tech Stack
 
-- **Electron**: Desktop shell and window management
 - **Frontend**: Vue 3 (script setup), Vite, Tailwind CSS, Headless UI, Heroicons, vue-i18n
 - **Backend**: FastAPI with SQLModel and SQLite database
 
@@ -19,6 +18,7 @@ A desktop application for managing lessons with audio transcription and summarie
 
 1. Install Node dependencies:
 ```bash
+cd frontend
 npm install
 ```
 
@@ -43,9 +43,8 @@ npm run dev
 ```
 
 Or run individually:
-- Frontend: `npm run dev:frontend`
+- Frontend: `cd frontend && npm run dev`
 - Backend: `npm run dev:backend`
-- Electron: `npm run dev:electron`
 
 ### Build
 
@@ -57,10 +56,9 @@ npm run build
 
 ```
 lessons/
-├── electron/          # Electron main process
 ├── frontend/          # Vue 3 frontend source
 ├── backend/           # FastAPI backend
 ├── dist/             # Built frontend files
-└── dist-electron/    # Built Electron application
+└── dist/             # Built frontend files
 ```
 

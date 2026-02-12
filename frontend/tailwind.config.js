@@ -3,7 +3,12 @@ export default {
   darkMode: 'class',
   content: [
     "./index.html",
-    "./frontend/**/*.{vue,js,ts,jsx,tsx}",
+    "./App.vue",
+    "./main.js",
+    "./components/**/*.{vue,js,ts,jsx,tsx}",
+    "./views/**/*.{vue,js,ts,jsx,tsx}",
+    "./i18n/**/*.{js,ts}",
+    "./locales/**/*.{json}",
   ],
   theme: {
     extend: {},
@@ -12,4 +17,3 @@ export default {
     require('@tailwindcss/typography'),
   ],
 }
-
