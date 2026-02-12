@@ -1,6 +1,6 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue';
-import { SignedIn, SignedOut, SignInButton, SignOutButton, UserButton, useUser } from '@clerk/vue';
+import { ref, computed, onMounted, watch } from 'vue';
+import { SignedIn, SignedOut, SignInButton, SignOutButton, UserButton, useUser, useAuth } from '@clerk/vue';
 import { useI18n } from 'vue-i18n';
 import { Menu, MenuButton, MenuItems, MenuItem } from '@headlessui/vue';
 import { 
@@ -11,6 +11,7 @@ import {
   SunIcon,
   MoonIcon
 } from '@heroicons/vue/24/outline';
+import axios from 'axios';
 import NavigationSidebar from './components/NavigationSidebar.vue';
 import LessonsList from './views/LessonsList.vue';
 import SearchLessons from './views/SearchLessons.vue';
@@ -21,6 +22,7 @@ import Preferences from './views/Preferences.vue';
 
 const { locale, t } = useI18n();
 const { user, isLoaded } = useUser();
+const { isSignedIn, getToken } = useAuth();
 const allowedRoles = ['admin', 'reader', 'editor'];
 const userRole = computed(() => {
   const role = user.value?.publicMetadata?.role || user.value?.unsafeMetadata?.role;
@@ -142,6 +144,47 @@ onMounted(() => {
   // Apply the initial state
   applyDarkMode(isDarkMode.value);
   console.log('Initial dark mode:', isDarkMode.value);
+});
+
+const getAuthToken = async () => {
+  const template = import.meta.env.VITE_CLERK_JWT_TEMPLATE;
+  if (template) {
+    return getToken.value({ template });
+  }
+  return getToken.value();
+};
+
+const setAuthHeader = async () => {
+  if (!isSignedIn.value) {
+    delete axios.defaults.headers.common.Authorization;
+    return;
+  }
+  try {
+    const token = await getAuthToken();
+    if (token) {
+      axios.defaults.headers.common.Authorization = `Bearer ${token}`;
+    }
+  } catch {
+    // Skip if token cannot be retrieved
+  }
+};
+
+axios.interceptors.request.use(async (config) => {
+  if (isSignedIn.value) {
+    const token = await getAuthToken();
+    if (token) {
+      config.headers = config.headers || {};
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+  }
+  return config;
+});
+
+onMounted(setAuthHeader);
+watch([isSignedIn, isLoaded], () => {
+  if (isLoaded.value) {
+    setAuthHeader();
+  }
 });
 </script>
 

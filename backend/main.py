@@ -11,9 +11,14 @@ from database import create_db_and_tables, get_session
 from models import Lesson, Course, Theme, Segment, Task, EditedParagraph, Source
 import crud
 import config as config_module
+from auth import require_auth
 import search_utils
 
-app = FastAPI(title="Lessons Manager API", version="1.0.0")
+app = FastAPI(
+    title="Lessons Manager API",
+    version="1.0.0",
+    dependencies=[Depends(require_auth)],
+)
 
 # Configure CORS for Electron app
 app.add_middleware(
