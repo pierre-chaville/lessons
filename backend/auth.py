@@ -5,7 +5,7 @@ import time
 from typing import Any, Dict, Optional, List
 
 import httpx
-from fastapi import Header, HTTPException, Request
+from fastapi import Depends, Header, HTTPException, Request
 from jose import jwt
 
 from config import load_config
@@ -117,4 +117,15 @@ def require_auth(
 
     return claims
 
+
+def require_roles(allowed_roles: List[str]):
+    allowed_set = {role.lower() for role in allowed_roles}
+
+    def _require_roles(claims: Dict[str, Any] = Depends(require_auth)) -> Dict[str, Any]:
+        roles = _extract_roles(claims)
+        if not roles or not any(role in allowed_set for role in roles):
+            raise HTTPException(status_code=403, detail="Insufficient role")
+        return claims
+
+    return _require_roles
 

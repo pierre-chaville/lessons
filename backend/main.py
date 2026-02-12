@@ -1,6 +1,8 @@
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 from fastapi import FastAPI, Depends, HTTPException, Query, Request, UploadFile, File
+from fastapi.security import HTTPBearer
+from fastapi.openapi.utils import get_openapi
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session
 from pydantic import BaseModel
@@ -11,14 +13,50 @@ from database import create_db_and_tables, get_session
 from models import Lesson, Course, Theme, Segment, Task, EditedParagraph, Source
 import crud
 import config as config_module
-from auth import require_auth
+from auth import require_auth, require_roles
 import search_utils
+
+bearer_scheme = HTTPBearer()
 
 app = FastAPI(
     title="Lessons Manager API",
     version="1.0.0",
     dependencies=[Depends(require_auth)],
+    openapi_tags=[
+        {
+            "name": "Authentication",
+            "description": "Bearer token authentication using Clerk JWTs.",
+        }
+    ],
 )
+
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    openapi_schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        routes=app.routes,
+        description=app.description,
+    )
+    openapi_schema.setdefault("components", {}).setdefault("securitySchemes", {})
+    openapi_schema["components"]["securitySchemes"]["bearerAuth"] = {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+    }
+    openapi_schema["security"] = [{"bearerAuth": []}]
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+
+app.openapi = custom_openapi
+
+
+@app.get("/auth/me", tags=["Authentication"])
+def auth_me(claims: Dict[str, Any] = Depends(require_auth)):
+    """Return the current authenticated user's token claims."""
+    return {"claims": claims}
 
 # Configure CORS for Electron app
 app.add_middleware(
@@ -75,7 +113,11 @@ def get_course(course_id: int, session: Session = Depends(get_session)):
 
 
 @app.post("/courses", response_model=Course, status_code=201, tags=["Courses"])
-def create_course(course_data: CourseCreate, session: Session = Depends(get_session)):
+def create_course(
+    course_data: CourseCreate,
+    session: Session = Depends(get_session),
+    _: Dict[str, Any] = Depends(require_roles(["admin", "editor"])),
+):
     """Create a new course"""
     return crud.create_course(
         session, name=course_data.name, description=course_data.description
@@ -84,7 +126,10 @@ def create_course(course_data: CourseCreate, session: Session = Depends(get_sess
 
 @app.patch("/courses/{course_id}", response_model=Course, tags=["Courses"])
 def update_course(
-    course_id: int, course_data: CourseUpdate, session: Session = Depends(get_session)
+    course_id: int,
+    course_data: CourseUpdate,
+    session: Session = Depends(get_session),
+    _: Dict[str, Any] = Depends(require_roles(["admin", "editor"])),
 ):
     """Update an existing course"""
     course = crud.update_course(
@@ -96,7 +141,11 @@ def update_course(
 
 
 @app.delete("/courses/{course_id}", status_code=204, tags=["Courses"])
-def delete_course(course_id: int, session: Session = Depends(get_session)):
+def delete_course(
+    course_id: int,
+    session: Session = Depends(get_session),
+    _: Dict[str, Any] = Depends(require_roles(["admin", "editor"])),
+):
     """Delete a course"""
     if not crud.delete_course(session, course_id):
         raise HTTPException(status_code=404, detail="Course not found")
@@ -134,14 +183,21 @@ def get_theme(theme_id: int, session: Session = Depends(get_session)):
 
 
 @app.post("/themes", response_model=Theme, status_code=201, tags=["Themes"])
-def create_theme(theme_data: ThemeCreate, session: Session = Depends(get_session)):
+def create_theme(
+    theme_data: ThemeCreate,
+    session: Session = Depends(get_session),
+    _: Dict[str, Any] = Depends(require_roles(["admin", "editor"])),
+):
     """Create a new theme"""
     return crud.create_theme(session, name=theme_data.name)
 
 
 @app.patch("/themes/{theme_id}", response_model=Theme, tags=["Themes"])
 def update_theme(
-    theme_id: int, theme_data: ThemeUpdate, session: Session = Depends(get_session)
+    theme_id: int,
+    theme_data: ThemeUpdate,
+    session: Session = Depends(get_session),
+    _: Dict[str, Any] = Depends(require_roles(["admin", "editor"])),
 ):
     """Update an existing theme"""
     theme = crud.update_theme(session, theme_id, name=theme_data.name)
@@ -151,7 +207,11 @@ def update_theme(
 
 
 @app.delete("/themes/{theme_id}", status_code=204, tags=["Themes"])
-def delete_theme(theme_id: int, session: Session = Depends(get_session)):
+def delete_theme(
+    theme_id: int,
+    session: Session = Depends(get_session),
+    _: Dict[str, Any] = Depends(require_roles(["admin", "editor"])),
+):
     """Delete a theme"""
     if not crud.delete_theme(session, theme_id):
         raise HTTPException(status_code=404, detail="Theme not found")
@@ -325,7 +385,11 @@ def get_lesson(lesson_id: int, session: Session = Depends(get_session)):
 
 
 @app.post("/lessons", response_model=LessonResponse, status_code=201, tags=["Lessons"])
-def create_lesson(lesson_data: LessonCreate, session: Session = Depends(get_session)):
+def create_lesson(
+    lesson_data: LessonCreate,
+    session: Session = Depends(get_session),
+    _: Dict[str, Any] = Depends(require_roles(["admin", "editor"])),
+):
     """Create a new lesson"""
     # Verify course exists if provided
     if lesson_data.course_id:
@@ -396,7 +460,10 @@ def create_lesson(lesson_data: LessonCreate, session: Session = Depends(get_sess
 
 @app.patch("/lessons/{lesson_id}", response_model=LessonResponse, tags=["Lessons"])
 def update_lesson(
-    lesson_id: int, lesson_data: LessonUpdate, session: Session = Depends(get_session)
+    lesson_id: int,
+    lesson_data: LessonUpdate,
+    session: Session = Depends(get_session),
+    _: Dict[str, Any] = Depends(require_roles(["admin", "editor"])),
 ):
     """Update an existing lesson"""
     # Verify course exists if provided
@@ -484,7 +551,11 @@ def update_lesson(
 
 
 @app.delete("/lessons/{lesson_id}", status_code=204, tags=["Lessons"])
-def delete_lesson(lesson_id: int, session: Session = Depends(get_session)):
+def delete_lesson(
+    lesson_id: int,
+    session: Session = Depends(get_session),
+    _: Dict[str, Any] = Depends(require_roles(["admin", "editor"])),
+):
     """Delete a lesson"""
     if not crud.delete_lesson(session, lesson_id):
         raise HTTPException(status_code=404, detail="Lesson not found")
