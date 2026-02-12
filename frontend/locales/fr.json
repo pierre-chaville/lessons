@@ -2,6 +2,15 @@
   "app": {
     "title": "Gestionnaire de Leçons"
   },
+  "auth": {
+    "loading": "Chargement de l'utilisateur...",
+    "noAccessTitle": "Accès refusé",
+    "noAccessDesc": "Votre compte ne dispose pas d'un rôle valide pour accéder à cette application.",
+    "signInTitle": "Connexion requise",
+    "signInDesc": "Veuillez vous connecter pour accéder à l'application.",
+    "signIn": "Se connecter",
+    "signOut": "Se déconnecter"
+  },
   "lessons": {
     "title": "Leçons",
     "addNew": "Nouvelle Leçon",

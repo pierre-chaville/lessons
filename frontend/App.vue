@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
+import { SignedIn, SignedOut, SignInButton, SignOutButton, UserButton, useUser } from '@clerk/vue';
 import { useI18n } from 'vue-i18n';
 import { Menu, MenuButton, MenuItems, MenuItem } from '@headlessui/vue';
 import { 
@@ -19,6 +20,13 @@ import ProcessingTasks from './views/ProcessingTasks.vue';
 import Preferences from './views/Preferences.vue';
 
 const { locale, t } = useI18n();
+const { user, isLoaded } = useUser();
+const allowedRoles = ['admin', 'reader', 'editor'];
+const userRole = computed(() => {
+  const role = user.value?.publicMetadata?.role || user.value?.unsafeMetadata?.role;
+  return role ? String(role).toLowerCase() : '';
+});
+const hasAccess = computed(() => allowedRoles.includes(userRole.value));
 
 // Initialize current route from URL
 const getInitialRoute = () => {
@@ -138,7 +146,30 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="flex min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors">
+  <SignedOut>
+    <div class="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 p-6">
+      <div class="text-center">
+        <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">{{ t('auth.signInTitle') }}</h2>
+        <p class="text-sm text-gray-600 dark:text-gray-300 mb-4">{{ t('auth.signInDesc') }}</p>
+        <SignInButton mode="redirect">
+          <button class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md transition-colors">
+            {{ t('auth.signIn') }}
+          </button>
+        </SignInButton>
+      </div>
+    </div>
+  </SignedOut>
+  <SignedIn>
+    <div v-if="!isLoaded" class="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+      <p class="text-gray-600 dark:text-gray-300">{{ t('auth.loading') }}</p>
+    </div>
+    <div v-else-if="!hasAccess" class="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 p-6">
+      <div class="max-w-md text-center">
+        <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">{{ t('auth.noAccessTitle') }}</h2>
+        <p class="text-sm text-gray-600 dark:text-gray-300">{{ t('auth.noAccessDesc') }}</p>
+      </div>
+    </div>
+    <div v-else class="flex min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors">
     <!-- Navigation Sidebar -->
     <NavigationSidebar 
       :active-route="currentRoute"
@@ -168,6 +199,17 @@ onMounted(() => {
               <SunIcon v-if="isDarkMode" class="h-5 w-5" />
               <MoonIcon v-else class="h-5 w-5" />
             </button>
+            <!-- User Menu -->
+            <SignedIn>
+              <div class="flex items-center gap-2">
+                <UserButton />
+                <SignOutButton>
+                  <button class="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors">
+                    {{ t('auth.signOut') }}
+                  </button>
+                </SignOutButton>
+              </div>
+            </SignedIn>
             
             <!-- Language Selector -->
             <Menu as="div" class="relative inline-block text-left">
@@ -336,6 +378,7 @@ onMounted(() => {
         </div>
       </div>
     </div>
-  </div>
+    </div>
+  </SignedIn>
 </template>
 

@@ -2,6 +2,15 @@
   "app": {
     "title": "Lessons Manager"
   },
+  "auth": {
+    "loading": "Loading user...",
+    "noAccessTitle": "Access denied",
+    "noAccessDesc": "Your account does not have a valid role to access this app.",
+    "signInTitle": "Sign in required",
+    "signInDesc": "Please sign in to access the application.",
+    "signIn": "Sign in",
+    "signOut": "Sign out"
+  },
   "lessons": {
     "title": "Lessons",
     "addNew": "New Lesson",
