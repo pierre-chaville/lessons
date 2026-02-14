@@ -1,15 +1,16 @@
-from sqlmodel import SQLModel, create_engine, Session
-from pathlib import Path
+import os
 
-# Create database directory if it doesn't exist
-db_path = Path(__file__).parent / "data"
-db_path.mkdir(exist_ok=True)
+from dotenv import load_dotenv
+from sqlmodel import SQLModel, Session, create_engine
 
-# SQLite database URL
-DATABASE_URL = f"sqlite:///{db_path}/lessons.db"
+load_dotenv(override=True)
+
+DATABASE_URL = os.getenv("DATABASE_URL") or os.getenv("DATBASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL is not set (or DATBASE_URL). Check your .env.")
 
 # Create engine
-engine = create_engine(DATABASE_URL, echo=False, connect_args={"check_same_thread": False})
+engine = create_engine(DATABASE_URL, echo=False)
 
 
 def create_db_and_tables():
