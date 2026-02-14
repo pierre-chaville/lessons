@@ -25,7 +25,7 @@ const selectedCourse = ref(null);
 const selectedTheme = ref(null);
 const showCreateModal = ref(false);
 
-const API_URL = 'http://localhost:8000';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 // Helper function to get lesson ID from URL
 const getLessonIdFromUrl = () => {

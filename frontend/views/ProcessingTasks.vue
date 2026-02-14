@@ -22,7 +22,7 @@ const showDeleteModal = ref(false);
 const taskToDelete = ref(null);
 const isDeleting = ref(false);
 
-const API_URL = 'http://localhost:8000';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 const fetchTasks = async () => {
   try {

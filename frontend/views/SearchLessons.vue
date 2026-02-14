@@ -28,7 +28,7 @@ const audioPlayer = ref(null);
 const currentAudioLessonId = ref(null);
 const currentSegmentKey = ref(null);
 
-const API_URL = 'http://localhost:8000';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 const fetchCourses = async () => {
   try {

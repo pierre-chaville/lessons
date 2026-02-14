@@ -21,7 +21,7 @@ const emit = defineEmits(['close', 'created']);
 
 const { t } = useI18n();
 
-const API_URL = 'http://localhost:8000';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 // Form state
 const selectedFile = ref(null);
