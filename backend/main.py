@@ -3,6 +3,8 @@ from typing import List, Optional, Dict, Any
 from fastapi import FastAPI, Depends, HTTPException, Query, Request, UploadFile, File
 from fastapi.security import HTTPBearer
 from fastapi.openapi.utils import get_openapi
+import os
+
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session
 from pydantic import BaseModel
@@ -65,10 +67,19 @@ def auth_me(claims: Dict[str, Any] = Depends(require_auth)):
     """Return the current authenticated user's token claims."""
     return {"claims": claims}
 
-# Configure CORS for Electron app
+# Configure CORS
+allowed_origins = [
+    origin.strip()
+    for origin in (os.getenv("ALLOWED_ORIGINS") or "").split(",")
+    if origin.strip()
+]
+
+if not allowed_origins:
+    allowed_origins = ["http://localhost:5173"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
