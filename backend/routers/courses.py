@@ -32,7 +32,7 @@ def get_course(course_id: int, session: Session = Depends(get_session)):
 def create_course(
     course_data: CourseCreate,
     session: Session = Depends(get_session),
-    _: Dict[str, Any] = Depends(require_roles(["admin", "editor"])),
+    _: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
 ):
     """Create a new course."""
     return crud.create_course(
@@ -45,7 +45,7 @@ def update_course(
     course_id: int,
     course_data: CourseUpdate,
     session: Session = Depends(get_session),
-    _: Dict[str, Any] = Depends(require_roles(["admin", "editor"])),
+    _: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
 ):
     """Update an existing course."""
     course = crud.update_course(
@@ -60,7 +60,7 @@ def update_course(
 def delete_course(
     course_id: int,
     session: Session = Depends(get_session),
-    _: Dict[str, Any] = Depends(require_roles(["admin", "editor"])),
+    _: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
 ):
     """Delete a course."""
     if not crud.delete_course(session, course_id):

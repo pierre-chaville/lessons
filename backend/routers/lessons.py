@@ -38,7 +38,7 @@ def get_lesson(lesson_id: int, session: Session = Depends(get_session)):
 def create_lesson(
     lesson_data: LessonCreate,
     session: Session = Depends(get_session),
-    _: Dict[str, Any] = Depends(require_roles(["admin", "editor"])),
+    _: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
 ):
     """Create a new lesson and finalize its audio object in S3."""
     return lesson_service.create_lesson_with_audio(lesson_data, session)
@@ -49,7 +49,7 @@ def update_lesson(
     lesson_id: int,
     lesson_data: LessonUpdate,
     session: Session = Depends(get_session),
-    _: Dict[str, Any] = Depends(require_roles(["admin", "editor"])),
+    _: Dict[str, Any] = Depends(require_roles(["editor", "publisher", "admin"])),
 ):
     """Update an existing lesson."""
     return lesson_service.update_lesson_data(lesson_id, lesson_data, session)
@@ -59,7 +59,7 @@ def update_lesson(
 def delete_lesson(
     lesson_id: int,
     session: Session = Depends(get_session),
-    _: Dict[str, Any] = Depends(require_roles(["admin", "editor"])),
+    _: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
 ):
     """Delete a lesson."""
     if not crud.delete_lesson(session, lesson_id):

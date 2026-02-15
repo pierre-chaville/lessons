@@ -1,15 +1,20 @@
 """Configuration router — /config endpoints."""
 
-from fastapi import APIRouter, HTTPException
+from typing import Dict, Any
+
+from fastapi import APIRouter, Depends, HTTPException
 
 import config as config_module
+from auth import require_roles
 from schemas.config import ConfigUpdate
 
 router = APIRouter(prefix="/config", tags=["Configuration"])
 
 
 @router.get("")
-def get_configuration():
+def get_configuration(
+    _: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
+):
     """Get the current application configuration."""
     try:
         return config_module.load_config()
@@ -20,7 +25,10 @@ def get_configuration():
 
 
 @router.put("")
-def update_configuration(config_update: ConfigUpdate):
+def update_configuration(
+    config_update: ConfigUpdate,
+    _: Dict[str, Any] = Depends(require_roles(["admin"])),
+):
     """Update the application configuration."""
     try:
         updated_config = config_module.update_config(config_update.config)
@@ -32,7 +40,10 @@ def update_configuration(config_update: ConfigUpdate):
 
 
 @router.get("/{key_path}")
-def get_configuration_value(key_path: str):
+def get_configuration_value(
+    key_path: str,
+    _: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
+):
     """Get a specific configuration value using dot notation (e.g., 'whisper.model_size')."""
     try:
         value = config_module.get_config_value(key_path)
@@ -50,7 +61,9 @@ def get_configuration_value(key_path: str):
 
 
 @router.post("/reset")
-def reset_configuration():
+def reset_configuration(
+    _: Dict[str, Any] = Depends(require_roles(["admin"])),
+):
     """Reset configuration to default values."""
     try:
         config_module.save_config(config_module.DEFAULT_CONFIG)

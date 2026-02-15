@@ -1,9 +1,12 @@
 """Upload router — /upload endpoints for audio files."""
 
 from datetime import datetime
+from typing import Dict, Any
+
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlmodel import Session
 
+from auth import require_roles
 from database import get_session
 from storage import upload_audio_fileobj, s3_enabled
 
@@ -12,7 +15,9 @@ router = APIRouter(prefix="/upload", tags=["Lessons"])
 
 @router.post("/audio")
 async def upload_audio(
-    file: UploadFile = File(...), session: Session = Depends(get_session)
+    file: UploadFile = File(...),
+    session: Session = Depends(get_session),
+    _: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
 ):
     """Upload an audio file for a lesson to S3/R2."""
     if not file.content_type or not file.content_type.startswith("audio/"):

@@ -32,7 +32,7 @@ def get_theme(theme_id: int, session: Session = Depends(get_session)):
 def create_theme(
     theme_data: ThemeCreate,
     session: Session = Depends(get_session),
-    _: Dict[str, Any] = Depends(require_roles(["admin", "editor"])),
+    _: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
 ):
     """Create a new theme."""
     return crud.create_theme(session, name=theme_data.name)
@@ -43,7 +43,7 @@ def update_theme(
     theme_id: int,
     theme_data: ThemeUpdate,
     session: Session = Depends(get_session),
-    _: Dict[str, Any] = Depends(require_roles(["admin", "editor"])),
+    _: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
 ):
     """Update an existing theme."""
     theme = crud.update_theme(session, theme_id, name=theme_data.name)
@@ -56,7 +56,7 @@ def update_theme(
 def delete_theme(
     theme_id: int,
     session: Session = Depends(get_session),
-    _: Dict[str, Any] = Depends(require_roles(["admin", "editor"])),
+    _: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
 ):
     """Delete a theme."""
     if not crud.delete_theme(session, theme_id):

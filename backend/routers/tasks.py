@@ -2,9 +2,10 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
-from typing import List
+from typing import List, Dict, Any
 
 import crud
+from auth import require_roles
 from database import get_session
 from schemas.task import TaskCreate, TaskResponse
 
@@ -21,7 +22,11 @@ VALID_TASK_TYPES = {
 
 
 @router.post("", response_model=TaskResponse)
-def create_task(task: TaskCreate, session: Session = Depends(get_session)):
+def create_task(
+    task: TaskCreate,
+    session: Session = Depends(get_session),
+    _: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
+):
     """Create and launch a new background task."""
     return crud.create_task(
         session=session, task_type=task.task_type, parameters=task.parameters
@@ -29,13 +34,20 @@ def create_task(task: TaskCreate, session: Session = Depends(get_session)):
 
 
 @router.get("", response_model=List[TaskResponse])
-def get_tasks(session: Session = Depends(get_session)):
+def get_tasks(
+    session: Session = Depends(get_session),
+    _: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
+):
     """Get all tasks."""
     return crud.get_all_tasks(session=session)
 
 
 @router.get("/{task_id}", response_model=TaskResponse)
-def get_task(task_id: int, session: Session = Depends(get_session)):
+def get_task(
+    task_id: int,
+    session: Session = Depends(get_session),
+    _: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
+):
     """Get a specific task by ID."""
     task = crud.get_task(session=session, task_id=task_id)
     if not task:
@@ -44,16 +56,24 @@ def get_task(task_id: int, session: Session = Depends(get_session)):
 
 
 @router.delete("/{task_id}")
-def delete_task(task_id: int, session: Session = Depends(get_session)):
-    """Delete a task."""
+def delete_task(
+    task_id: int,
+    session: Session = Depends(get_session),
+    _: Dict[str, Any] = Depends(require_roles(["admin"])),
+):
+    """Cancel (delete) a task. Admin only."""
     if not crud.delete_task(session=session, task_id=task_id):
         raise HTTPException(status_code=404, detail="Task not found")
     return {"message": "Task deleted successfully"}
 
 
 @router.post("/test/{task_type}", response_model=TaskResponse)
-def create_test_task(task_type: str, session: Session = Depends(get_session)):
-    """Create a test task for development/testing purposes."""
+def create_test_task(
+    task_type: str,
+    session: Session = Depends(get_session),
+    _: Dict[str, Any] = Depends(require_roles(["admin"])),
+):
+    """Create a test task for development/testing purposes. Admin only."""
     if task_type not in VALID_TASK_TYPES:
         raise HTTPException(
             status_code=400,
