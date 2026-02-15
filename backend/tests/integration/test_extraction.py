@@ -1,7 +1,11 @@
-"""Test script for source extraction functionality"""
+"""Integration test — source extraction via LLM."""
 import sys
 import logging
 import asyncio
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+
 from sqlmodel import Session
 from database import engine
 from models import Lesson
@@ -23,24 +27,24 @@ def display_lesson_extraction(lesson_id: int):
         if not lesson:
             logger.error(f"Lesson {lesson_id} not found")
             return
-        
+
         print("\n" + "="*80)
         print(f"Lesson: {lesson.title}")
         print("="*80)
-        
+
         # Check for edited transcript
         has_edited = bool(lesson.edited_transcript)
-        
+
         print(f"\n📄 Transcript Status:")
         print("-"*80)
         print(f"Edited transcript: {'✅ Available' if has_edited else '❌ Not available'}")
-        
+
         if not has_edited:
             print("\n⚠️  No edited transcript available. Sources can only be extracted from edited transcripts.")
             print("   Please run edition first using test_edition.py")
             print("="*80 + "\n")
             return
-        
+
         # Collect all sources
         all_sources = []
         parts_with_sources = 0
@@ -49,7 +53,7 @@ def display_lesson_extraction(lesson_id: int):
                 sources = part_dict.get("sources", [])
             else:
                 sources = part_dict.sources if hasattr(part_dict, "sources") else []
-            
+
             if sources:
                 parts_with_sources += 1
                 for source_dict in sources:
@@ -57,11 +61,11 @@ def display_lesson_extraction(lesson_id: int):
                         all_sources.append(Source(**source_dict))
                     else:
                         all_sources.append(source_dict)
-        
+
         print(f"Edited parts: {len(lesson.edited_transcript)}")
         print(f"Parts with sources: {parts_with_sources}")
         print(f"Total sources found: {len(all_sources)}")
-        
+
         # Display metadata
         metadata = lesson.get_edited_metadata()
         if metadata:
@@ -75,12 +79,12 @@ def display_lesson_extraction(lesson_id: int):
                 if len(metadata.prompt) > 150:
                     prompt_preview += "..."
                 print(f"Prompt: {prompt_preview}")
-        
+
         if len(all_sources) == 0:
             print("\n⚠️  No sources found in edited transcript.")
             print("="*80 + "\n")
             return
-        
+
         # Display sources grouped by edited part
         print("\n📚 EXTRACTED SOURCES:")
         print("-"*80)
@@ -92,7 +96,7 @@ def display_lesson_extraction(lesson_id: int):
             else:
                 sources = part_dict.sources if hasattr(part_dict, "sources") else []
                 text = part_dict.text if hasattr(part_dict, "text") else ""
-            
+
             if sources:
                 print(f"\n📝 Part {part_idx} ({len(sources)} source{'s' if len(sources) > 1 else ''}):")
                 text_preview = text[:150] + "..." if len(text) > 150 else text
@@ -113,7 +117,7 @@ def display_lesson_extraction(lesson_id: int):
                         src_slug = source.standard_slug or "N/A"
                         src_cited = source.cited_excerpt or "N/A"
                         src_conf = source.confidence
-                    
+
                     print(f"     [{source_index}] {src_type}: {src_work} {src_ref}")
                     if src_slug != "N/A":
                         print(f"         Slug: {src_slug}")
@@ -124,25 +128,25 @@ def display_lesson_extraction(lesson_id: int):
                         conf_color = "🟢" if src_conf >= 0.7 else "🟡" if src_conf >= 0.4 else "🔴"
                         print(f"         Confidence: {conf_color} {src_conf:.2f}")
                     source_index += 1
-        
+
         # Summary statistics
         print("\n📊 EXTRACTION SUMMARY:")
         print("-"*80)
         print(f"Total edited parts: {len(lesson.edited_transcript)}")
         print(f"Parts with sources: {parts_with_sources}")
         print(f"Total sources extracted: {len(all_sources)}")
-        
+
         # Group by type
         type_counts = {}
         for source in all_sources:
             src_type = source.type or "Unknown"
             type_counts[src_type] = type_counts.get(src_type, 0) + 1
-        
+
         if type_counts:
             print(f"\nSources by type:")
             for src_type, count in sorted(type_counts.items()):
                 print(f"  - {src_type}: {count}")
-        
+
         # Confidence statistics
         confidences = [s.confidence for s in all_sources if s.confidence is not None]
         if confidences:
@@ -151,7 +155,7 @@ def display_lesson_extraction(lesson_id: int):
             print(f"\nConfidence statistics:")
             print(f"  - Average: {avg_conf:.2f}")
             print(f"  - High confidence (≥0.7): {high_conf}/{len(confidences)}")
-        
+
         print("\n" + "="*80 + "\n")
 
 
@@ -166,13 +170,13 @@ async def main_async():
         print("\nExample:")
         print("  python test_extraction.py 5 5")
         sys.exit(1)
-    
+
     try:
         lesson_id = int(sys.argv[1])
     except ValueError:
         logger.error("Invalid lesson ID provided")
         sys.exit(1)
-    
+
     # Parse optional parameters
     max_concurrency = 10
     if len(sys.argv) >= 3:
@@ -180,27 +184,27 @@ async def main_async():
             max_concurrency = int(sys.argv[2])
         except ValueError:
             logger.warning(f"Invalid max_concurrency, using default: {max_concurrency}")
-    
+
     # Display lesson info before extraction
     print("\n🔍 BEFORE EXTRACTION:")
     display_lesson_extraction(lesson_id)
-    
+
     # Extract sources
     logger.info(f"Starting source extraction for lesson {lesson_id}...")
     print(f"\n🔄 Extracting sources (this may take a moment)...")
     print(f"   - Max concurrency: {max_concurrency}")
     print(f"   - Processing edited parts in parallel")
     print(f"   - Using LLM to identify and extract sources\n")
-    
+
     success = await extract_sources_async(
         lesson_id=lesson_id,
         max_concurrency=max_concurrency
     )
-    
+
     if success:
         logger.info("Source extraction completed successfully!")
         print("\n✅ Source extraction completed!\n")
-        
+
         # Display updated lesson with extracted sources
         print("\n🔍 AFTER EXTRACTION:")
         display_lesson_extraction(lesson_id)

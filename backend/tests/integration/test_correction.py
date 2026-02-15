@@ -1,6 +1,10 @@
-"""Test script for transcript correction functionality"""
+"""Integration test — transcript correction via LLM."""
 import sys
 import logging
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+
 from sqlmodel import Session
 from database import engine
 from models import Lesson
@@ -44,10 +48,10 @@ def display_lesson_transcripts(lesson_id: int):
         if not lesson:
             logger.error(f"Lesson {lesson_id} not found")
             return
-        
+
         print("\n" + "="*80)
         print(f"Lesson: {lesson.title}")
-       
+
         if lesson.corrected_transcript:
             # Display metadata
             metadata = lesson.get_correction_metadata()
@@ -60,7 +64,7 @@ def display_lesson_transcripts(lesson_id: int):
                 print(f"Prompt: {metadata.prompt[:100]}...")
         else:
             print("No corrected transcript available")
-        
+
         print("\n" + "="*80 + "\n")
 
 
@@ -78,24 +82,24 @@ def main():
         # Create a test lesson
         logger.info("Creating test lesson...")
         lesson_id = create_test_lesson()
-    
+
     # Display original transcript
     display_lesson_transcripts(lesson_id)
-    
+
     # Run correction
     logger.info(f"Starting correction for lesson {lesson_id}...")
     print("\n🔄 Running correction (this may take a moment)...\n")
-    
+
     success = correct_transcript(
         lesson_id=lesson_id,
         segments_per_group=100,  # Small groups for this test
         max_concurrency=10      # Low concurrency for testing
     )
-    
+
     if success:
         logger.info("Correction completed successfully!")
         print("\n✅ Correction completed!\n")
-        
+
         # Display corrected transcript
         display_lesson_transcripts(lesson_id)
     else:
@@ -106,4 +110,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
