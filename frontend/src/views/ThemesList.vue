@@ -1,157 +1,134 @@
-<script setup>
-import { ref, onMounted } from 'vue';
-import { useI18n } from 'vue-i18n';
-import axios from 'axios';
-import { 
+<script setup lang="ts">
+import { ref, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
+import {
   TagIcon,
   PencilIcon,
   TrashIcon,
   XMarkIcon,
   CheckIcon,
   ExclamationTriangleIcon,
-  BookOpenIcon
-} from '@heroicons/vue/24/outline';
-import { Dialog, DialogPanel, DialogTitle } from '@headlessui/vue';
+  BookOpenIcon,
+} from '@heroicons/vue/24/outline'
+import { Dialog, DialogPanel, DialogTitle } from '@headlessui/vue'
+import { themesApi } from '@/api/themes'
+import { useToast } from '@/composables/useToast'
+import { usePermissions } from '@/composables/usePermissions'
+import type { Theme } from '@/api/types'
 
-const { t } = useI18n();
-const themes = ref([]);
-const loading = ref(true);
-const showCreateModal = ref(false);
-const showEditModal = ref(false);
-const showDeleteConfirm = ref(false);
+const { t } = useI18n()
+const toast = useToast()
+const { can } = usePermissions()
 
-// Form data
-const formData = ref({
-  name: ''
-});
+const themes = ref<Theme[]>([])
+const loading = ref(true)
+const showCreateModal = ref(false)
+const showEditModal = ref(false)
+const showDeleteConfirm = ref(false)
 
-const editingTheme = ref(null);
-const deletingTheme = ref(null);
-const isSaving = ref(false);
-const isDeleting = ref(false);
+const formData = ref({ name: '' })
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const editingTheme = ref<Theme | null>(null)
+const deletingTheme = ref<Theme | null>(null)
+const isSaving = ref(false)
+const isDeleting = ref(false)
 
 const fetchThemes = async () => {
   try {
-    loading.value = true;
-    const response = await axios.get(`${API_URL}/themes`);
-    themes.value = response.data;
-  } catch (error) {
-    console.error('Failed to fetch themes:', error);
-    alert(t('themes.fetchFailed'));
+    loading.value = true
+    themes.value = await themesApi.list()
+  } catch {
+    toast.error(t('themes.fetchFailed'))
   } finally {
-    loading.value = false;
+    loading.value = false
   }
-};
+}
 
 const openCreateModal = () => {
-  formData.value = {
-    name: ''
-  };
-  showCreateModal.value = true;
-};
+  formData.value = { name: '' }
+  showCreateModal.value = true
+}
 
 const closeCreateModal = () => {
-  showCreateModal.value = false;
-  formData.value = {
-    name: ''
-  };
-};
+  showCreateModal.value = false
+  formData.value = { name: '' }
+}
 
-const openEditModal = (theme) => {
-  editingTheme.value = theme;
-  formData.value = {
-    name: theme.name
-  };
-  showEditModal.value = true;
-};
+const openEditModal = (theme: Theme) => {
+  editingTheme.value = theme
+  formData.value = { name: theme.name }
+  showEditModal.value = true
+}
 
 const closeEditModal = () => {
-  showEditModal.value = false;
-  editingTheme.value = null;
-  formData.value = {
-    name: ''
-  };
-};
+  showEditModal.value = false
+  editingTheme.value = null
+  formData.value = { name: '' }
+}
 
 const createTheme = async () => {
   if (!formData.value.name.trim()) {
-    alert(t('themes.nameRequired'));
-    return;
+    toast.error(t('themes.nameRequired'))
+    return
   }
-
   try {
-    isSaving.value = true;
-    await axios.post(`${API_URL}/themes`, {
-      name: formData.value.name.trim()
-    });
-    
-    await fetchThemes();
-    closeCreateModal();
-  } catch (error) {
-    console.error('Failed to create theme:', error);
-    alert(t('themes.createFailed'));
+    isSaving.value = true
+    await themesApi.create({ name: formData.value.name.trim() })
+    await fetchThemes()
+    closeCreateModal()
+  } catch {
+    toast.error(t('themes.createFailed'))
   } finally {
-    isSaving.value = false;
+    isSaving.value = false
   }
-};
+}
 
 const updateTheme = async () => {
-  if (!formData.value.name.trim()) {
-    alert(t('themes.nameRequired'));
-    return;
+  if (!formData.value.name.trim() || !editingTheme.value) {
+    toast.error(t('themes.nameRequired'))
+    return
   }
-
   try {
-    isSaving.value = true;
-    await axios.patch(`${API_URL}/themes/${editingTheme.value.id}`, {
-      name: formData.value.name.trim()
-    });
-    
-    await fetchThemes();
-    closeEditModal();
-  } catch (error) {
-    console.error('Failed to update theme:', error);
-    alert(t('themes.updateFailed'));
+    isSaving.value = true
+    await themesApi.update(editingTheme.value.id, { name: formData.value.name.trim() })
+    await fetchThemes()
+    closeEditModal()
+  } catch {
+    toast.error(t('themes.updateFailed'))
   } finally {
-    isSaving.value = false;
+    isSaving.value = false
   }
-};
+}
 
-const confirmDelete = (theme) => {
-  deletingTheme.value = theme;
-  showDeleteConfirm.value = true;
-};
+const confirmDelete = (theme: Theme) => {
+  deletingTheme.value = theme
+  showDeleteConfirm.value = true
+}
 
 const cancelDelete = () => {
-  showDeleteConfirm.value = false;
-  deletingTheme.value = null;
-};
+  showDeleteConfirm.value = false
+  deletingTheme.value = null
+}
 
 const deleteTheme = async () => {
+  if (!deletingTheme.value) return
   try {
-    isDeleting.value = true;
-    await axios.delete(`${API_URL}/themes/${deletingTheme.value.id}`);
-    
-    await fetchThemes();
-    cancelDelete();
-  } catch (error) {
-    console.error('Failed to delete theme:', error);
-    alert(t('themes.deleteFailed'));
+    isDeleting.value = true
+    await themesApi.delete(deletingTheme.value.id)
+    await fetchThemes()
+    cancelDelete()
+  } catch {
+    toast.error(t('themes.deleteFailed'))
   } finally {
-    isDeleting.value = false;
+    isDeleting.value = false
   }
-};
+}
 
 onMounted(() => {
-  fetchThemes();
-});
+  fetchThemes()
+})
 
-// Expose methods to parent
-defineExpose({
-  openCreateModal
-});
+defineExpose({ openCreateModal })
 </script>
 
 <template>
@@ -346,8 +323,9 @@ defineExpose({
             </div>
           </div>
           
-          <div class="flex gap-2 pt-3 border-t border-gray-200 dark:border-gray-700">
+          <div v-if="can('themes', 'update') || can('themes', 'delete')" class="flex gap-2 pt-3 border-t border-gray-200 dark:border-gray-700">
             <button
+              v-if="can('themes', 'update')"
               @click="openEditModal(theme)"
               class="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
             >
@@ -355,6 +333,7 @@ defineExpose({
               {{ t('themes.edit') }}
             </button>
             <button
+              v-if="can('themes', 'delete')"
               @click="confirmDelete(theme)"
               class="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-md transition-colors"
             >

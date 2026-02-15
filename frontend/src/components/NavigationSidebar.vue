@@ -1,5 +1,5 @@
-<script setup>
-import { ref } from 'vue';
+<script setup lang="ts">
+import { ref, computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import {
   BookOpenIcon,
@@ -11,70 +11,37 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon
 } from '@heroicons/vue/24/outline';
+import { usePermissions } from '@/composables/usePermissions';
 
 const { t } = useI18n();
+const { can } = usePermissions();
 
-// Define emits
-const emit = defineEmits(['navigate']);
+const emit = defineEmits<{ (e: 'navigate', route: string): void }>();
 
-// Props
-const props = defineProps({
-  activeRoute: {
-    type: String,
-    default: '/lessons'
-  }
-});
+const props = defineProps<{ activeRoute?: string }>();
 
-// Collapsed state
 const isCollapsed = ref(false);
 
-// Navigation items
-const navigationItems = [
-  {
-    key: 'lessons',
-    label: 'nav.lessons',
-    icon: BookOpenIcon,
-    route: '/lessons'
-  },
-  {
-    key: 'search',
-    label: 'nav.search',
-    icon: MagnifyingGlassIcon,
-    route: '/search'
-  },
-  {
-    key: 'courses',
-    label: 'nav.courses',
-    icon: AcademicCapIcon,
-    route: '/courses'
-  },
-  {
-    key: 'themes',
-    label: 'nav.themes',
-    icon: TagIcon,
-    route: '/themes'
-  },
-  {
-    key: 'processing',
-    label: 'nav.processing',
-    icon: DocumentTextIcon,
-    route: '/processing'
-  },
-  {
-    key: 'preferences',
-    label: 'nav.preferences',
-    icon: Cog6ToothIcon,
-    route: '/preferences'
-  }
+const allNavigationItems = [
+  { key: 'lessons',     label: 'nav.lessons',     icon: BookOpenIcon,         route: '/lessons',     always: true },
+  { key: 'search',      label: 'nav.search',       icon: MagnifyingGlassIcon,  route: '/search',      always: true },
+  { key: 'courses',     label: 'nav.courses',      icon: AcademicCapIcon,      route: '/courses',     always: true },
+  { key: 'themes',      label: 'nav.themes',       icon: TagIcon,              route: '/themes',      always: true },
+  { key: 'processing',  label: 'nav.processing',   icon: DocumentTextIcon,     route: '/processing',  always: false },
+  { key: 'preferences', label: 'nav.preferences',  icon: Cog6ToothIcon,        route: '/preferences', always: false },
 ];
 
-const toggleCollapse = () => {
-  isCollapsed.value = !isCollapsed.value;
-};
+const navigationItems = computed(() =>
+  allNavigationItems.filter((item) => {
+    if (item.key === 'processing')  return can('tasks', 'read');
+    if (item.key === 'preferences') return can('configuration', 'read');
+    return true;
+  })
+);
 
-const handleNavClick = (item) => {
-  emit('navigate', item.route);
-};
+const toggleCollapse = () => { isCollapsed.value = !isCollapsed.value; };
+
+const handleNavClick = (item: { route: string }) => { emit('navigate', item.route); };
 </script>
 
 <template>

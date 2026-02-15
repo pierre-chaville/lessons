@@ -1,210 +1,177 @@
-<script setup>
-import { ref, onMounted } from 'vue';
-import { useI18n } from 'vue-i18n';
-import axios from 'axios';
-import { 
+<script setup lang="ts">
+import { ref, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
+import {
   MagnifyingGlassIcon,
-  DocumentTextIcon, 
-  ClockIcon, 
+  DocumentTextIcon,
+  ClockIcon,
   PlayIcon,
   FunnelIcon,
-  XMarkIcon 
-} from '@heroicons/vue/24/outline';
-import { Listbox, ListboxButton, ListboxOptions, ListboxOption } from '@headlessui/vue';
-import { ChevronUpDownIcon, CheckIcon } from '@heroicons/vue/20/solid';
-import LessonDetail from './LessonDetail.vue';
+  XMarkIcon,
+} from '@heroicons/vue/24/outline'
+import { Listbox, ListboxButton, ListboxOptions, ListboxOption } from '@headlessui/vue'
+import { ChevronUpDownIcon, CheckIcon } from '@heroicons/vue/20/solid'
+import LessonDetail from './LessonDetail.vue'
+import { searchApi } from '@/api/search'
+import { coursesApi } from '@/api/courses'
+import { themesApi } from '@/api/themes'
+import { lessonsApi } from '@/api/lessons'
+import { apiClient } from '@/api/client'
+import type { Course, Theme, SearchLessonResult, LessonDetail as LessonDetailType } from '@/api/types'
 
-const { t } = useI18n();
-const results = ref([]);
-const courses = ref([]);
-const themes = ref([]);
-const loading = ref(false);
-const searchQuery = ref('');
-const selectedCourse = ref(null);
-const selectedTheme = ref(null);
+const { t } = useI18n()
 
-const selectedLessonDetail = ref(null);
-const audioPlayer = ref(null);
-const currentAudioLessonId = ref(null);
-const currentSegmentKey = ref(null);
+const results = ref<SearchLessonResult[]>([])
+const courses = ref<Course[]>([])
+const themes = ref<Theme[]>([])
+const loading = ref(false)
+const searchQuery = ref('')
+const selectedCourse = ref<Course | null>(null)
+const selectedTheme = ref<Theme | null>(null)
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const selectedLessonDetail = ref<LessonDetailType | null>(null)
+const audioPlayer = ref<HTMLAudioElement | null>(null)
+const currentAudioLessonId = ref<number | null>(null)
+const currentSegmentKey = ref<string | null>(null)
+
+const audioBaseUrl = apiClient.defaults.baseURL ?? ''
 
 const fetchCourses = async () => {
   try {
-    const response = await axios.get(`${API_URL}/courses`);
-    courses.value = response.data;
-  } catch (error) {
-    console.error('Failed to fetch courses:', error);
+    courses.value = await coursesApi.list()
+  } catch {
+    // silent
   }
-};
+}
 
 const fetchThemes = async () => {
   try {
-    const response = await axios.get(`${API_URL}/themes`);
-    themes.value = response.data;
-  } catch (error) {
-    console.error('Failed to fetch themes:', error);
+    themes.value = await themesApi.list()
+  } catch {
+    // silent
   }
-};
+}
 
 const searchLessons = async () => {
-  try {
-    loading.value = true;
-    const params = {};
-
-    // Backend fuzzy-search requires a query.
-    const q = searchQuery.value.trim();
-    if (!q) {
-      results.value = [];
-      return;
-    }
-    params.q = q;
-    
-    // Add course filter
-    if (selectedCourse.value) {
-      params.course_id = selectedCourse.value.id;
-    }
-
-    // Add theme filter
-    if (selectedTheme.value) {
-      params.theme_id = selectedTheme.value.id;
-    }
-    
-    const response = await axios.get(`${API_URL}/search`, { params });
-    results.value = response.data;
-  } catch (error) {
-    console.error('Failed to search lessons:', error);
-  } finally {
-    loading.value = false;
+  const q = searchQuery.value.trim()
+  if (!q) {
+    results.value = []
+    return
   }
-};
+  try {
+    loading.value = true
+    results.value = await searchApi.search({
+      q,
+      course_id: selectedCourse.value?.id,
+      theme_id: selectedTheme.value?.id,
+    })
+  } catch {
+    // silent
+  } finally {
+    loading.value = false
+  }
+}
 
 const clearFilters = () => {
-  searchQuery.value = '';
-  selectedCourse.value = null;
-  selectedTheme.value = null;
-  results.value = [];
-  selectedLessonDetail.value = null;
+  searchQuery.value = ''
+  selectedCourse.value = null
+  selectedTheme.value = null
+  results.value = []
+  selectedLessonDetail.value = null
 
   if (audioPlayer.value) {
-    audioPlayer.value.pause();
-    audioPlayer.value.removeAttribute('src');
-    audioPlayer.value.load();
+    audioPlayer.value.pause()
+    audioPlayer.value.removeAttribute('src')
+    audioPlayer.value.load()
   }
-  currentAudioLessonId.value = null;
-  currentSegmentKey.value = null;
-};
+  currentAudioLessonId.value = null
+  currentSegmentKey.value = null
+}
 
-const formatDate = (dateString) => {
-  if (!dateString) return '';
-  const date = new Date(dateString);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
+const formatDate = (dateString: string | null | undefined): string => {
+  if (!dateString) return ''
+  const date = new Date(dateString)
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
 
-const formatDuration = (seconds) => {
-  if (!seconds) return '';
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const secs = Math.floor(seconds % 60);
-  
-  if (hours > 0) {
-    return `${hours}h ${minutes}m`;
-  } else if (minutes > 0) {
-    return `${minutes}m ${secs}s`;
-  } else {
-    return `${secs}s`;
-  }
-};
+const formatDuration = (seconds: number | null | undefined): string => {
+  if (!seconds) return ''
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  const secs = Math.floor(seconds % 60)
+  if (hours > 0) return `${hours}h ${minutes}m`
+  if (minutes > 0) return `${minutes}m ${secs}s`
+  return `${secs}s`
+}
 
-const formatTimestamp = (seconds) => {
-  if (seconds === null || seconds === undefined) return '00:00';
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-};
+const formatTimestamp = (seconds: number | null | undefined): string => {
+  if (seconds === null || seconds === undefined) return '00:00'
+  const mins = Math.floor(seconds / 60)
+  const secs = Math.floor(seconds % 60)
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+}
 
-const openLesson = (lesson) => {
-  // Update URL to lesson detail page
-  const newUrl = `/lessons/${lesson.id}`;
-  window.history.pushState({ lessonId: lesson.id }, '', newUrl);
-  
-  // Fetch full lesson details and open detail view
-  axios.get(`${API_URL}/lessons/${lesson.id}`)
-    .then((response) => {
-      selectedLessonDetail.value = response.data;
+const openLesson = (lesson: SearchLessonResult) => {
+  window.history.pushState({ lessonId: lesson.id }, '', `/lessons/${lesson.id}`)
+  lessonsApi
+    .get(lesson.id)
+    .then((data) => {
+      selectedLessonDetail.value = data
     })
-    .catch((error) => {
-      console.error('Failed to fetch lesson details:', error);
-      // Revert URL on error
-      window.history.pushState({}, '', '/search');
-    });
-};
+    .catch(() => {
+      window.history.pushState({}, '', '/search')
+    })
+}
 
-const playLessonSegment = (lesson, startTime) => {
-  const audio = audioPlayer.value;
-  if (!audio) return;
+const playLessonSegment = (lesson: SearchLessonResult, startTime: number) => {
+  const audio = audioPlayer.value
+  if (!audio) return
 
-  const url = `${API_URL}/lessons/${lesson.id}/audio`;
-  const needsNewSrc = !audio.src || !audio.src.endsWith(`/lessons/${lesson.id}/audio`);
-  const start = Math.max(0, Number(startTime) || 0);
-  const segKey = `${lesson.id}:${start}`;
+  const url = `${audioBaseUrl}/lessons/${lesson.id}/audio`
+  const needsNewSrc = !audio.src || !audio.src.endsWith(`/lessons/${lesson.id}/audio`)
+  const start = Math.max(0, Number(startTime) || 0)
+  const segKey = `${lesson.id}:${start}`
 
-  // Toggle pause/resume if the user clicked the same segment again.
-  // - If playing: pause
-  // - If paused: resume (do not restart)
   if (!needsNewSrc && currentSegmentKey.value === segKey) {
     if (audio.paused) {
-      const p = audio.play();
-      if (p && typeof p.catch === 'function') {
-        p.catch((err) => console.error('Play failed:', err));
-      }
+      audio.play().catch(() => {})
     } else {
-      audio.pause();
+      audio.pause()
     }
-    return;
+    return
   }
 
   const seekAndPlay = () => {
-    try {
-      audio.currentTime = start;
-    } catch (e) {
-      // Ignore seek errors; we'll still attempt play.
-    }
-
-    const p = audio.play();
-    if (p && typeof p.catch === 'function') {
-      p.catch((err) => console.error('Play failed:', err));
-    }
-    currentAudioLessonId.value = lesson.id;
-    currentSegmentKey.value = segKey;
-  };
+    try { audio.currentTime = start } catch { /* ignore */ }
+    audio.play().catch(() => {})
+    currentAudioLessonId.value = lesson.id
+    currentSegmentKey.value = segKey
+  }
 
   if (needsNewSrc) {
-    audio.src = url;
-    audio.load();
-    currentAudioLessonId.value = lesson.id;
+    audio.src = url
+    audio.load()
+    currentAudioLessonId.value = lesson.id
   }
 
   if (audio.readyState >= 2) {
-    seekAndPlay();
+    seekAndPlay()
   } else {
-    audio.addEventListener('canplay', seekAndPlay, { once: true });
+    audio.addEventListener('canplay', seekAndPlay, { once: true })
   }
-};
+}
 
 const closeLesson = () => {
-  selectedLessonDetail.value = null;
-  // Update URL back to search page
-  window.history.pushState({}, '', '/search');
-};
+  selectedLessonDetail.value = null
+  window.history.pushState({}, '', '/search')
+}
 
 onMounted(async () => {
-  await Promise.all([fetchCourses(), fetchThemes()]);
-});
+  await Promise.all([fetchCourses(), fetchThemes()])
+})
 </script>
 
 <template>

@@ -1,7 +1,7 @@
-<script setup>
-import { ref, onMounted, nextTick } from 'vue';
-import { useI18n } from 'vue-i18n';
-import { Tab, TabGroup, TabList, TabPanel, TabPanels } from '@headlessui/vue';
+<script setup lang="ts">
+import { ref, onMounted, nextTick } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { Tab, TabGroup, TabList, TabPanel, TabPanels } from '@headlessui/vue'
 import {
   CogIcon,
   CheckIcon,
@@ -10,215 +10,134 @@ import {
   PencilIcon,
   DocumentTextIcon,
   BookOpenIcon,
-  TrashIcon
-} from '@heroicons/vue/24/outline';
-import axios from 'axios';
+  TrashIcon,
+} from '@heroicons/vue/24/outline'
+import { configApi } from '@/api/config'
+import { usePermissions } from '@/composables/usePermissions'
+import type { AppConfig } from '@/api/types'
 
-const { t } = useI18n();
+const { t } = useI18n()
+const { can } = usePermissions()
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-
-// Configuration state
-const config = ref({
-  correction: {
-    provider: 'OpenAI',
-    model: '',
-    prompt: '',
-    temperature: 0.3,
-    max_tokens: 16000
-  },
-  edition: {
-    provider: 'OpenAI',
-    model: '',
-    prompt: '',
-    temperature: 0.5,
-    max_tokens: 16000
-  },
-  extraction: {
-    provider: 'OpenAI',
-    model: '',
-    prompt: '',
-    temperature: 0.3,
-    max_tokens: 4000
-  },
-  sources: {
-    provider: 'OpenAI',
-    model: '',
-    prompt: '',
-    temperature: 0.3,
-    max_tokens: 4000
-  },
+const config = ref<AppConfig>({
+  correction:  { provider: 'OpenAI', model: '', prompt: '', temperature: 0.3, max_tokens: 16000 },
+  edition:     { provider: 'OpenAI', model: '', prompt: '', temperature: 0.5, max_tokens: 16000 },
+  extraction:  { provider: 'OpenAI', model: '', prompt: '', temperature: 0.3, max_tokens: 4000 },
+  sources:     { provider: 'OpenAI', model: '', prompt: '', temperature: 0.3, max_tokens: 4000 },
   source_types: {},
   summary: {
     max_length: 300,
     provider: 'OpenAI',
     model: '',
-    prompts: [
-      { name: 'Default', text: '' }
-    ],
+    prompts: [{ name: 'Default', text: '' }],
     temperature: 0.7,
     max_tokens: 4000,
-    brief: {
-      provider: 'OpenAI',
-      model: '',
-      prompt: '',
-      temperature: 0.5,
-      max_tokens: 1000
-    }
+    brief: { provider: 'OpenAI', model: '', prompt: '', temperature: 0.5, max_tokens: 1000 },
   },
-  transcribe: {
-    beam_size: 5,
-    initial_prompt: '',
-    language: 'fr',
-    vad_filter: true
-  },
-  whisper: {
-    compute_type: 'int8',
-    device: 'cuda',
-    model_size: 'large-v3'
-  }
-});
+  transcribe: { beam_size: 5, initial_prompt: '', language: 'fr', vad_filter: true },
+  whisper:    { compute_type: 'int8', device: 'cuda', model_size: 'large-v3' },
+})
 
-const isLoading = ref(true);
-const isSaving = ref(false);
-const isResetting = ref(false);
-const saveMessage = ref('');
-const saveError = ref('');
+const isLoading = ref(true)
+const isSaving = ref(false)
+const isResetting = ref(false)
+const saveMessage = ref('')
+const saveError = ref('')
 
-// Load configuration on mount
 onMounted(async () => {
-  await loadConfig();
-});
+  await loadConfig()
+})
 
 const loadConfig = async () => {
   try {
-    isLoading.value = true;
-    const response = await axios.get(`${API_URL}/config`);
-    config.value = response.data;
-    // Ensure source_types exists
-    if (!config.value.source_types) {
-      config.value.source_types = {};
-    }
-  } catch (error) {
-    console.error('Failed to load configuration:', error);
-    saveError.value = t('preferences.loadFailed');
+    isLoading.value = true
+    const data = await configApi.get()
+    config.value = data
+    if (!config.value.source_types) config.value.source_types = {}
+  } catch {
+    saveError.value = t('preferences.loadFailed')
   } finally {
-    isLoading.value = false;
+    isLoading.value = false
   }
-};
+}
 
 const saveConfig = async () => {
   try {
-    isSaving.value = true;
-    saveMessage.value = '';
-    saveError.value = '';
-    
-    await axios.put(`${API_URL}/config`, {
-      config: config.value
-    });
-    
-    saveMessage.value = t('preferences.saveSuccess');
-    setTimeout(() => {
-      saveMessage.value = '';
-    }, 3000);
-  } catch (error) {
-    console.error('Failed to save configuration:', error);
-    saveError.value = t('preferences.saveFailed');
+    isSaving.value = true
+    saveMessage.value = ''
+    saveError.value = ''
+    await configApi.update(config.value)
+    saveMessage.value = t('preferences.saveSuccess')
+    setTimeout(() => { saveMessage.value = '' }, 3000)
+  } catch {
+    saveError.value = t('preferences.saveFailed')
   } finally {
-    isSaving.value = false;
+    isSaving.value = false
   }
-};
+}
 
 const resetConfig = async () => {
-  if (!confirm(t('preferences.resetConfirmMessage'))) {
-    return;
-  }
-  
+  if (!confirm(t('preferences.resetConfirmMessage'))) return
   try {
-    isResetting.value = true;
-    saveMessage.value = '';
-    saveError.value = '';
-    
-    const response = await axios.post(`${API_URL}/config/reset`);
-    config.value = response.data.config;
-    
-    saveMessage.value = t('preferences.resetSuccess');
-    setTimeout(() => {
-      saveMessage.value = '';
-    }, 3000);
-  } catch (error) {
-    console.error('Failed to reset configuration:', error);
-    saveError.value = t('preferences.resetFailed');
+    isResetting.value = true
+    saveMessage.value = ''
+    saveError.value = ''
+    config.value = await configApi.reset()
+    saveMessage.value = t('preferences.resetSuccess')
+    setTimeout(() => { saveMessage.value = '' }, 3000)
+  } catch {
+    saveError.value = t('preferences.resetFailed')
   } finally {
-    isResetting.value = false;
+    isResetting.value = false
   }
-};
+}
 
 const addSummaryPrompt = () => {
-  config.value.summary.prompts.push({ name: '', text: '' });
-};
+  config.value.summary.prompts.push({ name: '', text: '' })
+}
 
-const removeSummaryPrompt = (index) => {
+const removeSummaryPrompt = (index: number) => {
   if (config.value.summary.prompts.length > 1) {
-    config.value.summary.prompts.splice(index, 1);
+    config.value.summary.prompts.splice(index, 1)
   }
-};
+}
 
 const addSourceType = async () => {
-  // Ensure source_types exists
-  if (!config.value.source_types) {
-    config.value.source_types = {};
-  }
-  
-  // Generate a unique name for the new type
-  let newTypeName = 'New Type';
-  let counter = 1;
-  const currentTypes = { ...(config.value.source_types || {}) };
+  if (!config.value.source_types) config.value.source_types = {}
+  let newTypeName = 'New Type'
+  let counter = 1
+  const currentTypes = { ...config.value.source_types }
   while (currentTypes[newTypeName] !== undefined) {
-    newTypeName = `New Type ${counter}`;
-    counter++;
+    newTypeName = `New Type ${counter++}`
   }
-  
-  // Create new object with the added type
-  const newTypes = {
-    ...currentTypes,
-    [newTypeName]: ''
-  };
-  
-  // Update the entire config object to ensure reactivity
-  // Use Object.assign to maintain reactivity
-  config.value.source_types = newTypes;
-  
-  // Force Vue to detect the change
-  await nextTick();
-};
+  config.value.source_types = { ...currentTypes, [newTypeName]: '' }
+  await nextTick()
+}
 
-const removeSourceType = (type) => {
-  if (config.value.source_types && config.value.source_types[type] !== undefined) {
-    delete config.value.source_types[type];
-    // Create a new object to trigger reactivity
-    config.value.source_types = { ...config.value.source_types };
+const removeSourceType = (type: string) => {
+  if (config.value.source_types?.[type] !== undefined) {
+    const updated = { ...config.value.source_types }
+    delete updated[type]
+    config.value.source_types = updated
   }
-};
+}
 
-const updateSourceType = (oldType, newType, description) => {
-  if (!config.value.source_types) {
-    config.value.source_types = {};
-  }
-  
-  // If the type name changed, remove the old one and add the new one
-  if (oldType !== newType) {
-    delete config.value.source_types[oldType];
-  }
-  
-  config.value.source_types[newType] = description;
-  // Create a new object to trigger reactivity
-  config.value.source_types = { ...config.value.source_types };
-};
+const updateSourceType = (oldType: string, newType: string, description: string) => {
+  if (!config.value.source_types) config.value.source_types = {}
+  const updated = { ...config.value.source_types }
+  if (oldType !== newType) delete updated[oldType]
+  updated[newType] = description
+  config.value.source_types = updated
+}
 </script>
 
 <template>
-  <div class="h-full flex flex-col bg-gray-50 dark:bg-gray-900">
+  <!-- Access guard: configuration is only visible to publisher/admin -->
+  <div v-if="!can('configuration', 'read')" class="h-full flex items-center justify-center bg-gray-50 dark:bg-gray-900 p-8">
+    <p class="text-gray-500 dark:text-gray-400">{{ t('auth.noAccessDesc') }}</p>
+  </div>
+
+  <div v-else class="h-full flex flex-col bg-gray-50 dark:bg-gray-900">
     <!-- Header -->
     <div class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
       <div class="flex items-center justify-between">
@@ -238,8 +157,9 @@ const updateSourceType = (oldType, newType, description) => {
             {{ saveError }}
           </div>
           
-          <!-- Reset Button -->
+          <!-- Reset Button (admin only) -->
           <button
+            v-if="can('configuration', 'update')"
             @click="resetConfig"
             :disabled="isSaving || isResetting || isLoading"
             class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md transition-colors disabled:opacity-50"
@@ -247,9 +167,10 @@ const updateSourceType = (oldType, newType, description) => {
             <ArrowPathIcon class="h-4 w-4" />
             {{ isResetting ? t('preferences.resetting') : t('preferences.reset') }}
           </button>
-          
-          <!-- Save Button -->
+
+          <!-- Save Button (admin only) -->
           <button
+            v-if="can('configuration', 'update')"
             @click="saveConfig"
             :disabled="isSaving || isResetting || isLoading"
             class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 rounded-md transition-colors"

@@ -1,17 +1,18 @@
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue';
-import { SignedIn, SignedOut, SignInButton, SignOutButton, UserButton, useUser, useAuth } from '@clerk/vue';
+import { ref, computed, onMounted } from 'vue';
+import { SignedIn, SignedOut, SignInButton, SignOutButton, UserButton } from '@clerk/vue';
 import { useI18n } from 'vue-i18n';
 import { Menu, MenuButton, MenuItems, MenuItem } from '@headlessui/vue';
-import { 
-  ChevronDownIcon, 
+import {
+  ChevronDownIcon,
   LanguageIcon,
   PlusIcon,
   MicrophoneIcon,
   SunIcon,
   MoonIcon
 } from '@heroicons/vue/24/outline';
-import axios from 'axios';
+import { useAuth } from '@/composables/useAuth';
+import { usePermissions } from '@/composables/usePermissions';
 import NavigationSidebar from './components/NavigationSidebar.vue';
 import LessonsList from './views/LessonsList.vue';
 import SearchLessons from './views/SearchLessons.vue';
@@ -21,9 +22,9 @@ import ProcessingTasks from './views/ProcessingTasks.vue';
 import Preferences from './views/Preferences.vue';
 
 const { locale, t } = useI18n();
-const { user, isLoaded } = useUser();
-const { isSignedIn, getToken } = useAuth();
-const allowedRoles = ['admin', 'reader', 'editor'];
+const { user, isLoaded, isSignedIn } = useAuth();
+const { can } = usePermissions();
+const allowedRoles = ['admin', 'reader', 'editor', 'publisher'];
 const userRole = computed(() => {
   const role = user.value?.publicMetadata?.role || user.value?.unsafeMetadata?.role;
   return role ? String(role).toLowerCase() : '';
@@ -127,7 +128,6 @@ const applyDarkMode = (dark) => {
 const toggleDarkMode = () => {
   isDarkMode.value = !isDarkMode.value;
   applyDarkMode(isDarkMode.value);
-  console.log('Dark mode toggled to:', isDarkMode.value);
 };
 
 // Initialize dark mode on mount
@@ -143,49 +143,9 @@ onMounted(() => {
   
   // Apply the initial state
   applyDarkMode(isDarkMode.value);
-  console.log('Initial dark mode:', isDarkMode.value);
 });
 
-const getAuthToken = async () => {
-  const template = import.meta.env.VITE_CLERK_JWT_TEMPLATE;
-  if (template) {
-    return getToken.value({ template });
-  }
-  return getToken.value();
-};
 
-const setAuthHeader = async () => {
-  if (!isSignedIn.value) {
-    delete axios.defaults.headers.common.Authorization;
-    return;
-  }
-  try {
-    const token = await getAuthToken();
-    if (token) {
-      axios.defaults.headers.common.Authorization = `Bearer ${token}`;
-    }
-  } catch {
-    // Skip if token cannot be retrieved
-  }
-};
-
-axios.interceptors.request.use(async (config) => {
-  if (isSignedIn.value) {
-    const token = await getAuthToken();
-    if (token) {
-      config.headers = config.headers || {};
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-  }
-  return config;
-});
-
-onMounted(setAuthHeader);
-watch([isSignedIn, isLoaded], () => {
-  if (isLoaded.value) {
-    setAuthHeader();
-  }
-});
 </script>
 
 <template>
@@ -328,6 +288,7 @@ watch([isSignedIn, isLoaded], () => {
               {{ t('courses.title') }}
             </h2>
             <button
+              v-if="can('courses', 'create')"
               @click="coursesListRef?.openCreateModal()"
               class="inline-flex items-center gap-x-2 rounded-md bg-indigo-600 dark:bg-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 dark:hover:bg-indigo-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:focus-visible:outline-indigo-500 transition-colors"
             >
@@ -351,6 +312,7 @@ watch([isSignedIn, isLoaded], () => {
               {{ t('themes.title') }}
             </h2>
             <button
+              v-if="can('themes', 'create')"
               @click="themesListRef?.openCreateModal()"
               class="inline-flex items-center gap-x-2 rounded-md bg-indigo-600 dark:bg-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 dark:hover:bg-indigo-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:focus-visible:outline-indigo-500 transition-colors"
             >
@@ -407,6 +369,7 @@ watch([isSignedIn, isLoaded], () => {
               {{ t('lessons.title') }}
             </h2>
             <button
+              v-if="can('lessons', 'create')"
               @click="lessonsListRef?.openCreateModal()"
               class="inline-flex items-center gap-x-2 rounded-md bg-indigo-600 dark:bg-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 dark:hover:bg-indigo-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:focus-visible:outline-indigo-500 transition-colors"
             >

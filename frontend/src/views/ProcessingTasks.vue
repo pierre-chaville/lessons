@@ -1,8 +1,7 @@
-<script setup>
-import { ref, onMounted, computed } from 'vue';
-import { useI18n } from 'vue-i18n';
-import axios from 'axios';
-import { 
+<script setup lang="ts">
+import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { useI18n } from 'vue-i18n'
+import {
   ClockIcon,
   CheckCircleIcon,
   ExclamationCircleIcon,
@@ -11,147 +10,122 @@ import {
   DocumentTextIcon,
   BookOpenIcon,
   ChatBubbleBottomCenterTextIcon,
-  SparklesIcon
-} from '@heroicons/vue/24/outline';
-import { Dialog, DialogPanel, DialogTitle, TransitionChild, TransitionRoot } from '@headlessui/vue';
+  SparklesIcon,
+} from '@heroicons/vue/24/outline'
+import { Dialog, DialogPanel, DialogTitle, TransitionChild, TransitionRoot } from '@headlessui/vue'
+import { tasksApi } from '@/api/tasks'
+import { useToast } from '@/composables/useToast'
+import { usePermissions } from '@/composables/usePermissions'
+import type { Task, TaskStatus, TaskType } from '@/api/types'
 
-const { t } = useI18n();
-const tasks = ref([]);
-const loading = ref(false);
-const showDeleteModal = ref(false);
-const taskToDelete = ref(null);
-const isDeleting = ref(false);
+const { t } = useI18n()
+const toast = useToast()
+const { can } = usePermissions()
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const tasks = ref<Task[]>([])
+const loading = ref(false)
+const showDeleteModal = ref(false)
+const taskToDelete = ref<Task | null>(null)
+const isDeleting = ref(false)
+
+let refreshInterval: ReturnType<typeof setInterval> | null = null
 
 const fetchTasks = async () => {
   try {
-    loading.value = true;
-    const response = await axios.get(`${API_URL}/tasks`);
-    tasks.value = response.data;
-  } catch (error) {
-    console.error('Failed to fetch tasks:', error);
+    loading.value = true
+    tasks.value = await tasksApi.list()
+  } catch {
+    // silent — no toast on background refresh
   } finally {
-    loading.value = false;
+    loading.value = false
   }
-};
+}
 
-const openDeleteModal = (task) => {
-  taskToDelete.value = task;
-  showDeleteModal.value = true;
-};
+const openDeleteModal = (task: Task) => {
+  taskToDelete.value = task
+  showDeleteModal.value = true
+}
 
 const closeDeleteModal = () => {
-  showDeleteModal.value = false;
-  taskToDelete.value = null;
-};
+  showDeleteModal.value = false
+  taskToDelete.value = null
+}
 
 const confirmDelete = async () => {
-  if (!taskToDelete.value) return;
-  
+  if (!taskToDelete.value) return
   try {
-    isDeleting.value = true;
-    await axios.delete(`${API_URL}/tasks/${taskToDelete.value.id}`);
-    await fetchTasks();
-    closeDeleteModal();
-  } catch (error) {
-    console.error('Failed to delete task:', error);
+    isDeleting.value = true
+    await tasksApi.delete(taskToDelete.value.id)
+    await fetchTasks()
+    closeDeleteModal()
+  } catch {
+    toast.error(t('processing.deleteFailed'))
   } finally {
-    isDeleting.value = false;
+    isDeleting.value = false
   }
-};
+}
 
-const formatDate = (dateString) => {
-  if (!dateString) return '-';
-  const date = new Date(dateString);
-  return date.toLocaleString();
-};
+const formatDate = (dateString: string | null | undefined): string => {
+  if (!dateString) return '-'
+  return new Date(dateString).toLocaleString()
+}
 
-const formatDuration = (seconds) => {
-  if (!seconds) return '-';
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const secs = Math.floor(seconds % 60);
-  
-  if (hours > 0) {
-    return `${hours}h ${minutes}m ${secs}s`;
-  } else if (minutes > 0) {
-    return `${minutes}m ${secs}s`;
-  } else {
-    return `${secs}s`;
-  }
-};
+const formatDuration = (seconds: number | null | undefined): string => {
+  if (!seconds) return '-'
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  const secs = Math.floor(seconds % 60)
+  if (hours > 0) return `${hours}h ${minutes}m ${secs}s`
+  if (minutes > 0) return `${minutes}m ${secs}s`
+  return `${secs}s`
+}
 
-const getStatusColor = (status) => {
+const getStatusColor = (status: TaskStatus): string => {
   switch (status) {
-    case 'completed':
-      return 'text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30';
-    case 'running':
-      return 'text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/30';
-    case 'failed':
-      return 'text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900/30';
-    case 'pending':
-      return 'text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-700';
-    default:
-      return 'text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-700';
+    case 'completed': return 'text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30'
+    case 'running':   return 'text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/30'
+    case 'failed':    return 'text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900/30'
+    default:          return 'text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-700'
   }
-};
+}
 
-const getStatusIcon = (status) => {
+const getStatusIcon = (status: TaskStatus) => {
   switch (status) {
-    case 'completed':
-      return CheckCircleIcon;
-    case 'running':
-      return PlayIcon;
-    case 'failed':
-      return ExclamationCircleIcon;
-    case 'pending':
-      return ClockIcon;
-    default:
-      return ClockIcon;
+    case 'completed': return CheckCircleIcon
+    case 'running':   return PlayIcon
+    case 'failed':    return ExclamationCircleIcon
+    default:          return ClockIcon
   }
-};
+}
 
-const getTaskTypeIcon = (taskType) => {
+const getTaskTypeIcon = (taskType: TaskType) => {
   switch (taskType) {
-    case 'transcription':
-      return DocumentTextIcon;
-    case 'correction':
-      return ChatBubbleBottomCenterTextIcon;
-    case 'edition':
-      return DocumentTextIcon;
-    case 'extraction':
-      return DocumentTextIcon;
-    case 'sources':
-      return BookOpenIcon;
-    case 'summary':
-      return SparklesIcon;
-    default:
-      return DocumentTextIcon;
+    case 'correction': return ChatBubbleBottomCenterTextIcon
+    case 'sources':    return BookOpenIcon
+    case 'summary':    return SparklesIcon
+    default:           return DocumentTextIcon
   }
-};
+}
 
-const canDelete = (task) => {
-  return task.status !== 'running';
-};
+const canDelete = (task: Task): boolean => task.status !== 'running'
 
 onMounted(() => {
-  fetchTasks();
-  // Auto-refresh every 5 seconds to update task statuses
-  const interval = setInterval(fetchTasks, 5000);
-  
-  // Cleanup interval on unmount
-  onBeforeUnmount(() => {
-    clearInterval(interval);
-  });
-});
+  fetchTasks()
+  refreshInterval = setInterval(fetchTasks, 5000)
+})
 
-// Import onBeforeUnmount
-import { onBeforeUnmount } from 'vue';
+onBeforeUnmount(() => {
+  if (refreshInterval !== null) clearInterval(refreshInterval)
+})
 </script>
 
 <template>
-  <div class="w-full">
+  <!-- Access guard: tasks are only visible to publisher/admin -->
+  <div v-if="!can('tasks', 'read')" class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-8 text-center transition-colors">
+    <p class="text-gray-500 dark:text-gray-400">{{ t('auth.noAccessDesc') }}</p>
+  </div>
+
+  <div v-else class="w-full">
     <!-- Delete Confirmation Modal -->
     <TransitionRoot appear :show="showDeleteModal" as="template">
       <Dialog as="div" @close="closeDeleteModal" class="relative z-50">
@@ -300,9 +274,9 @@ import { onBeforeUnmount } from 'vue';
             </div>
           </div>
 
-          <!-- Delete Button -->
+          <!-- Delete Button (admin only) -->
           <button
-            v-if="canDelete(task)"
+            v-if="can('tasks', 'cancel') && canDelete(task)"
             @click="openDeleteModal(task)"
             class="ml-4 p-2 text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
             :title="t('processing.delete')"

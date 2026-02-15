@@ -25,7 +25,8 @@ export function useAuth() {
   if (!interceptorRegistered) {
     interceptorRegistered = true
     apiClient.interceptors.request.use(async (config) => {
-      const token = await getToken()
+      const template = import.meta.env.VITE_CLERK_JWT_TEMPLATE
+      const token = template ? await getToken.value({ template }) : await getToken.value()
       if (token) {
         config.headers.Authorization = `Bearer ${token}`
       }

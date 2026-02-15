@@ -1,221 +1,178 @@
-<script setup>
-import { ref, onMounted, computed, watch, onBeforeUnmount } from 'vue';
-import { useI18n } from 'vue-i18n';
-import axios from 'axios';
-import { 
-  DocumentTextIcon, 
-  ClockIcon, 
+<script setup lang="ts">
+import { ref, onMounted, computed, watch, onBeforeUnmount } from 'vue'
+import { useI18n } from 'vue-i18n'
+import {
+  DocumentTextIcon,
+  ClockIcon,
   FunnelIcon,
-  XMarkIcon 
-} from '@heroicons/vue/24/outline';
-import { Listbox, ListboxButton, ListboxOptions, ListboxOption } from '@headlessui/vue';
-import { ChevronUpDownIcon, CheckIcon } from '@heroicons/vue/20/solid';
-import LessonDetail from './LessonDetail.vue';
-import CreateLessonModal from '../components/CreateLessonModal.vue';
+  XMarkIcon,
+} from '@heroicons/vue/24/outline'
+import { Listbox, ListboxButton, ListboxOptions, ListboxOption } from '@headlessui/vue'
+import { ChevronUpDownIcon, CheckIcon } from '@heroicons/vue/20/solid'
+import LessonDetail from './LessonDetail.vue'
+import CreateLessonModal from '../components/CreateLessonModal.vue'
+import { lessonsApi } from '@/api/lessons'
+import { coursesApi } from '@/api/courses'
+import { themesApi } from '@/api/themes'
+import type { Course, Theme, LessonListItem, LessonDetail as LessonDetailType } from '@/api/types'
 
-const { t } = useI18n();
-const lessons = ref([]);
-const courses = ref([]);
-const themes = ref([]);
-const loading = ref(true);
-const selectedLesson = ref(null);
-const selectedLessonDetail = ref(null);
+const { t } = useI18n()
 
-const selectedCourse = ref(null);
-const selectedTheme = ref(null);
-const showCreateModal = ref(false);
+const lessons = ref<LessonListItem[]>([])
+const courses = ref<Course[]>([])
+const themes = ref<Theme[]>([])
+const loading = ref(true)
+const selectedLesson = ref<LessonListItem | null>(null)
+const selectedLessonDetail = ref<LessonDetailType | null>(null)
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const selectedCourse = ref<Course | null>(null)
+const selectedTheme = ref<Theme | null>(null)
+const showCreateModal = ref(false)
 
-// Helper function to get lesson ID from URL
-const getLessonIdFromUrl = () => {
-  const path = window.location.pathname;
-  const match = path.match(/\/lessons\/(\d+)/);
-  return match ? parseInt(match[1], 10) : null;
-};
+const getLessonIdFromUrl = (): number | null => {
+  const match = window.location.pathname.match(/\/lessons\/(\d+)/)
+  return match ? parseInt(match[1], 10) : null
+}
 
-// Helper function to update URL
-const updateUrl = (lessonId) => {
+const updateUrl = (lessonId: number | null) => {
   if (lessonId) {
-    const newUrl = `/lessons/${lessonId}`;
-    window.history.pushState({ lessonId }, '', newUrl);
+    window.history.pushState({ lessonId }, '', `/lessons/${lessonId}`)
   } else {
-    window.history.pushState({}, '', '/lessons');
+    window.history.pushState({}, '', '/lessons')
   }
-};
+}
 
-// Handle browser back/forward navigation
-const handlePopState = (event) => {
-  const lessonId = event.state?.lessonId || getLessonIdFromUrl();
+const handlePopState = (event: PopStateEvent) => {
+  const lessonId = event.state?.lessonId ?? getLessonIdFromUrl()
   if (lessonId) {
-    // Find and open the lesson
-    const lesson = lessons.value.find(l => l.id === lessonId);
+    const lesson = lessons.value.find((l) => l.id === lessonId)
     if (lesson) {
-      openLesson(lesson);
+      openLesson(lesson)
     } else {
-      // Lesson not in current list, fetch it
-      fetchLessonById(lessonId);
+      fetchLessonById(lessonId)
     }
   } else {
-    // Close lesson detail
-    closeLesson();
+    closeLesson()
   }
-};
+}
 
 const fetchCourses = async () => {
   try {
-    const response = await axios.get(`${API_URL}/courses`);
-    courses.value = response.data;
-  } catch (error) {
-    console.error('Failed to fetch courses:', error);
-  }
-};
+    courses.value = await coursesApi.list()
+  } catch { /* silent */ }
+}
 
 const fetchThemes = async () => {
   try {
-    const response = await axios.get(`${API_URL}/themes`);
-    themes.value = response.data;
-  } catch (error) {
-    console.error('Failed to fetch themes:', error);
-  }
-};
+    themes.value = await themesApi.list()
+  } catch { /* silent */ }
+}
 
 const fetchLessons = async () => {
   try {
-    loading.value = true;
-    const params = {};
-    if (selectedCourse.value) {
-      params.course_id = selectedCourse.value.id;
-    }
-    const response = await axios.get(`${API_URL}/lessons`, { params });
-    lessons.value = response.data;
-  } catch (error) {
-    console.error('Failed to fetch lessons:', error);
-  } finally {
-    loading.value = false;
+    loading.value = true
+    lessons.value = await lessonsApi.list(
+      selectedCourse.value ? { course_id: selectedCourse.value.id } : undefined,
+    )
+  } catch { /* silent */ } finally {
+    loading.value = false
   }
-};
+}
 
-// Filter lessons by theme on the frontend
 const filteredLessons = computed(() => {
-  if (!selectedTheme.value) {
-    return lessons.value;
-  }
-  return lessons.value.filter(lesson => 
-    lesson.themes.some(theme => theme.id === selectedTheme.value.id)
-  );
-});
+  if (!selectedTheme.value) return lessons.value
+  return lessons.value.filter((lesson) =>
+    lesson.themes.some((theme) => theme.id === selectedTheme.value!.id),
+  )
+})
 
-// Watch for filter changes
 watch([selectedCourse], () => {
-  fetchLessons();
-});
+  fetchLessons()
+})
 
 const clearFilters = () => {
-  selectedCourse.value = null;
-  selectedTheme.value = null;
-};
+  selectedCourse.value = null
+  selectedTheme.value = null
+}
 
-onMounted(async () => {
-  // Listen for browser back/forward navigation
-  window.addEventListener('popstate', handlePopState);
-  
-  await Promise.all([fetchCourses(), fetchThemes(), fetchLessons()]);
-  
-  // Check if there's a lesson ID in the URL
-  const lessonId = getLessonIdFromUrl();
-  if (lessonId) {
-    // Find lesson in the list
-    const lesson = lessons.value.find(l => l.id === lessonId);
-    if (lesson) {
-      await openLesson(lesson);
-    } else {
-      // Lesson not in current list, fetch it directly
-      await fetchLessonById(lessonId);
-    }
-  }
-});
+const formatDate = (dateString: string | null | undefined): string => {
+  if (!dateString) return ''
+  const date = new Date(dateString)
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
 
-onBeforeUnmount(() => {
-  // Clean up event listener
-  window.removeEventListener('popstate', handlePopState);
-});
+const formatDuration = (seconds: number | null | undefined): string => {
+  if (!seconds) return ''
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  const secs = Math.floor(seconds % 60)
+  if (hours > 0) return `${hours}h ${minutes}m`
+  if (minutes > 0) return `${minutes}m ${secs}s`
+  return `${secs}s`
+}
 
-const formatDate = (dateString) => {
-  if (!dateString) return '';
-  const date = new Date(dateString);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
-
-const formatDuration = (seconds) => {
-  if (!seconds) return '';
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const secs = Math.floor(seconds % 60);
-  
-  if (hours > 0) {
-    return `${hours}h ${minutes}m`;
-  } else if (minutes > 0) {
-    return `${minutes}m ${secs}s`;
-  } else {
-    return `${secs}s`;
-  }
-};
-
-const fetchLessonById = async (lessonId) => {
+const fetchLessonById = async (lessonId: number) => {
   try {
-    const response = await axios.get(`${API_URL}/lessons/${lessonId}`);
-    selectedLessonDetail.value = response.data;
-    selectedLesson.value = { id: lessonId, ...response.data };
-  } catch (error) {
-    console.error('Failed to fetch lesson details:', error);
-    // If lesson not found, redirect to lessons list
-    updateUrl(null);
+    selectedLessonDetail.value = await lessonsApi.get(lessonId)
+    selectedLesson.value = { id: lessonId } as LessonListItem
+  } catch {
+    updateUrl(null)
   }
-};
+}
 
-const openLesson = async (lesson) => {
+const openLesson = async (lesson: LessonListItem) => {
   try {
-    // Update URL first
-    updateUrl(lesson.id);
-    
-    // Fetch full lesson details
-    const response = await axios.get(`${API_URL}/lessons/${lesson.id}`);
-    selectedLessonDetail.value = response.data;
-    selectedLesson.value = lesson;
-  } catch (error) {
-    console.error('Failed to fetch lesson details:', error);
-    // Revert URL on error
-    updateUrl(null);
+    updateUrl(lesson.id)
+    selectedLessonDetail.value = await lessonsApi.get(lesson.id)
+    selectedLesson.value = lesson
+  } catch {
+    updateUrl(null)
   }
-};
+}
 
 const closeLesson = () => {
-  selectedLesson.value = null;
-  selectedLessonDetail.value = null;
-  updateUrl(null);
-};
+  selectedLesson.value = null
+  selectedLessonDetail.value = null
+  updateUrl(null)
+}
 
 const openCreateModal = () => {
-  showCreateModal.value = true;
-};
+  showCreateModal.value = true
+}
 
 const closeCreateModal = () => {
-  showCreateModal.value = false;
-};
+  showCreateModal.value = false
+}
 
 const onLessonCreated = () => {
-  fetchLessons(); // Refresh the list
-};
+  fetchLessons()
+}
 
-// Expose whether we're viewing a lesson detail
+onMounted(async () => {
+  window.addEventListener('popstate', handlePopState)
+  await Promise.all([fetchCourses(), fetchThemes(), fetchLessons()])
+  const lessonId = getLessonIdFromUrl()
+  if (lessonId) {
+    const lesson = lessons.value.find((l) => l.id === lessonId)
+    if (lesson) {
+      await openLesson(lesson)
+    } else {
+      await fetchLessonById(lessonId)
+    }
+  }
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('popstate', handlePopState)
+})
+
 defineExpose({
   isViewingDetail: computed(() => selectedLessonDetail.value !== null),
-  openCreateModal
-});
+  openCreateModal,
+})
 </script>
 
 <template>

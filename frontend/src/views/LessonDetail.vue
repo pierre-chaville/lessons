@@ -1,8 +1,8 @@
-<script setup>
-import { ref, computed, watch, nextTick } from 'vue';
-import { useI18n } from 'vue-i18n';
-import { marked } from 'marked';
-import { 
+<script setup lang="ts">
+import { ref, computed, watch, nextTick } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { marked } from 'marked'
+import {
   ArrowLeftIcon,
   ClockIcon,
   CalendarIcon,
@@ -20,314 +20,230 @@ import {
   ChevronDownIcon,
   ChevronUpIcon,
   MagnifyingGlassIcon,
-  ChartBarIcon
-} from '@heroicons/vue/24/outline';
-import { SpeakerWaveIcon } from '@heroicons/vue/24/solid';
-import { Dialog, DialogPanel, DialogTitle } from '@headlessui/vue';
-import axios from 'axios';
+  ChartBarIcon,
+} from '@heroicons/vue/24/outline'
+import { SpeakerWaveIcon } from '@heroicons/vue/24/solid'
+import { Dialog, DialogPanel, DialogTitle } from '@headlessui/vue'
+import { lessonsApi } from '@/api/lessons'
+import { coursesApi } from '@/api/courses'
+import { themesApi } from '@/api/themes'
+import { tasksApi } from '@/api/tasks'
+import { configApi } from '@/api/config'
+import { sourcesApi } from '@/api/sources'
+import { useToast } from '@/composables/useToast'
+import { usePermissions } from '@/composables/usePermissions'
+import type { LessonDetail as LessonDetailType, Course, Theme } from '@/api/types'
 
-const props = defineProps({
-  lesson: {
-    type: Object,
-    required: true
-  },
-  autoplayFrom: {
-    type: Number,
-    required: false,
-    default: null
-  }
-});
+const props = defineProps<{
+  lesson: LessonDetailType
+  autoplayFrom?: number | null
+}>()
 
-const emit = defineEmits(['close']);
+const emit = defineEmits<{ (e: 'close'): void }>()
 
-const { t } = useI18n();
-const audioUrl = ref(null);
+const { t } = useI18n()
+const toast = useToast()
+const { can } = usePermissions()
+
+const audioUrl = ref<string | null>(null)
 
 // Audio player ref and state
-const audioPlayer = ref(null);
-const isPlaying = ref(false);
-const currentTime = ref(0);
-const currentSegment = ref(null);
+const audioPlayer = ref<HTMLAudioElement | null>(null)
+const isPlaying = ref(false)
+const currentTime = ref(0)
+const currentSegment = ref<{ start: number; end: number } | null>(null)
+
+const courses = ref<Course[]>([])
+const themes = ref<Theme[]>([])
 
 // Toggle between summary, corrected transcript, and initial transcript
-const activeView = ref('summary');
+const activeView = ref('summary')
 
 // Edit summary state
-const isEditingSummary = ref(false);
-const editedSummary = ref('');
-const isSavingSummary = ref(false);
+const isEditingSummary = ref(false)
+const editedSummary = ref('')
+const isSavingSummary = ref(false)
 
 // Edit lesson state
-const isEditingLesson = ref(false);
-const editedLesson = ref({
-  title: '',
-  date: '',
-  course_id: null,
-  theme_ids: [],
-  brief: ''
-});
-const isSavingLesson = ref(false);
+const isEditingLesson = ref(false)
+const editedLesson = ref<{
+  title: string
+  date: string
+  course_id: number | null
+  theme_ids: number[]
+  brief: string
+}>({ title: '', date: '', course_id: null, theme_ids: [], brief: '' })
+const isSavingLesson = ref(false)
 
 // Edit segment state
-const editingSegmentIndex = ref(null);
-const editedSegmentText = ref('');
-const isSavingSegment = ref(false);
+const editingSegmentIndex = ref<number | null>(null)
+const editedSegmentText = ref('')
+const isSavingSegment = ref(false)
 
 // Delete confirmation state
-const showDeleteConfirm = ref(false);
-const isDeleting = ref(false);
+const showDeleteConfirm = ref(false)
+const isDeleting = ref(false)
 
 // Source modal state
-const showSourceModal = ref(false);
-const selectedSourceEditedText = ref('');
-const selectedSource = ref(null);
-const sefariaText = ref('');
-const isLoadingSefaria = ref(false);
+const showSourceModal = ref(false)
+const selectedSourceEditedText = ref('')
+const selectedSource = ref<Record<string, unknown> | null>(null)
+const sefariaText = ref('')
+const isLoadingSefaria = ref(false)
 
 // Source stats modal state
-const showSourceStatsModal = ref(false);
+const showSourceStatsModal = ref(false)
 
 // Transcript expander state (for edited view)
-const expandedTranscriptIndex = ref(null);
+const expandedTranscriptIndex = ref<number | null>(null)
 
 // Process tasks modal state
-const showProcessModal = ref(false);
-const selectedProcesses = ref({
-  transcribe: false,
-  correct: false,
-  edition: false,
-  extraction: false,
-  summary: false,
-  sources: false
-});
-const selectedSummaryPrompt = ref('');
-const availableSummaryPrompts = ref([]);
-const isCreatingTasks = ref(false);
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const showProcessModal = ref(false)
+const selectedProcesses = ref<Record<string, boolean>>({
+  transcribe: false, correct: false, edition: false, extraction: false, summary: false, sources: false,
+})
+const selectedSummaryPrompt = ref('')
+const availableSummaryPrompts = ref<Array<{ name: string; text: string }>>([])
+const isCreatingTasks = ref(false)
 
 // Configure marked options
-marked.setOptions({
-  breaks: true,
-  gfm: true,
-});
+marked.setOptions({ breaks: true, gfm: true })
 
 // Render markdown to HTML
-const renderMarkdown = (markdown) => {
-  if (!markdown) return '';
-  return marked(markdown);
-};
+const renderMarkdown = (markdown: string | null | undefined): string => {
+  if (!markdown) return ''
+  return marked(markdown) as string
+}
 
 // Format seconds to MM:SS format
-const formatTimestamp = (seconds) => {
-  if (!seconds && seconds !== 0) return '00:00';
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-};
+const formatTimestamp = (seconds: number | null | undefined): string => {
+  if (!seconds && seconds !== 0) return '00:00'
+  const mins = Math.floor(seconds / 60)
+  const secs = Math.floor(seconds % 60)
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+}
 
 // Check if transcript has segments structure
-const hasSegments = (transcript) => {
-  return transcript && Array.isArray(transcript);
-};
+const hasSegments = (transcript: unknown): boolean => {
+  return transcript != null && Array.isArray(transcript)
+}
 
 const loadAudioUrl = async () => {
-  if (!props.lesson.id) {
-    audioUrl.value = null;
-    return;
-  }
+  if (!props.lesson.id) { audioUrl.value = null; return }
   try {
-    const response = await axios.get(`${API_URL}/lessons/${props.lesson.id}/audio-url`);
-    audioUrl.value = response.data?.url || null;
-  } catch (error) {
-    console.error('Failed to fetch audio URL:', error);
-    audioUrl.value = null;
+    const data = await lessonsApi.getAudioUrl(props.lesson.id)
+    audioUrl.value = data?.url ?? null
+  } catch {
+    audioUrl.value = null
   }
-};
+}
 
-watch(() => props.lesson.id, () => {
-  loadAudioUrl();
-}, { immediate: true });
+watch(() => props.lesson.id, () => { loadAudioUrl() }, { immediate: true })
 
 // Play audio from specific timestamp
-const playFromTimestamp = (startTime) => {
-  if (!audioPlayer.value) {
-    console.error('Audio player not available');
-    return;
-  }
-  
-  const audio = audioPlayer.value;
-  console.log('Attempting to play from timestamp:', startTime, 'seconds');
-  console.log('Audio duration:', audio.duration);
-  console.log('Audio readyState:', audio.readyState);
-  console.log('Audio seekable ranges:', audio.seekable.length > 0 ? `${audio.seekable.start(0)} - ${audio.seekable.end(0)}` : 'none');
-  
-  // Pause if currently playing
-  if (!audio.paused) {
-    audio.pause();
-  }
-  
-  // Function to perform the seek and play
+const playFromTimestamp = (startTime: number) => {
+  if (!audioPlayer.value) return
+  const audio = audioPlayer.value
+  if (!audio.paused) audio.pause()
+
   const doSeekAndPlay = () => {
-    // Check if we can seek to this position
-    if (isNaN(audio.duration) || audio.duration === 0) {
-      console.error('Audio duration not available');
-      return;
-    }
-    
-    if (startTime > audio.duration) {
-      console.error('Start time exceeds audio duration');
-      return;
-    }
-    
-    // Check if the range is seekable
+    if (isNaN(audio.duration) || audio.duration === 0) return
+    if (startTime > audio.duration) return
     if (audio.seekable.length === 0) {
-      console.error('Audio is not seekable yet');
-      // Wait for canplay event
-      audio.addEventListener('canplay', () => {
-        console.log('Canplay fired, retrying seek');
-        doSeekAndPlay();
-      }, { once: true });
-      return;
+      audio.addEventListener('canplay', () => { doSeekAndPlay() }, { once: true })
+      return
     }
-    
-    console.log('Setting currentTime to:', startTime);
-    
-    // Try seeking with the seeked event
-    const handleSeeked = () => {
-      console.log('Seeked event fired, currentTime is now:', audio.currentTime);
-      audio.play().then(() => {
-        console.log('Playing successfully from:', audio.currentTime);
-        isPlaying.value = true;
-      }).catch(err => {
-        console.error('Play failed:', err);
-      });
-    };
-    
-    audio.addEventListener('seeked', handleSeeked, { once: true });
-    audio.currentTime = startTime;
-    console.log('CurrentTime after set:', audio.currentTime);
-  };
-  
-  // Check if metadata and enough data is loaded
-  if (audio.readyState >= 2) { // HAVE_CURRENT_DATA or better
-    console.log('Audio ready, seeking now');
-    doSeekAndPlay();
-  } else {
-    console.log('Waiting for audio to be ready...');
-    audio.addEventListener('canplay', () => {
-      console.log('Canplay event fired');
-      doSeekAndPlay();
-    }, { once: true });
-    
-    // Ensure audio starts loading
-    if (audio.readyState === 0) {
-      audio.load();
-    }
+    audio.addEventListener('seeked', () => {
+      audio.play().then(() => { isPlaying.value = true }).catch(() => {})
+    }, { once: true })
+    audio.currentTime = startTime
   }
-};
+
+  if (audio.readyState >= 2) {
+    doSeekAndPlay()
+  } else {
+    audio.addEventListener('canplay', () => { doSeekAndPlay() }, { once: true })
+    if (audio.readyState === 0) audio.load()
+  }
+}
 
 // Auto-play when requested by parent (e.g., Search results)
 watch(
   () => props.autoplayFrom,
   (startTime) => {
-    if (startTime === null || startTime === undefined) return;
-    nextTick(() => {
-      playFromTimestamp(startTime);
-    });
+    if (startTime === null || startTime === undefined) return
+    nextTick(() => { playFromTimestamp(startTime) })
   },
-  { immediate: true }
-);
+  { immediate: true },
+)
 
 // Toggle play/pause
 const togglePlayPause = () => {
-  if (!audioPlayer.value) return;
-  
+  if (!audioPlayer.value) return
   if (isPlaying.value) {
-    audioPlayer.value.pause();
-    isPlaying.value = false;
+    audioPlayer.value.pause()
+    isPlaying.value = false
   } else {
-    audioPlayer.value.play();
-    isPlaying.value = true;
+    audioPlayer.value.play()
+    isPlaying.value = true
   }
 };
 
 // Update current time
 const updateTime = () => {
-  if (audioPlayer.value) {
-    currentTime.value = audioPlayer.value.currentTime;
-  }
-};
+  if (audioPlayer.value) currentTime.value = audioPlayer.value.currentTime
+}
 
 // Audio ended
-const onAudioEnded = () => {
-  isPlaying.value = false;
-};
+const onAudioEnded = () => { isPlaying.value = false }
 
 // Check if segment is currently playing
-const isSegmentActive = (segment) => {
-  return currentTime.value >= segment.start && currentTime.value <= segment.end;
-};
+const isSegmentActive = (segment: { start: number; end: number }): boolean =>
+  currentTime.value >= segment.start && currentTime.value <= segment.end
 
 // Get currently active segment
 const activeSegmentIndex = computed(() => {
-  if (activeView.value !== 'transcript') return -1;
-  
-  return unifiedTranscript.value.findIndex(segment => 
-    currentTime.value >= segment.start && currentTime.value <= segment.end
-  );
-});
+  if (activeView.value !== 'transcript') return -1
+  return unifiedTranscript.value.findIndex(
+    (segment) => currentTime.value >= segment.start && currentTime.value <= segment.end,
+  )
+})
 
 // Auto-scroll to active segment
 watch(activeSegmentIndex, (newIndex) => {
-  if (newIndex === -1 || !isPlaying.value) return;
-  
+  if (newIndex === -1 || !isPlaying.value) return
   nextTick(() => {
-    const segmentElement = document.querySelector(`[data-segment-index="${newIndex}"]`);
+    const segmentElement = document.querySelector(`[data-segment-index="${newIndex}"]`)
     if (segmentElement) {
-      segmentElement.scrollIntoView({
-        behavior: 'smooth',
-        block: 'center',
-        inline: 'nearest'
-      });
+      segmentElement.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' })
     }
-  });
-});
+  })
+})
 
-const formatDate = (dateString) => {
-  if (!dateString) return '';
-  const date = new Date(dateString);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
+const formatDate = (dateString: string | null | undefined): string => {
+  if (!dateString) return ''
+  const date = new Date(dateString)
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
 
-const formatDuration = (seconds) => {
-  if (!seconds) return t('lessons.noDuration');
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const secs = Math.floor(seconds % 60);
-  
-  if (hours > 0) {
-    return `${hours}h ${minutes}m ${secs}s`;
-  } else if (minutes > 0) {
-    return `${minutes}m ${secs}s`;
-  } else {
-    return `${secs}s`;
-  }
-};
+const formatDuration = (seconds: number | null | undefined): string => {
+  if (!seconds) return t('lessons.noDuration')
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  const secs = Math.floor(seconds % 60)
+  if (hours > 0) return `${hours}h ${minutes}m ${secs}s`
+  if (minutes > 0) return `${minutes}m ${secs}s`
+  return `${secs}s`
+}
 
 // Function to add source markers to edited text
-const addSourceMarkers = (text, sources, globalStartIndex = 0) => {
-  if (!sources || sources.length === 0) return text;
-  
-  let markedText = text;
-  
+const addSourceMarkers = (text: string, sources: Record<string, unknown>[], globalStartIndex = 0): string => {
+  if (!sources || sources.length === 0) return text
+
+  let markedText = text
+
   // Helper function to escape special regex characters
-  const escapeRegex = (str) => {
-    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  };
+  const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   
   // Use cited_excerpt if available (preferred), otherwise fall back to translation_text or original_text
   const sourcesWithText = sources
@@ -384,18 +300,14 @@ const addSourceMarkers = (text, sources, globalStartIndex = 0) => {
 };
 
 // Function to highlight matched text in Sefaria text
-const highlightMatchedText = (text, matchedText) => {
-  if (!text || !matchedText) return text;
-  
-  // Escape special regex characters in matchedText
-  const escapedMatch = matchedText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  
-  // Create a case-insensitive regex to find the match
-  const regex = new RegExp(`(${escapedMatch})`, 'gi');
-  
-  // Replace with highlighted version
-  return text.replace(regex, '<mark class="bg-yellow-200 dark:bg-yellow-800/50 dark:text-yellow-100 px-1 rounded font-medium">$1</mark>');
-};
+const highlightMatchedText = (text: string, matchedText: string): string => {
+  if (!text || !matchedText) return text
+  const escapedMatch = matchedText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return text.replace(
+    new RegExp(`(${escapedMatch})`, 'gi'),
+    '<mark class="bg-yellow-200 dark:bg-yellow-800/50 dark:text-yellow-100 px-1 rounded font-medium">$1</mark>',
+  )
+}
 
 // Collect all sources from edited transcript, grouped by type
 const allSources = computed(() => {
@@ -572,490 +484,306 @@ const cancelEditSummary = () => {
 };
 
 const saveSummary = async () => {
-  if (isSavingSummary.value) return;
-  
+  if (isSavingSummary.value) return
   try {
-    isSavingSummary.value = true;
-    
-    await axios.patch(`${API_URL}/lessons/${props.lesson.id}`, {
-      summary: editedSummary.value
-    });
-    
-    // Update the lesson object
-    props.lesson.summary = editedSummary.value;
-    isEditingSummary.value = false;
-  } catch (error) {
-    console.error('Failed to save summary:', error);
-    alert(t('lessons.saveFailed'));
+    isSavingSummary.value = true
+    await lessonsApi.update(props.lesson.id, { summary: editedSummary.value })
+    props.lesson.summary = editedSummary.value
+    isEditingSummary.value = false
+  } catch {
+    toast.error(t('lessons.saveFailed'))
   } finally {
-    isSavingSummary.value = false;
+    isSavingSummary.value = false
   }
-};
+}
 
 // Fetch text from Sefaria API
-const fetchSefariaText = async (slug) => {
-  if (!slug) {
-    sefariaText.value = '';
-    return;
-  }
-  
+const fetchSefariaText = async (slug: string) => {
+  if (!slug) { sefariaText.value = ''; return }
   try {
-    isLoadingSefaria.value = true;
-    const response = await axios.get(`https://www.sefaria.org/api/texts/${slug}`);
-    
-    // Extract text from Sefaria response
-    let text = '';
-    if (response.data.text) {
-      const textData = response.data.text;
+    isLoadingSefaria.value = true
+    const data = await sourcesApi.getSefaria(slug)
+    let text = ''
+    if (data.text) {
+      const textData = data.text
       if (Array.isArray(textData)) {
-        text = textData.map(item => 
-          typeof item === 'string' ? item : Array.isArray(item) ? item.join(' ') : String(item)
-        ).join('\n');
-      } else if (typeof textData === 'string') {
-        text = textData;
+        text = (textData as unknown[])
+          .map((item) => (typeof item === 'string' ? item : Array.isArray(item) ? (item as string[]).join(' ') : String(item)))
+          .join('\n')
+      } else {
+        text = textData as string
       }
-    } else if (response.data.he) {
-      text = response.data.he;
+    } else if (data.he) {
+      const heData = data.he
+      text = Array.isArray(heData) ? (heData as string[]).join('\n') : (heData as string)
     } else {
-      text = JSON.stringify(response.data, null, 2);
+      text = JSON.stringify(data, null, 2)
     }
-    
-    sefariaText.value = text;
-  } catch (error) {
-    console.error('Failed to fetch Sefaria text:', error);
-    sefariaText.value = `Error fetching text from Sefaria: ${error.message}`;
+    sefariaText.value = text
+  } catch (err) {
+    sefariaText.value = `Error fetching text from Sefaria: ${err instanceof Error ? err.message : String(err)}`
   } finally {
-    isLoadingSefaria.value = false;
+    isLoadingSefaria.value = false
   }
-};
+}
 
 // Open source modal with edited part text and source data
-const openSourceModal = async (editedPart, source) => {
-  selectedSourceEditedText.value = editedPart.text;
-  selectedSource.value = source;
-  sefariaText.value = '';
-  
-  // Fetch Sefaria text if slug is available
-  if (source.standard_slug) {
-    await fetchSefariaText(source.standard_slug);
-  }
-  
-  showSourceModal.value = true;
-};
+const openSourceModal = async (editedPart: { text: string }, source: Record<string, unknown>) => {
+  selectedSourceEditedText.value = editedPart.text
+  selectedSource.value = source
+  sefariaText.value = ''
+  if (source.standard_slug) await fetchSefariaText(source.standard_slug as string)
+  showSourceModal.value = true
+}
 
 // Toggle transcript expander
-const toggleTranscript = (index) => {
-  if (expandedTranscriptIndex.value === index) {
-    expandedTranscriptIndex.value = null;
-  } else {
-    expandedTranscriptIndex.value = index;
-  }
-};
+const toggleTranscript = (index: number) => {
+  expandedTranscriptIndex.value = expandedTranscriptIndex.value === index ? null : index
+}
 
 // Get transcript segments for an edited part
-const getTranscriptSegments = (part) => {
-  const transcript = props.lesson.corrected_transcript || props.lesson.transcript || [];
-  return transcript.filter(seg => 
-    (seg.start >= part.start && seg.start < part.end) || 
-    (seg.end > part.start && seg.end <= part.end) ||
-    (seg.start <= part.start && seg.end >= part.end)
-  );
-};
+const getTranscriptSegments = (part: { start: number; end: number }) => {
+  const transcript = props.lesson.corrected_transcript ?? props.lesson.transcript ?? []
+  return transcript.filter(
+    (seg) =>
+      (seg.start >= part.start && seg.start < part.end) ||
+      (seg.end > part.start && seg.end <= part.end) ||
+      (seg.start <= part.start && seg.end >= part.end),
+  )
+}
 
 // Check if an edited part is currently playing
-const isEditedPartPlaying = (part) => {
-  return isPlaying.value && currentTime.value >= part.start && currentTime.value < part.end;
-};
+const isEditedPartPlaying = (part: { start: number; end: number }): boolean =>
+  isPlaying.value && currentTime.value >= part.start && currentTime.value < part.end
 
 // Toggle play/pause for edited part
-const togglePlayEditedPart = (part) => {
-  if (!audioPlayer.value) return;
-  
-  // If this part is currently playing, pause it
+const togglePlayEditedPart = (part: { start: number; end: number }) => {
+  if (!audioPlayer.value) return
   if (isEditedPartPlaying(part)) {
-    audioPlayer.value.pause();
-    isPlaying.value = false;
+    audioPlayer.value.pause()
+    isPlaying.value = false
   } else {
-    // Otherwise, play from the start of this part
-    playFromTimestamp(part.start);
+    playFromTimestamp(part.start)
   }
-};
+}
 
-// Download PDF functions
+// Download PDF helper
+const triggerDownload = (blob: Blob, filename: string) => {
+  const url = window.URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.URL.revokeObjectURL(url)
+}
+
 const downloadSummaryPDF = async () => {
   try {
-    const response = await axios.get(`${API_URL}/lessons/${props.lesson.id}/pdf/summary`, {
-      responseType: 'blob'
-    });
-    
-    // Create download link
-    const url = window.URL.createObjectURL(new Blob([response.data]));
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `${props.lesson.title}_summary.pdf`);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(url);
-  } catch (error) {
-    console.error('Failed to download PDF:', error);
-    alert(t('lessons.downloadFailed'));
+    const blob = await lessonsApi.getPdfSummary(props.lesson.id)
+    triggerDownload(blob, `${props.lesson.title}_summary.pdf`)
+  } catch {
+    toast.error(t('lessons.downloadFailed'))
   }
-};
+}
 
 const downloadTranscriptPDF = async () => {
   try {
-    // Use corrected transcript if available, otherwise initial
-    const transcriptType = props.lesson.corrected_transcript ? 'corrected' : 'initial';
-    const response = await axios.get(
-      `${API_URL}/lessons/${props.lesson.id}/pdf/transcript?transcript_type=${transcriptType}`,
-      { responseType: 'blob' }
-    );
-    
-    // Create download link
-    const url = window.URL.createObjectURL(new Blob([response.data]));
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `${props.lesson.title}_transcript.pdf`);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(url);
-  } catch (error) {
-    console.error('Failed to download PDF:', error);
-    alert(t('lessons.downloadFailed'));
+    const transcriptType = props.lesson.corrected_transcript ? 'corrected' : 'initial'
+    const blob = await lessonsApi.getPdfTranscript(props.lesson.id, transcriptType)
+    triggerDownload(blob, `${props.lesson.title}_transcript.pdf`)
+  } catch {
+    toast.error(t('lessons.downloadFailed'))
   }
-};
+}
 
 const downloadEditedPDF = async () => {
   try {
-    const response = await axios.get(
-      `${API_URL}/lessons/${props.lesson.id}/pdf/edited`,
-      { responseType: 'blob' }
-    );
-    
-    // Create download link
-    const url = window.URL.createObjectURL(new Blob([response.data]));
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `${props.lesson.title}_edited.pdf`);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(url);
-  } catch (error) {
-    console.error('Failed to download edited PDF:', error);
-    alert(t('lessons.downloadFailed'));
+    const blob = await lessonsApi.getPdfEdited(props.lesson.id)
+    triggerDownload(blob, `${props.lesson.title}_edited.pdf`)
+  } catch {
+    toast.error(t('lessons.downloadFailed'))
   }
-};
+}
 
 const downloadSourcesPDF = async () => {
   try {
-    const response = await axios.get(
-      `${API_URL}/lessons/${props.lesson.id}/pdf/sources`,
-      { responseType: 'blob' }
-    );
-    
-    // Create download link
-    const url = window.URL.createObjectURL(new Blob([response.data]));
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `${props.lesson.title}_sources.pdf`);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(url);
-  } catch (error) {
-    console.error('Failed to download sources PDF:', error);
-    alert(t('lessons.downloadFailed'));
+    const blob = await lessonsApi.getPdfSources(props.lesson.id)
+    triggerDownload(blob, `${props.lesson.title}_sources.pdf`)
+  } catch {
+    toast.error(t('lessons.downloadFailed'))
   }
-};
+}
 
 const downloadDetailedSourcesPDF = async () => {
   try {
-    const response = await axios.get(
-      `${API_URL}/lessons/${props.lesson.id}/pdf/sources/detailed`,
-      { responseType: 'blob' }
-    );
-    
-    // Create download link
-    const url = window.URL.createObjectURL(new Blob([response.data]));
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `${props.lesson.title}_sources_detailed.pdf`);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(url);
-  } catch (error) {
-    console.error('Failed to download detailed sources PDF:', error);
-    alert(t('lessons.downloadFailed'));
+    const blob = await lessonsApi.getPdfDetailedSources(props.lesson.id)
+    triggerDownload(blob, `${props.lesson.title}_sources_detailed.pdf`)
+  } catch {
+    toast.error(t('lessons.downloadFailed'))
   }
-};
+}
 
 // Edit lesson functions
+const fetchCourses = async () => {
+  try { courses.value = await coursesApi.list() } catch { /* silent */ }
+}
+
+const fetchThemes = async () => {
+  try { themes.value = await themesApi.list() } catch { /* silent */ }
+}
+
 const startEditLesson = async () => {
-  // Fetch courses and themes for the dropdowns if not already loaded
-  if (!courses.value || courses.value.length === 0) {
-    await fetchCourses();
-  }
-  if (!themes.value || themes.value.length === 0) {
-    await fetchThemes();
-  }
-  
+  if (!courses.value.length) await fetchCourses()
+  if (!themes.value.length) await fetchThemes()
   editedLesson.value = {
     title: props.lesson.title,
     date: props.lesson.date ? new Date(props.lesson.date).toISOString().slice(0, 10) : '',
-    course_id: props.lesson.course_id,
-    theme_ids: props.lesson.theme_ids || [],
-    brief: props.lesson.brief || ''
-  };
-  isEditingLesson.value = true;
-};
+    course_id: props.lesson.course_id ?? null,
+    theme_ids: props.lesson.theme_ids ?? [],
+    brief: props.lesson.brief ?? '',
+  }
+  isEditingLesson.value = true
+}
 
-const cancelEditLesson = () => {
-  isEditingLesson.value = false;
-};
+const cancelEditLesson = () => { isEditingLesson.value = false }
 
 const saveLesson = async () => {
-  if (isSavingLesson.value) return;
-  
+  if (isSavingLesson.value) return
   try {
-    isSavingLesson.value = true;
-    
-    const updateData = {
+    isSavingLesson.value = true
+    const updated = await lessonsApi.update(props.lesson.id, {
       title: editedLesson.value.title,
       date: editedLesson.value.date ? new Date(editedLesson.value.date).toISOString() : null,
       course_id: editedLesson.value.course_id,
       theme_ids: editedLesson.value.theme_ids,
-      brief: editedLesson.value.brief || null
-    };
-    
-    const response = await axios.patch(`${API_URL}/lessons/${props.lesson.id}`, updateData);
-    
-    // Update the lesson object
-    Object.assign(props.lesson, response.data);
-    isEditingLesson.value = false;
-  } catch (error) {
-    console.error('Failed to save lesson:', error);
-    alert(t('lessons.saveFailed'));
+      brief: editedLesson.value.brief || null,
+    })
+    Object.assign(props.lesson, updated)
+    isEditingLesson.value = false
+  } catch {
+    toast.error(t('lessons.saveFailed'))
   } finally {
-    isSavingLesson.value = false;
+    isSavingLesson.value = false
   }
-};
+}
 
-const courses = ref([]);
-const themes = ref([]);
-
-const fetchCourses = async () => {
-  try {
-    const response = await axios.get(`${API_URL}/courses`);
-    courses.value = response.data;
-  } catch (error) {
-    console.error('Failed to fetch courses:', error);
-  }
-};
-
-const fetchThemes = async () => {
-  try {
-    const response = await axios.get(`${API_URL}/themes`);
-    themes.value = response.data;
-  } catch (error) {
-    console.error('Failed to fetch themes:', error);
-  }
-};
-
-const toggleTheme = (themeId) => {
-  const index = editedLesson.value.theme_ids.indexOf(themeId);
+const toggleTheme = (themeId: number) => {
+  const index = editedLesson.value.theme_ids.indexOf(themeId)
   if (index === -1) {
-    editedLesson.value.theme_ids.push(themeId);
+    editedLesson.value.theme_ids.push(themeId)
   } else {
-    editedLesson.value.theme_ids.splice(index, 1);
+    editedLesson.value.theme_ids.splice(index, 1)
   }
-};
+}
 
 // Delete lesson functions
-const confirmDelete = () => {
-  showDeleteConfirm.value = true;
-};
-
-const cancelDelete = () => {
-  showDeleteConfirm.value = false;
-};
+const confirmDelete = () => { showDeleteConfirm.value = true }
+const cancelDelete = () => { showDeleteConfirm.value = false }
 
 const deleteLesson = async () => {
   try {
-    isDeleting.value = true;
-    
-    await axios.delete(`${API_URL}/lessons/${props.lesson.id}`);
-    
-    // Close confirmation dialog
-    showDeleteConfirm.value = false;
-    
-    // Navigate back to lessons list
-    emit('close');
-  } catch (error) {
-    console.error('Failed to delete lesson:', error);
-    alert(t('lessons.deleteFailed'));
+    isDeleting.value = true
+    await lessonsApi.delete(props.lesson.id)
+    showDeleteConfirm.value = false
+    emit('close')
+  } catch {
+    toast.error(t('lessons.deleteFailed'))
   } finally {
-    isDeleting.value = false;
+    isDeleting.value = false
   }
-};
+}
 
 // Process tasks modal functions
 const openProcessModal = async () => {
-  // Reset selections
   selectedProcesses.value = {
-    transcribe: false,
-    correct: false,
-    edition: false,
-    extraction: false,
-    summary: false,
-    sources: false
-  };
-  showProcessModal.value = true;
-  
-  // Load available summary prompts from config
-  try {
-    const response = await axios.get(`${API_URL}/config`);
-    const prompts = response.data?.summary?.prompts || [];
-    availableSummaryPrompts.value = prompts;
-    // Set default to first prompt
-    if (prompts.length > 0 && !selectedSummaryPrompt.value) {
-      selectedSummaryPrompt.value = prompts[0].name;
-    }
-  } catch (error) {
-    console.error('Failed to load summary prompts:', error);
+    transcribe: false, correct: false, edition: false, extraction: false, summary: false, sources: false,
   }
-};
+  showProcessModal.value = true
+  try {
+    const config = await configApi.get()
+    const prompts = config?.summary?.prompts ?? []
+    availableSummaryPrompts.value = prompts
+    if (prompts.length > 0 && !selectedSummaryPrompt.value) {
+      selectedSummaryPrompt.value = prompts[0].name
+    }
+  } catch { /* silent */ }
+}
 
-const closeProcessModal = () => {
-  showProcessModal.value = false;
-};
+const closeProcessModal = () => { showProcessModal.value = false }
 
 const createTasks = async () => {
-  const selectedTasks = Object.keys(selectedProcesses.value).filter(
-    key => selectedProcesses.value[key]
-  );
-  
+  const selectedTasks = Object.keys(selectedProcesses.value).filter((k) => selectedProcesses.value[k])
   if (selectedTasks.length === 0) {
-    alert(t('lessons.selectAtLeastOneProcess'));
-    return;
+    toast.error(t('lessons.selectAtLeastOneProcess'))
+    return
   }
-  
   try {
-    isCreatingTasks.value = true;
-    
-    // Define the correct order for task execution
-    const taskOrder = [
-      'transcribe',
-      'correct',
-      'edition',
-      'extraction',
-      'summary',
-      'sources'
-    ];
-    
-    // Filter selected tasks and sort them by the defined order
-    const orderedTasks = taskOrder.filter(task => selectedTasks.includes(task));
-    
-    // Create tasks sequentially in the correct order
-    for (const taskType of orderedTasks) {
-      const parameters = {
-        lesson_id: props.lesson.id
-      };
-      
-      // Add specific parameters for each task type
-      if (taskType === 'correct') {
-        parameters.segments_per_group = 100;
-        parameters.max_concurrency = 10;
-      } else if (taskType === 'edition') {
-        parameters.words_per_group = 1000;
-        parameters.max_concurrency = 10;
-      } else if (taskType === 'extraction') {
-        parameters.max_concurrency = 10;
-      } else if (taskType === 'summary') {
-        parameters.prompt_type = selectedSummaryPrompt.value;
-      }
-      
-      // Map task type to API task_type
-      const taskTypeMap = {
-        'transcribe': 'transcription',
-        'correct': 'correction',
-        'edition': 'edition',
-        'extraction': 'extraction',
-        'summary': 'summary',
-        'sources': 'sources'
-      };
-      
-      await axios.post(`${API_URL}/tasks`, {
-        task_type: taskTypeMap[taskType],
-        parameters: parameters
-      });
+    isCreatingTasks.value = true
+    const taskOrder = ['transcribe', 'correct', 'edition', 'extraction', 'summary', 'sources']
+    const orderedTasks = taskOrder.filter((t) => selectedTasks.includes(t))
+    const taskTypeMap: Record<string, string> = {
+      transcribe: 'transcription', correct: 'correction', edition: 'edition',
+      extraction: 'extraction', summary: 'summary', sources: 'sources',
     }
-    
-    // Show success message
-    alert(t('lessons.tasksCreated', { count: orderedTasks.length }));
-    
-    // Close modal
-    closeProcessModal();
-  } catch (error) {
-    console.error('Failed to create tasks:', error);
-    alert(t('lessons.tasksCreationFailed'));
+    for (const taskType of orderedTasks) {
+      const parameters: Record<string, unknown> = { lesson_id: props.lesson.id }
+      if (taskType === 'correct')    { parameters.segments_per_group = 100; parameters.max_concurrency = 10 }
+      if (taskType === 'edition')    { parameters.words_per_group = 1000; parameters.max_concurrency = 10 }
+      if (taskType === 'extraction') { parameters.max_concurrency = 10 }
+      if (taskType === 'summary')    { parameters.prompt_type = selectedSummaryPrompt.value }
+      await tasksApi.create({ task_type: taskTypeMap[taskType] as import('@/api/types').TaskType, parameters })
+    }
+    toast.success(t('lessons.tasksCreated', { count: orderedTasks.length }))
+    closeProcessModal()
+  } catch {
+    toast.error(t('lessons.tasksCreationFailed'))
   } finally {
-    isCreatingTasks.value = false;
+    isCreatingTasks.value = false
   }
-};
+}
 
 // Edit segment functions
-const startEditSegment = (index, currentText) => {
-  editingSegmentIndex.value = index;
-  editedSegmentText.value = currentText;
-};
+const startEditSegment = (index: number, currentText: string) => {
+  editingSegmentIndex.value = index
+  editedSegmentText.value = currentText
+}
 
 const cancelEditSegment = () => {
-  editingSegmentIndex.value = null;
-  editedSegmentText.value = '';
-};
+  editingSegmentIndex.value = null
+  editedSegmentText.value = ''
+}
 
 const saveSegment = async () => {
-  if (isSavingSegment.value || editingSegmentIndex.value === null) return;
-  
+  if (isSavingSegment.value || editingSegmentIndex.value === null) return
   try {
-    isSavingSegment.value = true;
-    
-    // Determine if we're editing corrected or initial transcript
-    const hasCorrected = props.lesson.corrected_transcript && props.lesson.corrected_transcript.length > 0;
-    const transcriptToUpdate = hasCorrected ? 'corrected_transcript' : 'transcript';
-    const segments = hasCorrected ? [...props.lesson.corrected_transcript] : [...props.lesson.transcript];
-    
-    // Update the segment text
+    isSavingSegment.value = true
+    const hasCorrected = !!(props.lesson.corrected_transcript?.length)
+    const transcriptToUpdate = hasCorrected ? 'corrected_transcript' : 'transcript'
+    const segments = hasCorrected
+      ? [...(props.lesson.corrected_transcript ?? [])]
+      : [...(props.lesson.transcript ?? [])]
     if (editingSegmentIndex.value < segments.length) {
-      segments[editingSegmentIndex.value].text = editedSegmentText.value;
-      
-      // Send update to backend
-      await axios.patch(`${API_URL}/lessons/${props.lesson.id}`, {
-        [transcriptToUpdate]: segments
-      });
-      
-      // Update the lesson object
-      if (hasCorrected) {
-        props.lesson.corrected_transcript = segments;
-      } else {
-        props.lesson.transcript = segments;
+      segments[editingSegmentIndex.value] = {
+        ...segments[editingSegmentIndex.value],
+        text: editedSegmentText.value,
       }
-      
-      // Clear editing state
-      editingSegmentIndex.value = null;
-      editedSegmentText.value = '';
+      await lessonsApi.update(props.lesson.id, { [transcriptToUpdate]: segments })
+      if (hasCorrected) {
+        props.lesson.corrected_transcript = segments
+      } else {
+        props.lesson.transcript = segments
+      }
+      editingSegmentIndex.value = null
+      editedSegmentText.value = ''
     }
-  } catch (error) {
-    console.error('Failed to save segment:', error);
-    alert(t('lessons.saveFailed'));
+  } catch {
+    toast.error(t('lessons.saveFailed'))
   } finally {
-    isSavingSegment.value = false;
+    isSavingSegment.value = false
   }
-};
+}
 </script>
 
 <template>
@@ -1353,6 +1081,7 @@ const saveSegment = async () => {
           <!-- Action Buttons -->
           <div v-if="!isEditingLesson" class="flex gap-2">
             <button
+              v-if="can('tasks', 'create')"
               @click="openProcessModal"
               class="flex-shrink-0 inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md transition-colors"
             >
@@ -1360,6 +1089,7 @@ const saveSegment = async () => {
               {{ t('lessons.processLesson') }}
             </button>
             <button
+              v-if="can('lessons', 'update')"
               @click="startEditLesson"
               class="flex-shrink-0 inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
             >
@@ -1367,6 +1097,7 @@ const saveSegment = async () => {
               {{ t('lessons.editLesson') }}
             </button>
             <button
+              v-if="can('lessons', 'delete')"
               @click="confirmDelete"
               class="flex-shrink-0 inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-md transition-colors"
             >
@@ -1557,7 +1288,7 @@ const saveSegment = async () => {
               
               <!-- Edit Button (show for summary view) -->
               <button
-                v-if="activeView === 'summary' && !isEditingSummary"
+                v-if="activeView === 'summary' && !isEditingSummary && can('lessons', 'update')"
                 @click="startEditSummary"
                 class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors print:hidden"
               >
@@ -1593,7 +1324,6 @@ const saveSegment = async () => {
             @ended="onAudioEnded"
             @play="isPlaying = true"
             @pause="isPlaying = false"
-            @loadedmetadata="console.log('Audio metadata loaded')"
             class="hidden"
           ></audio>
         </div>
@@ -1716,6 +1446,7 @@ const saveSegment = async () => {
                       
                       <!-- Edit Button -->
                       <button
+                        v-if="can('lessons', 'update')"
                         @click="startEditSegment(segment.index, segment.correctedText)"
                         class="flex-shrink-0 p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors print:hidden"
                         :title="t('lessons.editSegment')"

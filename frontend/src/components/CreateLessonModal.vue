@@ -1,191 +1,139 @@
-<script setup>
-import { ref, computed } from 'vue';
-import { useI18n } from 'vue-i18n';
-import axios from 'axios';
-import { 
+<script setup lang="ts">
+import { ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
+import {
   XMarkIcon,
   CloudArrowUpIcon,
   CheckIcon,
-  DocumentIcon
-} from '@heroicons/vue/24/outline';
-import { Dialog, DialogPanel, DialogTitle } from '@headlessui/vue';
+  DocumentIcon,
+} from '@heroicons/vue/24/outline'
+import { Dialog, DialogPanel, DialogTitle } from '@headlessui/vue'
+import { uploadApi } from '@/api/upload'
+import { lessonsApi } from '@/api/lessons'
+import { coursesApi } from '@/api/courses'
+import { themesApi } from '@/api/themes'
+import { useToast } from '@/composables/useToast'
+import type { Course, Theme } from '@/api/types'
 
-const props = defineProps({
-  isOpen: {
-    type: Boolean,
-    required: true
-  }
-});
+const props = defineProps<{ isOpen: boolean }>()
+const emit = defineEmits<{
+  (e: 'close'): void
+  (e: 'created'): void
+}>()
 
-const emit = defineEmits(['close', 'created']);
+const { t } = useI18n()
+const toast = useToast()
 
-const { t } = useI18n();
+const selectedFile = ref<File | null>(null)
+const title = ref('')
+const date = ref('')
+const courseId = ref<number | null>(null)
+const themeIds = ref<number[]>([])
+const isUploading = ref(false)
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const courses = ref<Course[]>([])
+const themes = ref<Theme[]>([])
+const fileInput = ref<HTMLInputElement | null>(null)
 
-// Form state
-const selectedFile = ref(null);
-const title = ref('');
-const date = ref('');
-const courseId = ref(null);
-const themeIds = ref([]);
-const isUploading = ref(false);
+const onFileSelected = (event: Event) => {
+  const file = (event.target as HTMLInputElement).files?.[0]
+  if (!file) return
+  selectedFile.value = file
+  parseFilename(file.name)
+}
 
-const courses = ref([]);
-const themes = ref([]);
-
-// File selection
-const fileInput = ref(null);
-
-const onFileSelected = (event) => {
-  const file = event.target.files[0];
-  if (!file) return;
-  
-  selectedFile.value = file;
-  
-  // Parse filename to extract title and date
-  parseFilename(file.name);
-};
-
-const parseFilename = (filename) => {
-  // Remove extension
-  const nameWithoutExt = filename.replace(/\.[^/.]+$/, '');
-  
-  // Try to extract date pattern (assuming format: name_YYYYMMDD or name_DDMMYYYY)
-  // Example patterns:
-  // - lesson_20250824.mp3 -> title: "lesson", date: "2025-08-24"
-  // - eloul_d_20250824.mp3 -> title: "eloul d", date: "2025-08-24"
-  
-  const datePattern = /[_\-](\d{8})$/;
-  const match = nameWithoutExt.match(datePattern);
-  
+const parseFilename = (filename: string) => {
+  const nameWithoutExt = filename.replace(/\.[^/.]+$/, '')
+  const datePattern = /[_\-](\d{8})$/
+  const match = nameWithoutExt.match(datePattern)
   if (match) {
-    const dateStr = match[1];
-    // Assume YYYYMMDD format
-    if (dateStr.length === 8) {
-      const year = dateStr.substring(0, 4);
-      const month = dateStr.substring(4, 6);
-      const day = dateStr.substring(6, 8);
-      date.value = `${year}-${month}-${day}`;
-      
-      // Title is everything before the date
-      title.value = nameWithoutExt.substring(0, match.index).replace(/[_-]/g, ' ').trim();
-    }
+    const dateStr = match[1]
+    const year = dateStr.substring(0, 4)
+    const month = dateStr.substring(4, 6)
+    const day = dateStr.substring(6, 8)
+    date.value = `${year}-${month}-${day}`
+    title.value = nameWithoutExt.substring(0, match.index).replace(/[_-]/g, ' ').trim()
   } else {
-    // No date found, use entire filename as title
-    title.value = nameWithoutExt.replace(/[_-]/g, ' ').trim();
-    // Set to today
-    date.value = new Date().toISOString().slice(0, 10);
+    title.value = nameWithoutExt.replace(/[_-]/g, ' ').trim()
+    date.value = new Date().toISOString().slice(0, 10)
   }
-};
+}
 
 const selectFile = () => {
-  fileInput.value?.click();
-};
+  fileInput.value?.click()
+}
 
 const removeFile = () => {
-  selectedFile.value = null;
-  title.value = '';
-  date.value = '';
-  if (fileInput.value) {
-    fileInput.value.value = '';
-  }
-};
+  selectedFile.value = null
+  title.value = ''
+  date.value = ''
+  if (fileInput.value) fileInput.value.value = ''
+}
 
-const toggleTheme = (themeId) => {
-  const index = themeIds.value.indexOf(themeId);
+const toggleTheme = (themeId: number) => {
+  const index = themeIds.value.indexOf(themeId)
   if (index === -1) {
-    themeIds.value.push(themeId);
+    themeIds.value.push(themeId)
   } else {
-    themeIds.value.splice(index, 1);
+    themeIds.value.splice(index, 1)
   }
-};
+}
 
 const fetchCourses = async () => {
-  try {
-    const response = await axios.get(`${API_URL}/courses`);
-    courses.value = response.data;
-  } catch (error) {
-    console.error('Failed to fetch courses:', error);
-  }
-};
+  try { courses.value = await coursesApi.list() } catch { /* silent */ }
+}
 
 const fetchThemes = async () => {
-  try {
-    const response = await axios.get(`${API_URL}/themes`);
-    themes.value = response.data;
-  } catch (error) {
-    console.error('Failed to fetch themes:', error);
-  }
-};
+  try { themes.value = await themesApi.list() } catch { /* silent */ }
+}
 
 const createLesson = async () => {
   if (!selectedFile.value || !title.value) {
-    alert(t('lessons.fillRequired'));
-    return;
+    toast.error(t('lessons.fillRequired'))
+    return
   }
-  
   try {
-    isUploading.value = true;
-    
-    // Upload file first
-    const formData = new FormData();
-    formData.append('file', selectedFile.value);
-    
-    const uploadResponse = await axios.post(`${API_URL}/upload/audio`, formData);
-    const uploadedFilename = uploadResponse.data.filename;
-    
-    // Create lesson
-    const lessonData = {
+    isUploading.value = true
+    const { filename: uploadedFilename } = await uploadApi.uploadAudio(selectedFile.value)
+    await lessonsApi.create({
       title: title.value,
       filename: uploadedFilename,
       date: date.value ? new Date(date.value).toISOString() : new Date().toISOString(),
       course_id: courseId.value,
-      theme_ids: themeIds.value.length > 0 ? themeIds.value : null
-    };
-    
-    await axios.post(`${API_URL}/lessons`, lessonData);
-    
-    // Reset form and close
-    resetForm();
-    emit('created');
-    emit('close');
-  } catch (error) {
-    console.error('Failed to create lesson:', error);
-    alert(t('lessons.createFailed'));
+      theme_ids: themeIds.value.length > 0 ? themeIds.value : null,
+    })
+    resetForm()
+    emit('created')
+    emit('close')
+  } catch {
+    toast.error(t('lessons.createFailed'))
   } finally {
-    isUploading.value = false;
+    isUploading.value = false
   }
-};
+}
 
 const resetForm = () => {
-  selectedFile.value = null;
-  title.value = '';
-  date.value = '';
-  courseId.value = null;
-  themeIds.value = [];
-  if (fileInput.value) {
-    fileInput.value.value = '';
-  }
-};
+  selectedFile.value = null
+  title.value = ''
+  date.value = ''
+  courseId.value = null
+  themeIds.value = []
+  if (fileInput.value) fileInput.value.value = ''
+}
 
 const close = () => {
   if (!isUploading.value) {
-    resetForm();
-    emit('close');
+    resetForm()
+    emit('close')
   }
-};
+}
 
-// Fetch data when modal opens
-const handleOpen = async () => {
-  if (props.isOpen) {
-    await Promise.all([fetchCourses(), fetchThemes()]);
-  }
-};
-
-// Watch for modal open
-import { watch } from 'vue';
-watch(() => props.isOpen, handleOpen);
+watch(
+  () => props.isOpen,
+  async (isOpen) => {
+    if (isOpen) await Promise.all([fetchCourses(), fetchThemes()])
+  },
+)
 </script>
 
 <template>
