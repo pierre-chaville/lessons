@@ -13,7 +13,8 @@ import logging
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from database import engine
-from models import Lesson, Source
+from models import Lesson
+from schemas import Source
 from config import load_config
 from .llm_utils import get_llm_model
 

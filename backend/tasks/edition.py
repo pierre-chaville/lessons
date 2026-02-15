@@ -12,7 +12,8 @@ import time
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from database import engine
-from models import Lesson, Segment, EditedParagraph, Source, Metadata
+from models import Lesson
+from schemas import Segment, EditedParagraph, Source, Metadata
 from config import load_config
 from .llm_utils import get_llm_model
 import logging

@@ -4,7 +4,8 @@ import logging
 import asyncio
 from sqlmodel import Session
 from database import engine
-from models import Lesson, Source
+from models import Lesson
+from schemas import Source
 from tasks.sources import verify_lesson_sources_async
 
 # Configure logging

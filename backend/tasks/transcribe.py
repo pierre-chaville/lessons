@@ -180,7 +180,8 @@ if sys.platform == "win32":
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import load_config
-from models import Lesson, Segment, TranscriptMetadata
+from models import Lesson
+from schemas import Segment, TranscriptMetadata
 from database import engine
 import logging
 

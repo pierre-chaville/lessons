@@ -1,0 +1,64 @@
+"""Configuration router — /config endpoints."""
+
+from fastapi import APIRouter, HTTPException
+
+import config as config_module
+from schemas.config import ConfigUpdate
+
+router = APIRouter(prefix="/config", tags=["Configuration"])
+
+
+@router.get("")
+def get_configuration():
+    """Get the current application configuration."""
+    try:
+        return config_module.load_config()
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to load configuration: {str(e)}"
+        )
+
+
+@router.put("")
+def update_configuration(config_update: ConfigUpdate):
+    """Update the application configuration."""
+    try:
+        updated_config = config_module.update_config(config_update.config)
+        return {"message": "Configuration updated successfully", "config": updated_config}
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to update configuration: {str(e)}"
+        )
+
+
+@router.get("/{key_path}")
+def get_configuration_value(key_path: str):
+    """Get a specific configuration value using dot notation (e.g., 'whisper.model_size')."""
+    try:
+        value = config_module.get_config_value(key_path)
+        if value is None:
+            raise HTTPException(
+                status_code=404, detail=f"Configuration key '{key_path}' not found"
+            )
+        return {"key": key_path, "value": value}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get configuration value: {str(e)}"
+        )
+
+
+@router.post("/reset")
+def reset_configuration():
+    """Reset configuration to default values."""
+    try:
+        config_module.save_config(config_module.DEFAULT_CONFIG)
+        return {
+            "message": "Configuration reset to defaults",
+            "config": config_module.DEFAULT_CONFIG,
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to reset configuration: {str(e)}"
+        )

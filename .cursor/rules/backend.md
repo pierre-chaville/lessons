@@ -171,8 +171,9 @@ async def get_current_user(
 
 ### Roles
 
-- Roles: `reader`, `editor`, `publisher`, `admin` — ordered by privilege level.
-- Implement a `require_role(*allowed_roles)` dependency factory:
+Roles and per-resource permissions are defined in `.cursor/rules/access.md` — that file is the single source of truth for both frontend and backend. Always consult it when adding or modifying endpoints.
+
+Implement a `require_role(*allowed_roles)` dependency factory:
 
 ```python
 def require_role(*roles: str):
@@ -181,21 +182,9 @@ def require_role(*roles: str):
             raise HTTPException(status_code=403, detail="Insufficient permissions")
         return user
     return checker
-
-# Usage in router:
-@router.post("/lessons/{id}/publish")
-async def publish_lesson(
-    id: UUID,
-    user: ClerkUser = Depends(require_role("publisher", "admin")),
-    session: AsyncSession = Depends(get_session),
-):
-    ...
 ```
 
-- `reader`: can view published lessons.
-- `editor`: can create/edit lessons, trigger transcription/edition tasks.
-- `publisher`: can publish lessons.
-- `admin`: full access, user management.
+Every endpoint must include the appropriate `require_role()` call matching the permission matrix in `access.md`.
 
 ## External API Integrations
 
