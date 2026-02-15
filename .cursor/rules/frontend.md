@@ -277,7 +277,7 @@ import { useUser, useAuth as useClerkAuth } from '@clerk/vue'
 import axios from 'axios'
 
 const apiClient = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL,
+  baseURL: import.meta.env.VITE_API_URL,
 })
 
 export function useAuth() {
@@ -349,7 +349,7 @@ router.beforeEach((to, from, next) => {
 import axios from 'axios'
 
 export const apiClient = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL,
+  baseURL: import.meta.env.VITE_API_URL,
   headers: { 'Content-Type': 'application/json' },
 })
 
@@ -656,7 +656,7 @@ const routes = [
 - Do not build custom modals, dropdowns, selects, or tabs from scratch — use Headless UI.
 - Do not use `@apply` extensively in CSS — use Tailwind classes directly in templates.
 - Do not store auth tokens in localStorage or sessionStorage.
-- Do not hardcode API base URLs — use `import.meta.env.VITE_API_BASE_URL`.
+- Do not hardcode API base URLs — use `import.meta.env.VITE_API_URL`.
 - Do not use `any` in TypeScript — type everything. Use `unknown` if the type is genuinely unknown.
 - Do not create god-components with 300+ lines — split into smaller composable pieces.
 - Do not duplicate the permission matrix — always reference `usePermissions()` which implements `access.md`.
@@ -664,7 +664,7 @@ const routes = [
 ## Environment Variables
 
 ```bash
-VITE_API_BASE_URL=https://api.example.com
+VITE_API_URL=https://api.example.com
 VITE_CLERK_PUBLISHABLE_KEY=pk_live_...
 ```
 
@@ -676,4 +676,4 @@ VITE_CLERK_PUBLISHABLE_KEY=pk_live_...
 - Build with `vite build` — output to `dist/`.
 - Deploy as a static site on Render.com or Cloudflare Pages.
 - Configure SPA fallback: all routes → `index.html` (for Vue Router history mode).
-- Set `VITE_API_BASE_URL` as a build-time environment variable.
+- Set `VITE_API_URL` as a build-time environment variable.

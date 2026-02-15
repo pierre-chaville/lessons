@@ -2,7 +2,7 @@ import { createApp } from 'vue';
 import { clerkPlugin } from '@clerk/vue';
 import App from './App.vue';
 import i18n from './i18n';
-import './assets/main.css';
+import './assets/styles/main.css';
 
 const app = createApp(App);
 

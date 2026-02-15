@@ -3,12 +3,7 @@ export default {
   darkMode: 'class',
   content: [
     "./index.html",
-    "./App.vue",
-    "./main.js",
-    "./components/**/*.{vue,js,ts,jsx,tsx}",
-    "./views/**/*.{vue,js,ts,jsx,tsx}",
-    "./i18n/**/*.{js,ts}",
-    "./locales/**/*.{json}",
+    "./src/**/*.{vue,js,ts,jsx,tsx,json}",
   ],
   theme: {
     extend: {},
