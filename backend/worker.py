@@ -1,8 +1,9 @@
 """Background task worker that processes tasks from the database"""
 
-import time
 import signal
 import sys
+import threading
+import time
 from datetime import datetime
 from sqlmodel import Session, select
 from database import engine
@@ -23,20 +24,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Global flag for graceful shutdown
+# Global flag for graceful shutdown — set to True from outside to stop the loop.
 should_stop = False
-
-
-def signal_handler(signum, frame):
-    """Handle shutdown signals"""
-    global should_stop
-    logger.info("Received shutdown signal, stopping worker...")
-    should_stop = True
-
-
-# Register signal handlers
-signal.signal(signal.SIGINT, signal_handler)
-signal.signal(signal.SIGTERM, signal_handler)
 
 
 def get_pending_task(session: Session) -> Task:
@@ -364,8 +353,33 @@ def worker_loop():
     logger.info("Worker stopped")
 
 
+def start_worker_thread() -> threading.Thread:
+    """Start the worker loop in a background daemon thread.
+
+    Called by main.py on application startup so the worker shares the same
+    process as the FastAPI server.  Returns the thread so the caller can join
+    it during shutdown.
+    """
+    global should_stop
+    should_stop = False
+    thread = threading.Thread(target=worker_loop, daemon=True, name="task-worker")
+    thread.start()
+    logger.info("Worker thread started (embedded in API process)")
+    return thread
+
+
 def main():
-    """Main entry point"""
+    """Main entry point for running the worker as a standalone process."""
+    global should_stop
+
+    def _signal_handler(signum, frame):
+        global should_stop
+        logger.info("Received shutdown signal, stopping worker...")
+        should_stop = True
+
+    signal.signal(signal.SIGINT, _signal_handler)
+    signal.signal(signal.SIGTERM, _signal_handler)
+
     try:
         worker_loop()
     except KeyboardInterrupt:

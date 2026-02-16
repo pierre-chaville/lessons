@@ -7,7 +7,8 @@ from typing import Optional, List, Tuple, Dict, Any
 from sqlmodel import Session
 
 # Add CUDA to PATH for Windows (needed for cuDNN DLLs)
-if sys.platform == "win32":
+# TODO: to modify to use api instead of local whisper
+if sys.platform != "win32":
     print(f"Current PATH: {os.environ.get('PATH', 'NOT SET')[:200]}...")
     
     # Common CUDA and cuDNN installation paths (check both \bin and \bin\x64)
