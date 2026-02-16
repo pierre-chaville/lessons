@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(PYCODE='import sys; print\\(sys.version\\)' python -c \"import os; exec\\(os.environ[''PYCODE'']\\)\")"
+      "Bash(PYCODE='import sys; print\\(sys.version\\)' python -c \"import os; exec\\(os.environ[''PYCODE'']\\)\")",
+      "Bash(./venv/Scripts/python:*)"
     ]
   }
 }

@@ -15,12 +15,8 @@ class Metadata(BaseModel):
 
 
 class TranscriptMetadata(BaseModel):
-    """Metadata for Whisper transcription"""
+    """Metadata for Deepgram transcription"""
 
-    model_size: Optional[str] = None
-    device: Optional[str] = None
-    compute_type: Optional[str] = None
-    beam_size: Optional[int] = None
-    vad_filter: Optional[bool] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
     language: Optional[str] = None
-    initial_prompt: Optional[str] = None

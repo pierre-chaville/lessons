@@ -53,14 +53,9 @@ def display_lesson_transcript(lesson_id: int):
             if metadata:
                 print("\n📊 TRANSCRIPT METADATA:")
                 print("-"*80)
-                print(f"Model: {metadata.model_size}")
-                print(f"Device: {metadata.device}")
-                print(f"Compute Type: {metadata.compute_type}")
+                print(f"Provider: {metadata.provider}")
+                print(f"Model: {metadata.model}")
                 print(f"Language: {metadata.language}")
-                print(f"Beam Size: {metadata.beam_size}")
-                print(f"VAD Filter: {metadata.vad_filter}")
-                if metadata.initial_prompt:
-                    print(f"Initial Prompt: {metadata.initial_prompt[:100]}...")
 
             # Display first few segments
             print("\n🎤 FIRST 5 SEGMENTS:")
