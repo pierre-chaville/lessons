@@ -12,6 +12,7 @@ from config import load_config
 from models import Lesson
 from schemas import Segment, TranscriptMetadata
 from database import engine
+from storage import download_audio_bytes, get_audio_object_key, s3_enabled
 import logging
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,7 @@ def _get_api_key() -> str:
 
 
 def transcribe_audio(
-    audio_path: str,
+    audio_bytes: bytes,
     language: Optional[str] = None,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """
@@ -43,15 +44,11 @@ def transcribe_audio(
     client = DeepgramClient(api_key=api_key)
 
     start_time = time.time()
-    logger.info(f"Starting Deepgram transcription of {audio_path}...")
+    logger.info("Starting Deepgram transcription...")
     logger.info(f"Parameters: language={language}")
 
-    # Read audio file
-    with open(audio_path, "rb") as f:
-        buffer_data = f.read()
-
     response = client.listen.v1.media.transcribe_file(
-        request=buffer_data,
+        request=audio_bytes,
         model="nova-3",
         smart_format=True,
         utterances=True,
@@ -120,11 +117,15 @@ def transcribe_lesson(
             logger.error(f"Lesson {lesson_id} not found")
             return False
 
-        audio_dir = Path(__file__).parent.parent / "data" / "audio"
-        audio_path = audio_dir / (str(lesson_id) + "_" + lesson.filename)
+        if not s3_enabled():
+            logger.error("S3 is not configured")
+            return False
 
-        if not audio_path.exists():
-            logger.error(f"Audio file not found: {audio_path}")
+        audio_key = get_audio_object_key(lesson_id, lesson.filename)
+        try:
+            audio_bytes = download_audio_bytes(audio_key)
+        except Exception as e:
+            logger.error(f"Audio file not found in S3: {audio_key} ({e})")
             return False
 
         logger.info(f"Transcribing lesson {lesson_id}: {lesson.title}")
@@ -133,10 +134,7 @@ def transcribe_lesson(
         transcribe_config = config.get("transcribe", {})
         language = transcribe_config.get("language", "fr")
 
-        segments_data, metadata = transcribe_audio(
-            str(audio_path),
-            language=language,
-        )
+        segments_data, metadata = transcribe_audio(audio_bytes, language=language)
 
         # Update lesson with transcript
         lesson.transcript = segments_data

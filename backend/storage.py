@@ -64,3 +64,10 @@ def rename_audio_object(source_key: str, dest_key: str) -> None:
         Key=dest_key,
     )
     client.delete_object(Bucket=env["bucket"], Key=source_key)
+
+
+def download_audio_bytes(key: str) -> bytes:
+    env = _get_s3_env()
+    client = create_s3_client()
+    response = client.get_object(Bucket=env["bucket"], Key=key)
+    return response["Body"].read()
