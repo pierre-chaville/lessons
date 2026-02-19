@@ -55,6 +55,7 @@ def transcribe_audio(
         model="nova-3",
         smart_format=True,
         utterances=True,
+        #language='multi' # language or "fr",
         language=language or "fr",
     )
     result = response.results
