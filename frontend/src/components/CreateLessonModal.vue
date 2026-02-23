@@ -94,7 +94,7 @@ const createLesson = async () => {
   }
   try {
     isUploading.value = true
-    const { filename: uploadedFilename } = await uploadApi.uploadAudio(selectedFile.value)
+    const { filename: uploadedFilename } = await uploadApi.audio(selectedFile.value)
     await lessonsApi.create({
       title: title.value,
       filename: uploadedFilename,

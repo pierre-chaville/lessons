@@ -138,7 +138,7 @@ onMounted(() => {
     isDarkMode.value = savedDarkMode === 'true';
   } else {
     // Check system preference if no saved preference
-    isDarkMode.value = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    isDarkMode.value = window.matchMedia('(prefers-color-scheme: light)').matches;
   }
   
   // Apply the initial state
