@@ -49,7 +49,7 @@ def transcribe_audio(
 
     response = client.listen.v1.media.transcribe_file(
         request=audio_bytes,
-        model="nova-3",
+        model="whisper-large",
         smart_format=True,
         utterances=True,
         #language='multi' # language or "fr",

@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@clerk/localizations": "^3.37.0",
     "@clerk/vue": "^1.17.12",
     "@headlessui/vue": "^1.7.16",
     "@heroicons/vue": "^2.0.18",

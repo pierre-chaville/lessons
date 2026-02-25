@@ -1,4 +1,5 @@
 """Integration test — audio transcription via Whisper."""
+
 import sys
 import logging
 from pathlib import Path
@@ -9,16 +10,13 @@ from sqlmodel import Session
 from database import engine
 from models import Lesson
 from tasks import transcribe_lesson
+from storage import s3_enabled, get_audio_object_key, download_audio_bytes
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
-
-# Backend root for resolving data paths (backend/data/audio/)
-_BACKEND_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 def display_lesson_transcript(lesson_id: int):
@@ -29,22 +27,28 @@ def display_lesson_transcript(lesson_id: int):
             logger.error(f"Lesson {lesson_id} not found")
             return
 
-        print("\n" + "="*80)
+        print("\n" + "=" * 80)
         print(f"Lesson: {lesson.title}")
-        print("="*80)
+        print("=" * 80)
 
         print(f"\n📁 Audio File: {lesson.filename}")
-        print(f"📍 Path: data/audio/{lesson.filename}")
+        print(f"📍 Storage Key: {get_audio_object_key(lesson_id, lesson.filename)}")
 
-        # Check if audio file exists
-        audio_path = _BACKEND_ROOT / "data" / "audio" / lesson.filename
-        if audio_path.exists():
-            print(f"✅ Audio file exists ({audio_path.stat().st_size / 1024 / 1024:.2f} MB)")
+        # Check if audio file exists in storage
+        if s3_enabled():
+            audio_key = get_audio_object_key(lesson_id, lesson.filename)
+            try:
+                audio_bytes = download_audio_bytes(audio_key)
+                print(
+                    f"✅ Audio file exists in storage ({len(audio_bytes) / 1024 / 1024:.2f} MB)"
+                )
+            except Exception as e:
+                print(f"❌ Audio file not found in storage: {e}")
         else:
-            print(f"❌ Audio file not found")
+            print(f"⚠️  S3 storage not configured")
 
         print("\n📝 TRANSCRIPT:")
-        print("-"*80)
+        print("-" * 80)
         if lesson.transcript:
             print(f"✅ Transcript available: {len(lesson.transcript)} segments")
 
@@ -52,19 +56,23 @@ def display_lesson_transcript(lesson_id: int):
             metadata = lesson.get_transcript_metadata()
             if metadata:
                 print("\n📊 TRANSCRIPT METADATA:")
-                print("-"*80)
+                print("-" * 80)
                 print(f"Provider: {metadata.provider}")
                 print(f"Model: {metadata.model}")
                 print(f"Language: {metadata.language}")
 
             # Display first few segments
             print("\n🎤 FIRST 5 SEGMENTS:")
-            print("-"*80)
+            print("-" * 80)
             for i, seg in enumerate(lesson.transcript[:5], 1):
                 if isinstance(seg, dict):
-                    print(f"{i}. [{seg['start']:.1f}s - {seg['end']:.1f}s] {seg['text'][:100]}...")
+                    print(
+                        f"{i}. [{seg['start']:.1f}s - {seg['end']:.1f}s] {seg['text'][:100]}..."
+                    )
                 else:
-                    print(f"{i}. [{seg.start:.1f}s - {seg.end:.1f}s] {seg.text[:100]}...")
+                    print(
+                        f"{i}. [{seg.start:.1f}s - {seg.end:.1f}s] {seg.text[:100]}..."
+                    )
 
             if len(lesson.transcript) > 5:
                 print(f"\n... and {len(lesson.transcript) - 5} more segments")
@@ -77,7 +85,7 @@ def display_lesson_transcript(lesson_id: int):
         else:
             print("❌ No transcript available")
 
-        print("\n" + "="*80 + "\n")
+        print("\n" + "=" * 80 + "\n")
 
 
 def main():
@@ -97,20 +105,27 @@ def main():
     # Display lesson info before transcription
     display_lesson_transcript(lesson_id)
 
-    # Check if audio file exists
+    # Check if S3 storage is enabled and audio file exists
+    if not s3_enabled():
+        logger.error("S3 storage is not configured")
+        print("\n❌ Cannot transcribe: S3 storage is not configured!")
+        print("   Please configure S3 environment variables.")
+        sys.exit(1)
+
     with Session(engine) as session:
         lesson = session.get(Lesson, lesson_id)
         if not lesson:
             logger.error(f"Lesson {lesson_id} not found")
             sys.exit(1)
 
-        audio_dir = _BACKEND_ROOT / "data" / "audio"
-        audio_path = audio_dir / (str(lesson_id) + "_" + lesson.filename)
-
-        if not audio_path.exists():
-            logger.error(f"Audio file not found: {audio_path}")
-            print("\n❌ Cannot transcribe: Audio file not found!")
-            print(f"   Expected location: {audio_path}")
+        audio_key = get_audio_object_key(lesson_id, lesson.filename)
+        try:
+            download_audio_bytes(audio_key)
+        except Exception as e:
+            logger.error(f"Audio file not found in storage: {audio_key} ({e})")
+            print("\n❌ Cannot transcribe: Audio file not found in storage!")
+            print(f"   Storage key: {audio_key}")
+            print(f"   Error: {e}")
             sys.exit(1)
 
     # Run transcription
