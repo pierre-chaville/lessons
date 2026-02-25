@@ -2,9 +2,11 @@
 import time
 import os
 import sys
+import httpx
 from pathlib import Path
 from typing import Optional, List, Tuple, Dict, Any
 from sqlmodel import Session
+from deepgram import DeepgramClient
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -38,15 +40,16 @@ def transcribe_audio(
         - segments: List of dicts with keys: 'start', 'end', 'text'
         - metadata_dict: Dict with transcription parameters
     """
-    from deepgram import DeepgramClient
 
     api_key = _get_api_key()
+    # imeout en secondes
+    # custom_timeout = httpx.Timeout(600.0, connect=60.0)
     client = DeepgramClient(api_key=api_key)
 
     start_time = time.time()
     logger.info("Starting Deepgram transcription...")
     logger.info(f"Parameters: language={language}")
-
+    custom_timeout = httpx.Timeout(600.0, connect=60.0)
     response = client.listen.v1.media.transcribe_file(
         request=audio_bytes,
         model="whisper-large",
@@ -54,6 +57,10 @@ def transcribe_audio(
         utterances=True,
         #language='multi' # language or "fr",
         language=language or "fr",
+        request_options={
+            "timeout_in_seconds": 600,
+            "max_retries": 3,
+        }
     )
     result = response.results
 
