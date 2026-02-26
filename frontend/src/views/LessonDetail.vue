@@ -1766,7 +1766,7 @@ const saveSegment = async () => {
                         <div class="prose prose-sm dark:prose-invert max-w-none">
                           <div 
                             class="text-gray-900 dark:text-gray-100 leading-relaxed whitespace-pre-wrap print:text-black"
-                            v-html="addSourceMarkers(renderMarkdown(part.text), part.sources, getGlobalSourceIndex(index))"
+                            v-html="renderMarkdown(addSourceMarkers(part.text, part.sources, getGlobalSourceIndex(index)))"
                           ></div>
                         </div>
                       </div>
@@ -1868,7 +1868,7 @@ const saveSegment = async () => {
                       <div class="prose prose-sm dark:prose-invert max-w-none">
                         <div 
                           class="text-gray-900 dark:text-gray-100 leading-normal whitespace-pre-wrap print:text-black"
-                          v-html="addSourceMarkers(renderMarkdown(part.text), part.sources, getGlobalSourceIndex(index))"
+                          v-html="renderMarkdown(addSourceMarkers(part.text, part.sources, getGlobalSourceIndex(index)))"
                         ></div>
                       </div>
                     </div>

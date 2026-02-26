@@ -7,6 +7,7 @@ import {
   AcademicCapIcon,
   TagIcon,
   DocumentTextIcon,
+  UsersIcon,
   Cog6ToothIcon,
   ChevronLeftIcon,
   ChevronRightIcon
@@ -28,12 +29,14 @@ const allNavigationItems = [
   { key: 'courses',     label: 'nav.courses',      icon: AcademicCapIcon,      route: '/courses',     always: true },
   { key: 'themes',      label: 'nav.themes',       icon: TagIcon,              route: '/themes',      always: true },
   { key: 'processing',  label: 'nav.processing',   icon: DocumentTextIcon,     route: '/processing',  always: false },
+  { key: 'users',       label: 'nav.users',        icon: UsersIcon,            route: '/users',       always: false },
   { key: 'preferences', label: 'nav.preferences',  icon: Cog6ToothIcon,        route: '/preferences', always: false },
 ];
 
 const navigationItems = computed(() =>
   allNavigationItems.filter((item) => {
     if (item.key === 'processing')  return can('tasks', 'read');
+    if (item.key === 'users')       return can('users', 'manage');
     if (item.key === 'preferences') return can('configuration', 'read');
     return true;
   })

@@ -11,7 +11,7 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.security import HTTPBearer
 
 from auth import require_auth
-from routers import courses, themes, lessons, upload, tasks, config, search
+from routers import courses, themes, lessons, upload, tasks, config, search, users
 import worker as worker_module
 
 bearer_scheme = HTTPBearer()
@@ -94,6 +94,7 @@ app.include_router(upload.router)
 app.include_router(tasks.router)
 app.include_router(config.router)
 app.include_router(search.router)
+app.include_router(users.router)
 
 
 # ── Health check ──────────────────────────────────────────────────────────────

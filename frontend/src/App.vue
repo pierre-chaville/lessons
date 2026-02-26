@@ -19,6 +19,7 @@ import SearchLessons from './views/SearchLessons.vue';
 import CoursesList from './views/CoursesList.vue';
 import ThemesList from './views/ThemesList.vue';
 import ProcessingTasks from './views/ProcessingTasks.vue';
+import UsersManagement from './views/UsersManagement.vue';
 import Preferences from './views/Preferences.vue';
 
 const { locale, t } = useI18n();
@@ -54,6 +55,9 @@ const getInitialRoute = () => {
   if (path === '/processing') {
     return '/processing';
   }
+  if (path === '/users') {
+    return '/users';
+  }
   if (path === '/preferences') {
     return '/preferences';
   }
@@ -67,6 +71,7 @@ const currentRoute = ref(getInitialRoute());
 const lessonsListRef = ref(null);
 const coursesListRef = ref(null);
 const themesListRef = ref(null);
+const usersListRef = ref(null);
 
 // Check if we're viewing a lesson detail
 const isViewingDetail = computed(() => {
@@ -100,6 +105,8 @@ const pageTitle = computed(() => {
       return t('themes.title');
     case '/processing':
       return t('nav.processing');
+    case '/users':
+      return t('users.title');
     case '/preferences':
       return t('nav.preferences');
     default:
@@ -343,13 +350,42 @@ onMounted(() => {
         </div>
       </div>
 
+      <!-- Users View -->
+      <div v-else-if="currentRoute === '/users'">
+        <!-- Header -->
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-0">
+          <div class="mb-6 flex justify-between items-center">
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+              {{ t('users.title') }}
+              <span
+                v-if="usersListRef?.userCount"
+                class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400"
+              >
+                {{ usersListRef.userCount }}
+              </span>
+            </h2>
+            <button
+              @click="usersListRef?.openAddModal()"
+              class="inline-flex items-center gap-x-2 rounded-md bg-indigo-600 dark:bg-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 dark:hover:bg-indigo-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:focus-visible:outline-indigo-500 transition-colors"
+            >
+              <PlusIcon class="h-5 w-5" />
+              {{ t('users.addUser') }}
+            </button>
+          </div>
+        </div>
+        <!-- Content -->
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8">
+          <UsersManagement ref="usersListRef" />
+        </div>
+      </div>
+
       <!-- Preferences View -->
       <div v-else-if="currentRoute === '/preferences'" class="h-full flex flex-col">
         <Preferences />
       </div>
 
       <!-- Placeholder for other views -->
-      <main v-else-if="!isViewingDetail && currentRoute !== '/lessons' && currentRoute !== '/search' && currentRoute !== '/courses' && currentRoute !== '/themes' && currentRoute !== '/processing' && currentRoute !== '/preferences'" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main v-else-if="!isViewingDetail && currentRoute !== '/lessons' && currentRoute !== '/search' && currentRoute !== '/courses' && currentRoute !== '/themes' && currentRoute !== '/processing' && currentRoute !== '/users' && currentRoute !== '/preferences'" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-8 text-center transition-colors">
           <h2 class="text-2xl font-bold text-gray-900 dark:text-white mb-4">
             {{ pageTitle }}
