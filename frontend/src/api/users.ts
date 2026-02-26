@@ -20,6 +20,8 @@ export interface UserCreate {
 }
 
 export interface UserInvite {
+  first_name: string
+  last_name: string
   email: string
   role: string
 }
@@ -29,6 +31,8 @@ export interface InvitationResponse {
   email_address: string
   status: string
   role: string | null
+  first_name: string | null
+  last_name: string | null
   created_at: number | null
 }
 

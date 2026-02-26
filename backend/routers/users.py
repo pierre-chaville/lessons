@@ -42,6 +42,8 @@ class UserCreate(BaseModel):
 
 
 class UserInvite(BaseModel):
+    first_name: str = ""
+    last_name: str = ""
     email: str
     role: str = "reader"
 
@@ -55,6 +57,8 @@ class InvitationResponse(BaseModel):
     email_address: str
     status: str
     role: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     created_at: Optional[int] = None
 
 
@@ -160,9 +164,14 @@ def invite_user(
 ):
     """Send a Clerk invitation email with a role in public_metadata."""
     headers = _clerk_headers()
+    public_metadata: Dict[str, Any] = {"role": data.role}
+    if data.first_name:
+        public_metadata["first_name"] = data.first_name
+    if data.last_name:
+        public_metadata["last_name"] = data.last_name
     payload: Dict[str, Any] = {
         "email_address": data.email,
-        "public_metadata": {"role": data.role},
+        "public_metadata": public_metadata,
         "notify": True,
         "ignore_existing": False,
     }
@@ -181,6 +190,8 @@ def invite_user(
         email_address=body.get("email_address", data.email),
         status=body.get("status", "pending"),
         role=public_metadata.get("role"),
+        first_name=public_metadata.get("first_name"),
+        last_name=public_metadata.get("last_name"),
         created_at=body.get("created_at"),
     )
 
@@ -213,6 +224,8 @@ def list_invitations(
             email_address=inv.get("email_address", ""),
             status=inv.get("status", "pending"),
             role=public_metadata.get("role"),
+            first_name=public_metadata.get("first_name"),
+            last_name=public_metadata.get("last_name"),
             created_at=inv.get("created_at"),
         ))
     return results

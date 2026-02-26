@@ -35,6 +35,8 @@ const createForm = ref({
   role: 'reader',
 })
 const inviteForm = ref({
+  first_name: '',
+  last_name: '',
   email: '',
   role: 'reader',
 })
@@ -76,7 +78,7 @@ onMounted(fetchUsers)
 const openAddModal = () => {
   addMode.value = 'invite'
   createForm.value = { first_name: '', last_name: '', email: '', password: '', role: 'reader' }
-  inviteForm.value = { email: '', role: 'reader' }
+  inviteForm.value = { first_name: '', last_name: '', email: '', role: 'reader' }
   showAddModal.value = true
 }
 
@@ -338,6 +340,12 @@ defineExpose({ openAddModal, userCount })
                 {{ t('users.email') }}
               </th>
               <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                {{ t('users.firstName') }}
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                {{ t('users.lastName') }}
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                 {{ t('users.role') }}
               </th>
               <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
@@ -364,6 +372,12 @@ defineExpose({ openAddModal, userCount })
                   </div>
                   {{ inv.email_address }}
                 </div>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                {{ inv.first_name || '—' }}
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                {{ inv.last_name || '—' }}
               </td>
               <td class="px-6 py-4 whitespace-nowrap">
                 <span
@@ -492,6 +506,24 @@ defineExpose({ openAddModal, userCount })
             <p class="text-sm text-gray-500 dark:text-gray-400">
               {{ t('users.inviteDesc') }}
             </p>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{{ t('users.firstName') }}</label>
+              <input
+                v-model="inviteForm.first_name"
+                type="text"
+                required
+                class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{{ t('users.lastName') }}</label>
+              <input
+                v-model="inviteForm.last_name"
+                type="text"
+                required
+                class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
             <div>
               <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{{ t('users.email') }}</label>
               <input
