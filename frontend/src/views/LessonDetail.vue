@@ -96,6 +96,7 @@ const showSourceStatsModal = ref(false)
 
 // Transcript expander state (for edited view)
 const expandedTranscriptIndex = ref<number | null>(null)
+const showSideBySideTranscript = ref(false)
 
 // Process tasks modal state
 const showProcessModal = ref(false)
@@ -1714,119 +1715,205 @@ const saveSegment = async () => {
 
           <!-- Edited Transcript View -->
           <div v-else-if="activeView === 'edited'">
-            <div v-if="lesson.edited_transcript && lesson.edited_transcript.length > 0" class="space-y-4 max-h-[600px] overflow-auto scroll-smooth print:max-h-none">
-              <div
-                v-for="(part, index) in lesson.edited_transcript"
-                :key="index"
-                class="py-3 print:py-2"
-              >
-                <!-- Controls and Text -->
-                <div class="flex gap-3">
-                  <!-- Play/Pause Button -->
-                  <button
-                    v-if="audioUrl"
-                    @click="togglePlayEditedPart(part)"
-                    class="flex-shrink-0 p-1.5 rounded-md hover:bg-indigo-100 dark:hover:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 transition-colors print:hidden mt-1"
-                    :title="isEditedPartPlaying(part) ? t('lessons.pause') : t('lessons.playSegment')"
-                  >
-                    <PlayIcon v-if="!isEditedPartPlaying(part)" class="h-4 w-4" />
-                    <PauseIcon v-else class="h-4 w-4" />
-                  </button>
-                  
-                  <!-- Edited Text -->
-                  <div class="flex-1">
-                    <div class="prose prose-sm dark:prose-invert max-w-none mb-3">
-                      <div 
-                        class="text-gray-900 dark:text-gray-100 leading-relaxed whitespace-pre-wrap print:text-black"
-                        v-html="addSourceMarkers(renderMarkdown(part.text), part.sources, getGlobalSourceIndex(index))"
-                      ></div>
+            <!-- Toggle for side-by-side transcript -->
+            <div class="flex items-center justify-end mb-4 print:hidden">
+              <label class="inline-flex items-center gap-2 cursor-pointer select-none">
+                <span class="text-sm text-gray-600 dark:text-gray-400">{{ t('lessons.sideBySideTranscript') }}</span>
+                <button
+                  type="button"
+                  role="switch"
+                  :aria-checked="showSideBySideTranscript"
+                  @click="showSideBySideTranscript = !showSideBySideTranscript"
+                  :class="[
+                    showSideBySideTranscript ? 'bg-indigo-600' : 'bg-gray-300 dark:bg-gray-600',
+                    'relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800'
+                  ]"
+                >
+                  <span
+                    :class="[
+                      showSideBySideTranscript ? 'translate-x-4' : 'translate-x-0.5',
+                      'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out mt-0.5'
+                    ]"
+                  />
+                </button>
+              </label>
+            </div>
+
+            <div v-if="lesson.edited_transcript && lesson.edited_transcript.length > 0" class="max-h-[600px] overflow-auto scroll-smooth print:max-h-none">
+              <!-- Side-by-side layout: one row per paragraph -->
+              <div v-if="showSideBySideTranscript">
+                <div
+                  v-for="(part, index) in lesson.edited_transcript"
+                  :key="'sbs-' + index"
+                  class="grid grid-cols-2 gap-4 py-1.5 print:py-1"
+                >
+                  <!-- Left: Edited paragraph + sources -->
+                  <div>
+                    <div class="flex gap-3">
+                      <!-- Play/Pause Button -->
+                      <button
+                        v-if="audioUrl"
+                        @click="togglePlayEditedPart(part)"
+                        class="flex-shrink-0 p-1.5 rounded-md hover:bg-indigo-100 dark:hover:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 transition-colors print:hidden mt-1"
+                        :title="isEditedPartPlaying(part) ? t('lessons.pause') : t('lessons.playSegment')"
+                      >
+                        <PlayIcon v-if="!isEditedPartPlaying(part)" class="h-4 w-4" />
+                        <PauseIcon v-else class="h-4 w-4" />
+                      </button>
+                      
+                      <!-- Edited Text -->
+                      <div class="flex-1">
+                        <div class="prose prose-sm dark:prose-invert max-w-none">
+                          <div 
+                            class="text-gray-900 dark:text-gray-100 leading-relaxed whitespace-pre-wrap print:text-black"
+                            v-html="addSourceMarkers(renderMarkdown(part.text), part.sources, getGlobalSourceIndex(index))"
+                          ></div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Sources -->
+                    <div v-if="part.sources && part.sources.length > 0" class="space-y-2 mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 print:border-gray-300">
+                      <div class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+                        {{ t('lessons.sources') }}
+                      </div>
+                      <div
+                        v-for="(source, srcIndex) in part.sources"
+                        :key="srcIndex"
+                        @click="openSourceModal(part, source)"
+                        class="flex gap-3 p-3 rounded-md bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 print:bg-gray-50 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors print:cursor-default"
+                      >
+                        <div class="flex-shrink-0 text-green-600 dark:text-green-400 font-bold text-sm">
+                          [{{ getGlobalSourceIndex(index) + srcIndex + 1 }}]
+                        </div>
+                        <div class="flex-1 text-sm">
+                          <div class="flex items-center gap-2 mb-1">
+                            <div class="font-semibold text-gray-900 dark:text-white">
+                              <span v-if="source.type" class="text-gray-600 dark:text-gray-400">{{ source.type }}</span><span v-if="source.type && source.work"> — </span><span v-if="source.work" class="italic">{{ source.work }}</span>
+                            </div>
+                            <!-- Verification status icon -->
+                            <span v-if="source.verification_status && ['exactly_found', 'paraphrase_or_similar'].includes(source.verification_status) && source.verification_confidence !== null && source.verification_confidence > 0.9" 
+                              class="text-green-600 dark:text-green-400"
+                              title="Verified (confidence > 90%)">
+                              <CheckIcon class="h-5 w-5" />
+                            </span>
+                            <span v-else-if="!source.verification_status || ['not_found', 'reference_exists_but_text_differs'].includes(source.verification_status) || (source.verification_confidence !== null && source.verification_confidence <= 0.9) || source.slug_retrieved === false"
+                              class="text-yellow-600 dark:text-yellow-400"
+                              :title="!source.verification_status || ['not_found', 'reference_exists_but_text_differs'].includes(source.verification_status) ? 'Citation not found or differs' : source.verification_confidence !== null ? `Verification confidence: ${(source.verification_confidence * 100).toFixed(0)}%` : 'Not verified'">
+                              <ExclamationTriangleIcon class="h-5 w-5" />
+                            </span>
+                          </div>
+                          <div v-if="source.ref" class="text-xs text-gray-500 dark:text-gray-400 mb-1">
+                            {{ source.ref }}<span v-if="source.standard_slug" class="text-gray-400 dark:text-gray-500 font-mono ml-2">({{ source.standard_slug }})</span>
+                          </div>
+                          <div v-if="source.translation_text" class="text-gray-700 dark:text-gray-300 italic mb-1">
+                            "{{ source.translation_text }}"
+                          </div>
+                          <div v-if="source.original_text" class="text-gray-600 dark:text-gray-400 italic text-xs mt-1">
+                            <span class="font-medium">Original:</span> "{{ source.original_text }}"
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                  
-                  <!-- Transcript Toggle Button -->
-                  <button
-                    @click="toggleTranscript(index)"
-                    class="flex-shrink-0 p-1.5 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors print:hidden mt-1"
-                    :title="expandedTranscriptIndex === index ? t('lessons.hideTranscript') : t('lessons.showTranscript')"
-                  >
-                    <ChevronDownIcon v-if="expandedTranscriptIndex !== index" class="h-4 w-4" />
-                    <ChevronUpIcon v-else class="h-4 w-4" />
-                  </button>
-                </div>
-                
-                <!-- Expandable Transcript Section -->
-                <div 
-                  v-if="expandedTranscriptIndex === index"
-                  class="ml-11 mt-3 p-4 bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 print:hidden"
-                >
-                  <div class="space-y-3">
-                    <!-- Time Range Header -->
-                    <div class="flex items-center gap-2 pb-2 border-b border-gray-200 dark:border-gray-700">
-                      <ClockIcon class="h-4 w-4 text-gray-400 dark:text-gray-500" />
-                      <div class="text-xs text-gray-600 dark:text-gray-400">
-                        <span class="font-semibold">{{ t('lessons.timeRange') }}:</span>
-                        {{ formatTimestamp(part.start) }} - {{ formatTimestamp(part.end) }}
+
+                  <!-- Right: Corresponding transcript segments -->
+                  <div class="pl-4">
+                    <!-- Time Range -->
+                    <div class="flex items-center gap-2 mb-2">
+                      <ClockIcon class="h-3.5 w-3.5 text-gray-400 dark:text-gray-500" />
+                      <div class="text-xs text-gray-500 dark:text-gray-400">
+                        {{ formatTimestamp(part.start) }} – {{ formatTimestamp(part.end) }}
                       </div>
                     </div>
-                    
                     <!-- Transcript Segments -->
                     <div class="space-y-1">
-                      <div class="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                        {{ t('lessons.originalTranscript') }}
-                      </div>
                       <div 
                         v-for="(segment, idx) in getTranscriptSegments(part)"
                         :key="idx"
-                        class="text-sm text-gray-900 dark:text-gray-100 leading-relaxed"
+                        class="text-sm text-gray-700 dark:text-gray-300 leading-relaxed"
                       >
-                        <span class="text-xs font-mono text-indigo-600 dark:text-indigo-400 mr-2">{{ formatTimestamp(segment.start) }}-{{ formatTimestamp(segment.end) }}</span>{{ segment.text }}
+                        <span class="text-xs font-mono text-indigo-500 dark:text-indigo-400 mr-2">{{ formatTimestamp(segment.start) }}</span>{{ segment.text }}
                       </div>
-                      <div v-if="getTranscriptSegments(part).length === 0" class="text-sm text-gray-500 dark:text-gray-400 italic py-2">
+                      <div v-if="getTranscriptSegments(part).length === 0" class="text-sm text-gray-400 dark:text-gray-500 italic py-2">
                         {{ t('lessons.noTranscripts') }}
                       </div>
                     </div>
                   </div>
                 </div>
-                
-                <!-- Sources -->
-                <div v-if="part.sources && part.sources.length > 0" class="space-y-2 mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 print:border-gray-300">
-                  <div class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
-                    {{ t('lessons.sources') }}
-                  </div>
-                  <div
-                    v-for="(source, srcIndex) in part.sources"
-                    :key="srcIndex"
-                    @click="openSourceModal(part, source)"
-                    class="flex gap-3 p-3 rounded-md bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 print:bg-gray-50 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors print:cursor-default"
-                  >
-                    <div class="flex-shrink-0 text-green-600 dark:text-green-400 font-bold text-sm">
-                      [{{ getGlobalSourceIndex(index) + srcIndex + 1 }}]
+              </div>
+
+              <!-- Standard layout (no side-by-side) -->
+              <div v-else>
+                <div
+                  v-for="(part, index) in lesson.edited_transcript"
+                  :key="index"
+                  class="print:py-0.5"
+                >
+                  <!-- Controls and Text -->
+                  <div class="flex gap-2">
+                    <!-- Play/Pause Button -->
+                    <button
+                      v-if="audioUrl"
+                      @click="togglePlayEditedPart(part)"
+                      class="flex-shrink-0 p-1.5 rounded-md hover:bg-indigo-100 dark:hover:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 transition-colors print:hidden mt-1"
+                      :title="isEditedPartPlaying(part) ? t('lessons.pause') : t('lessons.playSegment')"
+                    >
+                      <PlayIcon v-if="!isEditedPartPlaying(part)" class="h-4 w-4" />
+                      <PauseIcon v-else class="h-4 w-4" />
+                    </button>
+                    
+                    <!-- Edited Text -->
+                    <div class="flex-1">
+                      <div class="prose prose-sm dark:prose-invert max-w-none">
+                        <div 
+                          class="text-gray-900 dark:text-gray-100 leading-normal whitespace-pre-wrap print:text-black"
+                          v-html="addSourceMarkers(renderMarkdown(part.text), part.sources, getGlobalSourceIndex(index))"
+                        ></div>
+                      </div>
                     </div>
-                    <div class="flex-1 text-sm">
-                      <div class="flex items-center gap-2 mb-1">
-                        <div class="font-semibold text-gray-900 dark:text-white">
-                          <span v-if="source.type" class="text-gray-600 dark:text-gray-400">{{ source.type }}</span><span v-if="source.type && source.work"> — </span><span v-if="source.work" class="italic">{{ source.work }}</span>
+                  </div>
+                  
+                  <!-- Sources -->
+                  <div v-if="part.sources && part.sources.length > 0" class="space-y-2 mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 print:border-gray-300">
+                    <div class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+                      {{ t('lessons.sources') }}
+                    </div>
+                    <div
+                      v-for="(source, srcIndex) in part.sources"
+                      :key="srcIndex"
+                      @click="openSourceModal(part, source)"
+                      class="flex gap-3 p-3 rounded-md bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 print:bg-gray-50 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors print:cursor-default"
+                    >
+                      <div class="flex-shrink-0 text-green-600 dark:text-green-400 font-bold text-sm">
+                        [{{ getGlobalSourceIndex(index) + srcIndex + 1 }}]
+                      </div>
+                      <div class="flex-1 text-sm">
+                        <div class="flex items-center gap-2 mb-1">
+                          <div class="font-semibold text-gray-900 dark:text-white">
+                            <span v-if="source.type" class="text-gray-600 dark:text-gray-400">{{ source.type }}</span><span v-if="source.type && source.work"> — </span><span v-if="source.work" class="italic">{{ source.work }}</span>
+                          </div>
+                          <!-- Verification status icon -->
+                          <span v-if="source.verification_status && ['exactly_found', 'paraphrase_or_similar'].includes(source.verification_status) && source.verification_confidence !== null && source.verification_confidence > 0.9" 
+                            class="text-green-600 dark:text-green-400"
+                            title="Verified (confidence > 90%)">
+                            <CheckIcon class="h-5 w-5" />
+                          </span>
+                          <span v-else-if="!source.verification_status || ['not_found', 'reference_exists_but_text_differs'].includes(source.verification_status) || (source.verification_confidence !== null && source.verification_confidence <= 0.9) || source.slug_retrieved === false"
+                            class="text-yellow-600 dark:text-yellow-400"
+                            :title="!source.verification_status || ['not_found', 'reference_exists_but_text_differs'].includes(source.verification_status) ? 'Citation not found or differs' : source.verification_confidence !== null ? `Verification confidence: ${(source.verification_confidence * 100).toFixed(0)}%` : 'Not verified'">
+                            <ExclamationTriangleIcon class="h-5 w-5" />
+                          </span>
                         </div>
-                        <!-- Verification status icon -->
-                        <span v-if="source.verification_status && ['exactly_found', 'paraphrase_or_similar'].includes(source.verification_status) && source.verification_confidence !== null && source.verification_confidence > 0.9" 
-                          class="text-green-600 dark:text-green-400"
-                          title="Verified (confidence > 90%)">
-                          <CheckIcon class="h-5 w-5" />
-                        </span>
-                        <span v-else-if="!source.verification_status || ['not_found', 'reference_exists_but_text_differs'].includes(source.verification_status) || (source.verification_confidence !== null && source.verification_confidence <= 0.9) || source.slug_retrieved === false"
-                          class="text-yellow-600 dark:text-yellow-400"
-                          :title="!source.verification_status || ['not_found', 'reference_exists_but_text_differs'].includes(source.verification_status) ? 'Citation not found or differs' : source.verification_confidence !== null ? `Verification confidence: ${(source.verification_confidence * 100).toFixed(0)}%` : 'Not verified'">
-                          <ExclamationTriangleIcon class="h-5 w-5" />
-                        </span>
-                      </div>
-                      <div v-if="source.ref" class="text-xs text-gray-500 dark:text-gray-400 mb-1">
-                        {{ source.ref }}<span v-if="source.standard_slug" class="text-gray-400 dark:text-gray-500 font-mono ml-2">({{ source.standard_slug }})</span>
-                      </div>
-                      <div v-if="source.translation_text" class="text-gray-700 dark:text-gray-300 italic mb-1">
-                        "{{ source.translation_text }}"
-                      </div>
-                      <div v-if="source.original_text" class="text-gray-600 dark:text-gray-400 italic text-xs mt-1">
-                        <span class="font-medium">Original:</span> "{{ source.original_text }}"
+                        <div v-if="source.ref" class="text-xs text-gray-500 dark:text-gray-400 mb-1">
+                          {{ source.ref }}<span v-if="source.standard_slug" class="text-gray-400 dark:text-gray-500 font-mono ml-2">({{ source.standard_slug }})</span>
+                        </div>
+                        <div v-if="source.translation_text" class="text-gray-700 dark:text-gray-300 italic mb-1">
+                          "{{ source.translation_text }}"
+                        </div>
+                        <div v-if="source.original_text" class="text-gray-600 dark:text-gray-400 italic text-xs mt-1">
+                          <span class="font-medium">Original:</span> "{{ source.original_text }}"
+                        </div>
                       </div>
                     </div>
                   </div>
