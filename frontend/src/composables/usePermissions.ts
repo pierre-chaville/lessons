@@ -45,8 +45,8 @@ const PERMISSIONS: Record<Resource, Record<string, Role[]>> = {
     update: ['admin'],
   },
   users: {
-    read:   ['admin'],
-    manage: ['admin'],
+    read:   ['publisher', 'admin'],
+    manage: ['publisher', 'admin'],
   },
 }
 

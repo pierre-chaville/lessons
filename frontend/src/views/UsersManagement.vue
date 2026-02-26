@@ -13,9 +13,13 @@ import { Dialog, DialogPanel, DialogTitle } from '@headlessui/vue'
 import { usersApi } from '@/api/users'
 import type { ClerkUser, InvitationResponse } from '@/api/users'
 import { useToast } from '@/composables/useToast'
+import { useAuth } from '@/composables/useAuth'
 
 const { t } = useI18n()
 const toast = useToast()
+const { role: currentUserRole } = useAuth()
+
+const isAdmin = computed(() => currentUserRole.value === 'admin')
 
 const users = ref<ClerkUser[]>([])
 const invitations = ref<InvitationResponse[]>([])
@@ -52,7 +56,18 @@ const showDeleteModal = ref(false)
 const deletingUser = ref<ClerkUser | null>(null)
 const deleting = ref(false)
 
-const ROLES = ['admin', 'publisher', 'editor', 'reader']
+const ALL_ROLES = ['admin', 'publisher', 'editor', 'reader']
+/** Publishers can't assign the admin role */
+const availableRoles = computed(() =>
+  isAdmin.value ? ALL_ROLES : ALL_ROLES.filter((r) => r !== 'admin'),
+)
+
+/** Whether the current user can edit/delete a given user */
+const canManageUser = (user: ClerkUser) => {
+  // Publishers cannot modify/delete admin users
+  if (!isAdmin.value && user.role === 'admin') return false
+  return true
+}
 
 const fetchUsers = async () => {
   loading.value = true
@@ -303,7 +318,7 @@ defineExpose({ openAddModal, userCount })
               {{ formatDate(user.last_sign_in_at) }}
             </td>
             <td class="px-6 py-4 whitespace-nowrap text-right">
-              <div class="flex items-center justify-end gap-2">
+              <div v-if="canManageUser(user)" class="flex items-center justify-end gap-2">
                 <button
                   @click="openEditModal(user)"
                   class="p-1.5 rounded-md hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
@@ -539,7 +554,7 @@ defineExpose({ openAddModal, userCount })
                 v-model="inviteForm.role"
                 class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               >
-                <option v-for="role in ROLES" :key="role" :value="role">
+                <option v-for="role in availableRoles" :key="role" :value="role">
                   {{ t(`users.roles.${role}`) }}
                 </option>
               </select>
@@ -612,7 +627,7 @@ defineExpose({ openAddModal, userCount })
                 v-model="createForm.role"
                 class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               >
-                <option v-for="role in ROLES" :key="role" :value="role">
+                <option v-for="role in availableRoles" :key="role" :value="role">
                   {{ t(`users.roles.${role}`) }}
                 </option>
               </select>
@@ -669,7 +684,7 @@ defineExpose({ openAddModal, userCount })
                 v-model="editRole"
                 class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               >
-                <option v-for="role in ROLES" :key="role" :value="role">
+                <option v-for="role in availableRoles" :key="role" :value="role">
                   {{ t(`users.roles.${role}`) }}
                 </option>
               </select>

@@ -7,7 +7,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from auth import require_roles
+from auth import require_roles, _extract_role
 from config import load_config
 
 router = APIRouter(prefix="/users", tags=["Users"])
@@ -99,11 +99,38 @@ def _parse_clerk_user(user: Dict[str, Any]) -> ClerkUser:
     )
 
 
+def _caller_role(claims: Dict[str, Any]) -> str:
+    """Extract the caller's role from JWT claims."""
+    return _extract_role(claims) or "reader"
+
+
+def _publisher_guard_role(claims: Dict[str, Any], target_role: str) -> None:
+    """Raise 403 if a publisher tries to assign or interact with the admin role."""
+    caller = _caller_role(claims)
+    if caller == "publisher" and target_role == "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Publishers cannot assign or interact with the admin role",
+        )
+
+
+def _publisher_guard_user(claims: Dict[str, Any], user_data: Dict[str, Any]) -> None:
+    """Raise 403 if a publisher tries to modify/delete an admin user."""
+    caller = _caller_role(claims)
+    if caller == "publisher":
+        user_role = (user_data.get("public_metadata") or {}).get("role", "")
+        if user_role == "admin":
+            raise HTTPException(
+                status_code=403,
+                detail="Publishers cannot modify admin users",
+            )
+
+
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
 @router.get("", response_model=List[ClerkUser])
 def list_users(
-    _: Dict[str, Any] = Depends(require_roles(["admin"])),
+    _: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
 ):
     """List all Clerk users."""
     headers = _clerk_headers()
@@ -135,9 +162,10 @@ def list_users(
 @router.post("", response_model=ClerkUser, status_code=201)
 def create_user(
     data: UserCreate,
-    _: Dict[str, Any] = Depends(require_roles(["admin"])),
+    claims: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
 ):
     """Create a new Clerk user with a role in public_metadata."""
+    _publisher_guard_role(claims, data.role)
     headers = _clerk_headers()
     payload = {
         "first_name": data.first_name,
@@ -160,9 +188,10 @@ def create_user(
 @router.post("/invite", response_model=InvitationResponse, status_code=201)
 def invite_user(
     data: UserInvite,
-    _: Dict[str, Any] = Depends(require_roles(["admin"])),
+    claims: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
 ):
     """Send a Clerk invitation email with a role in public_metadata."""
+    _publisher_guard_role(claims, data.role)
     headers = _clerk_headers()
     public_metadata: Dict[str, Any] = {"role": data.role}
     if data.first_name:
@@ -198,7 +227,7 @@ def invite_user(
 
 @router.get("/invitations", response_model=List[InvitationResponse])
 def list_invitations(
-    _: Dict[str, Any] = Depends(require_roles(["admin"])),
+    _: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
 ):
     """List pending Clerk invitations."""
     headers = _clerk_headers()
@@ -234,7 +263,7 @@ def list_invitations(
 @router.delete("/invitations/{invitation_id}", status_code=204)
 def revoke_invitation(
     invitation_id: str,
-    _: Dict[str, Any] = Depends(require_roles(["admin"])),
+    _: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
 ):
     """Revoke a pending Clerk invitation."""
     headers = _clerk_headers()
@@ -253,10 +282,21 @@ def revoke_invitation(
 def update_user_role(
     user_id: str,
     data: UserUpdateRole,
-    _: Dict[str, Any] = Depends(require_roles(["admin"])),
+    claims: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
 ):
     """Update a Clerk user's public_metadata role."""
+    # Publisher cannot set role to admin
+    _publisher_guard_role(claims, data.role)
+
     headers = _clerk_headers()
+
+    # Fetch current user to check if target is admin (publisher cannot modify admins)
+    if _caller_role(claims) == "publisher":
+        with httpx.Client(timeout=15) as client:
+            user_resp = client.get(f"{CLERK_API_BASE}/users/{user_id}", headers=headers)
+        if user_resp.status_code == 200:
+            _publisher_guard_user(claims, user_resp.json())
+
     payload = {"public_metadata": {"role": data.role}}
 
     with httpx.Client(timeout=15) as client:
@@ -272,10 +312,17 @@ def update_user_role(
 @router.delete("/{user_id}", status_code=204)
 def delete_user(
     user_id: str,
-    _: Dict[str, Any] = Depends(require_roles(["admin"])),
+    claims: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
 ):
     """Delete a Clerk user."""
     headers = _clerk_headers()
+
+    # Publisher cannot delete admin users — fetch target to check
+    if _caller_role(claims) == "publisher":
+        with httpx.Client(timeout=15) as client:
+            user_resp = client.get(f"{CLERK_API_BASE}/users/{user_id}", headers=headers)
+        if user_resp.status_code == 200:
+            _publisher_guard_user(claims, user_resp.json())
 
     with httpx.Client(timeout=15) as client:
         resp = client.delete(f"{CLERK_API_BASE}/users/{user_id}", headers=headers)
