@@ -31,7 +31,7 @@ const selectedTheme = ref<Theme | null>(null)
 
 const selectedLessonDetail = ref<LessonDetailType | null>(null)
 const audioPlayer = ref<HTMLAudioElement | null>(null)
-const currentAudioLessonId = ref<number | null>(null)
+const currentAudioLessonId = ref<string | null>(null)
 const currentSegmentKey = ref<string | null>(null)
 
 const audioBaseUrl = apiClient.defaults.baseURL ?? ''
@@ -115,9 +115,9 @@ const formatTimestamp = (seconds: number | null | undefined): string => {
 }
 
 const openLesson = (lesson: SearchLessonResult) => {
-  window.history.pushState({ lessonId: lesson.id }, '', `/lessons/${lesson.id}`)
+  window.history.pushState({ hashid: lesson.hashid }, '', `/lessons/${lesson.hashid}`)
   lessonsApi
-    .get(lesson.id)
+    .get(lesson.hashid)
     .then((data) => {
       selectedLessonDetail.value = data
     })
@@ -130,10 +130,10 @@ const playLessonSegment = (lesson: SearchLessonResult, startTime: number) => {
   const audio = audioPlayer.value
   if (!audio) return
 
-  const url = `${audioBaseUrl}/lessons/${lesson.id}/audio`
-  const needsNewSrc = !audio.src || !audio.src.endsWith(`/lessons/${lesson.id}/audio`)
+  const url = `${audioBaseUrl}/lessons/${lesson.hashid}/audio`
+  const needsNewSrc = !audio.src || !audio.src.endsWith(`/lessons/${lesson.hashid}/audio`)
   const start = Math.max(0, Number(startTime) || 0)
-  const segKey = `${lesson.id}:${start}`
+  const segKey = `${lesson.hashid}:${start}`
 
   if (!needsNewSrc && currentSegmentKey.value === segKey) {
     if (audio.paused) {
@@ -147,14 +147,14 @@ const playLessonSegment = (lesson: SearchLessonResult, startTime: number) => {
   const seekAndPlay = () => {
     try { audio.currentTime = start } catch { /* ignore */ }
     audio.play().catch(() => {})
-    currentAudioLessonId.value = lesson.id
+    currentAudioLessonId.value = lesson.hashid
     currentSegmentKey.value = segKey
   }
 
   if (needsNewSrc) {
     audio.src = url
     audio.load()
-    currentAudioLessonId.value = lesson.id
+    currentAudioLessonId.value = lesson.hashid
   }
 
   if (audio.readyState >= 2) {

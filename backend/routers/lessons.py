@@ -11,6 +11,7 @@ from database import get_session
 from schemas.lesson import LessonCreate, LessonUpdate, LessonListResponse, LessonResponse
 from services import lessons as lesson_service
 from services import pdf as pdf_service
+from hashid_utils import decode_id
 
 router = APIRouter(prefix="/lessons", tags=["Lessons"])
 
@@ -25,9 +26,10 @@ def get_lessons(
     return [lesson_service.build_lesson_list_item(lesson, session) for lesson in lessons]
 
 
-@router.get("/{lesson_id}", response_model=LessonResponse)
-def get_lesson(lesson_id: int, session: Session = Depends(get_session)):
-    """Get a specific lesson by ID with full details."""
+@router.get("/{lesson_hashid}", response_model=LessonResponse)
+def get_lesson(lesson_hashid: str, session: Session = Depends(get_session)):
+    """Get a specific lesson by hashid with full details."""
+    lesson_id = decode_id(lesson_hashid)
     lesson = crud.get_lesson(session, lesson_id)
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
@@ -44,24 +46,26 @@ def create_lesson(
     return lesson_service.create_lesson_with_audio(lesson_data, session)
 
 
-@router.patch("/{lesson_id}", response_model=LessonResponse)
+@router.patch("/{lesson_hashid}", response_model=LessonResponse)
 def update_lesson(
-    lesson_id: int,
+    lesson_hashid: str,
     lesson_data: LessonUpdate,
     session: Session = Depends(get_session),
     _: Dict[str, Any] = Depends(require_roles(["editor", "publisher", "admin"])),
 ):
     """Update an existing lesson."""
+    lesson_id = decode_id(lesson_hashid)
     return lesson_service.update_lesson_data(lesson_id, lesson_data, session)
 
 
-@router.delete("/{lesson_id}", status_code=204)
+@router.delete("/{lesson_hashid}", status_code=204)
 def delete_lesson(
-    lesson_id: int,
+    lesson_hashid: str,
     session: Session = Depends(get_session),
     _: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
 ):
     """Delete a lesson."""
+    lesson_id = decode_id(lesson_hashid)
     if not crud.delete_lesson(session, lesson_id):
         raise HTTPException(status_code=404, detail="Lesson not found")
     return None
@@ -69,11 +73,12 @@ def delete_lesson(
 
 # ── Audio URL ─────────────────────────────────────────────────────────────────
 
-@router.get("/{lesson_id}/audio-url")
-def get_lesson_audio_url(lesson_id: int, session: Session = Depends(get_session)):
+@router.get("/{lesson_hashid}/audio-url")
+def get_lesson_audio_url(lesson_hashid: str, session: Session = Depends(get_session)):
     """Get a presigned URL for a lesson audio file."""
     from storage import create_presigned_audio_url, get_audio_object_key, s3_enabled
 
+    lesson_id = decode_id(lesson_hashid)
     lesson = crud.get_lesson(session, lesson_id)
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
@@ -89,9 +94,10 @@ def get_lesson_audio_url(lesson_id: int, session: Session = Depends(get_session)
 
 # ── PDF exports ───────────────────────────────────────────────────────────────
 
-@router.get("/{lesson_id}/pdf/summary")
-def get_lesson_summary_pdf(lesson_id: int, session: Session = Depends(get_session)):
+@router.get("/{lesson_hashid}/pdf/summary")
+def get_lesson_summary_pdf(lesson_hashid: str, session: Session = Depends(get_session)):
     """Generate and download PDF of the lesson summary."""
+    lesson_id = decode_id(lesson_hashid)
     lesson = crud.get_lesson(session, lesson_id)
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
@@ -106,13 +112,14 @@ def get_lesson_summary_pdf(lesson_id: int, session: Session = Depends(get_sessio
     )
 
 
-@router.get("/{lesson_id}/pdf/transcript")
+@router.get("/{lesson_hashid}/pdf/transcript")
 def get_lesson_transcript_pdf(
-    lesson_id: int,
+    lesson_hashid: str,
     transcript_type: str = Query("corrected", regex="^(corrected|initial)$"),
     session: Session = Depends(get_session),
 ):
     """Generate and download PDF of the lesson transcript (without timestamps)."""
+    lesson_id = decode_id(lesson_hashid)
     lesson = crud.get_lesson(session, lesson_id)
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
@@ -135,11 +142,12 @@ def get_lesson_transcript_pdf(
     )
 
 
-@router.get("/{lesson_id}/pdf/edited")
+@router.get("/{lesson_hashid}/pdf/edited")
 def get_lesson_edited_transcript_pdf(
-    lesson_id: int, session: Session = Depends(get_session)
+    lesson_hashid: str, session: Session = Depends(get_session)
 ):
     """Generate and download PDF of the edited transcript with sources."""
+    lesson_id = decode_id(lesson_hashid)
     lesson = crud.get_lesson(session, lesson_id)
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
@@ -154,9 +162,10 @@ def get_lesson_edited_transcript_pdf(
     )
 
 
-@router.get("/{lesson_id}/pdf/sources")
-def get_lesson_sources_pdf(lesson_id: int, session: Session = Depends(get_session)):
+@router.get("/{lesson_hashid}/pdf/sources")
+def get_lesson_sources_pdf(lesson_hashid: str, session: Session = Depends(get_session)):
     """Generate and download PDF of all sources grouped by author."""
+    lesson_id = decode_id(lesson_hashid)
     lesson = crud.get_lesson(session, lesson_id)
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
@@ -171,11 +180,12 @@ def get_lesson_sources_pdf(lesson_id: int, session: Session = Depends(get_sessio
     )
 
 
-@router.get("/{lesson_id}/pdf/sources/detailed")
+@router.get("/{lesson_hashid}/pdf/sources/detailed")
 def get_lesson_detailed_sources_pdf(
-    lesson_id: int, session: Session = Depends(get_session)
+    lesson_hashid: str, session: Session = Depends(get_session)
 ):
     """Generate and download detailed PDF of all sources with full information."""
+    lesson_id = decode_id(lesson_hashid)
     lesson = crud.get_lesson(session, lesson_id)
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")

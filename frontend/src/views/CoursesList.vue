@@ -93,7 +93,7 @@ const updateCourse = async () => {
   }
   try {
     isSaving.value = true
-    await coursesApi.update(editingCourse.value.id, {
+    await coursesApi.update(editingCourse.value.hashid, {
       name: formData.value.name.trim(),
       description: formData.value.description.trim() || null,
     })
@@ -120,7 +120,7 @@ const deleteCourse = async () => {
   if (!deletingCourse.value) return
   try {
     isDeleting.value = true
-    await coursesApi.delete(deletingCourse.value.id)
+    await coursesApi.delete(deletingCourse.value.hashid)
     await fetchCourses()
     cancelDelete()
   } catch {
@@ -326,7 +326,7 @@ defineExpose({ openCreateModal })
     <div v-else class="w-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
       <div
         v-for="course in courses"
-        :key="course.id"
+        :key="course.hashid"
         class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-6 hover:shadow-md dark:hover:shadow-gray-900/50 transition-all border border-gray-200 dark:border-gray-700"
       >
         <div class="flex flex-col h-full">

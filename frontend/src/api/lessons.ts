@@ -11,47 +11,47 @@ export const lessonsApi = {
   list: (params?: { course_id?: number }) =>
     apiClient.get<LessonListItem[]>('/lessons', { params }).then((r) => r.data),
 
-  get: (id: number) =>
-    apiClient.get<LessonDetail>(`/lessons/${id}`).then((r) => r.data),
+  get: (hashid: string) =>
+    apiClient.get<LessonDetail>(`/lessons/${hashid}`).then((r) => r.data),
 
   create: (data: LessonCreate) =>
     apiClient.post<LessonDetail>('/lessons', data).then((r) => r.data),
 
-  update: (id: number, data: LessonUpdate) =>
-    apiClient.patch<LessonDetail>(`/lessons/${id}`, data).then((r) => r.data),
+  update: (hashid: string, data: LessonUpdate) =>
+    apiClient.patch<LessonDetail>(`/lessons/${hashid}`, data).then((r) => r.data),
 
-  delete: (id: number) => apiClient.delete(`/lessons/${id}`),
+  delete: (hashid: string) => apiClient.delete(`/lessons/${hashid}`),
 
-  getAudioUrl: (id: number) =>
-    apiClient.get<AudioUrlResponse>(`/lessons/${id}/audio-url`).then((r) => r.data),
+  getAudioUrl: (hashid: string) =>
+    apiClient.get<AudioUrlResponse>(`/lessons/${hashid}/audio-url`).then((r) => r.data),
 
   // ── PDF downloads — return raw Blob data ────────────────────────────────────
 
-  getPdfSummary: (id: number) =>
+  getPdfSummary: (hashid: string) =>
     apiClient
-      .get<Blob>(`/lessons/${id}/pdf/summary`, { responseType: 'blob' })
+      .get<Blob>(`/lessons/${hashid}/pdf/summary`, { responseType: 'blob' })
       .then((r) => r.data),
 
-  getPdfTranscript: (id: number, transcript_type: 'initial' | 'corrected') =>
+  getPdfTranscript: (hashid: string, transcript_type: 'initial' | 'corrected') =>
     apiClient
-      .get<Blob>(`/lessons/${id}/pdf/transcript`, {
+      .get<Blob>(`/lessons/${hashid}/pdf/transcript`, {
         params: { transcript_type },
         responseType: 'blob',
       })
       .then((r) => r.data),
 
-  getPdfEdited: (id: number) =>
+  getPdfEdited: (hashid: string) =>
     apiClient
-      .get<Blob>(`/lessons/${id}/pdf/edited`, { responseType: 'blob' })
+      .get<Blob>(`/lessons/${hashid}/pdf/edited`, { responseType: 'blob' })
       .then((r) => r.data),
 
-  getPdfSources: (id: number) =>
+  getPdfSources: (hashid: string) =>
     apiClient
-      .get<Blob>(`/lessons/${id}/pdf/sources`, { responseType: 'blob' })
+      .get<Blob>(`/lessons/${hashid}/pdf/sources`, { responseType: 'blob' })
       .then((r) => r.data),
 
-  getPdfDetailedSources: (id: number) =>
+  getPdfDetailedSources: (hashid: string) =>
     apiClient
-      .get<Blob>(`/lessons/${id}/pdf/sources/detailed`, { responseType: 'blob' })
+      .get<Blob>(`/lessons/${hashid}/pdf/sources/detailed`, { responseType: 'blob' })
       .then((r) => r.data),
 }

@@ -132,7 +132,7 @@ let awaitingProcessing = false  // true after creating tasks, before worker pick
 
 const refreshLesson = async () => {
   try {
-    const updated = await lessonsApi.get(props.lesson.id)
+    const updated = await lessonsApi.get(props.lesson.hashid)
     Object.assign(props.lesson, updated)
     if (updated.process_status) {
       // Worker has picked up the task — no longer "awaiting"
@@ -189,16 +189,16 @@ const hasSegments = (transcript: unknown): boolean => {
 }
 
 const loadAudioUrl = async () => {
-  if (!props.lesson.id) { audioUrl.value = null; return }
+  if (!props.lesson.hashid) { audioUrl.value = null; return }
   try {
-    const data = await lessonsApi.getAudioUrl(props.lesson.id)
+    const data = await lessonsApi.getAudioUrl(props.lesson.hashid)
     audioUrl.value = data?.url ?? null
   } catch {
     audioUrl.value = null
   }
 }
 
-watch(() => props.lesson.id, () => { loadAudioUrl() }, { immediate: true })
+watch(() => props.lesson.hashid, () => { loadAudioUrl() }, { immediate: true })
 
 // Play audio from specific timestamp
 const playFromTimestamp = (startTime: number) => {
@@ -547,7 +547,7 @@ const saveSummary = async () => {
   if (isSavingSummary.value) return
   try {
     isSavingSummary.value = true
-    await lessonsApi.update(props.lesson.id, { summary: editedSummary.value })
+    await lessonsApi.update(props.lesson.hashid, { summary: editedSummary.value })
     props.lesson.summary = editedSummary.value
     isEditingSummary.value = false
   } catch {
@@ -641,7 +641,7 @@ const triggerDownload = (blob: Blob, filename: string) => {
 
 const downloadSummaryPDF = async () => {
   try {
-    const blob = await lessonsApi.getPdfSummary(props.lesson.id)
+    const blob = await lessonsApi.getPdfSummary(props.lesson.hashid)
     triggerDownload(blob, `${props.lesson.title}_summary.pdf`)
   } catch {
     toast.error(t('lessons.downloadFailed'))
@@ -651,7 +651,7 @@ const downloadSummaryPDF = async () => {
 const downloadTranscriptPDF = async () => {
   try {
     const transcriptType = props.lesson.corrected_transcript ? 'corrected' : 'initial'
-    const blob = await lessonsApi.getPdfTranscript(props.lesson.id, transcriptType)
+    const blob = await lessonsApi.getPdfTranscript(props.lesson.hashid, transcriptType)
     triggerDownload(blob, `${props.lesson.title}_transcript.pdf`)
   } catch {
     toast.error(t('lessons.downloadFailed'))
@@ -660,7 +660,7 @@ const downloadTranscriptPDF = async () => {
 
 const downloadEditedPDF = async () => {
   try {
-    const blob = await lessonsApi.getPdfEdited(props.lesson.id)
+    const blob = await lessonsApi.getPdfEdited(props.lesson.hashid)
     triggerDownload(blob, `${props.lesson.title}_edited.pdf`)
   } catch {
     toast.error(t('lessons.downloadFailed'))
@@ -669,7 +669,7 @@ const downloadEditedPDF = async () => {
 
 const downloadSourcesPDF = async () => {
   try {
-    const blob = await lessonsApi.getPdfSources(props.lesson.id)
+    const blob = await lessonsApi.getPdfSources(props.lesson.hashid)
     triggerDownload(blob, `${props.lesson.title}_sources.pdf`)
   } catch {
     toast.error(t('lessons.downloadFailed'))
@@ -678,7 +678,7 @@ const downloadSourcesPDF = async () => {
 
 const downloadDetailedSourcesPDF = async () => {
   try {
-    const blob = await lessonsApi.getPdfDetailedSources(props.lesson.id)
+    const blob = await lessonsApi.getPdfDetailedSources(props.lesson.hashid)
     triggerDownload(blob, `${props.lesson.title}_sources_detailed.pdf`)
   } catch {
     toast.error(t('lessons.downloadFailed'))
@@ -713,7 +713,7 @@ const saveLesson = async () => {
   if (isSavingLesson.value) return
   try {
     isSavingLesson.value = true
-    const updated = await lessonsApi.update(props.lesson.id, {
+    const updated = await lessonsApi.update(props.lesson.hashid, {
       title: editedLesson.value.title,
       date: editedLesson.value.date ? new Date(editedLesson.value.date).toISOString() : null,
       course_id: editedLesson.value.course_id,
@@ -745,7 +745,7 @@ const cancelDelete = () => { showDeleteConfirm.value = false }
 const deleteLesson = async () => {
   try {
     isDeleting.value = true
-    await lessonsApi.delete(props.lesson.id)
+    await lessonsApi.delete(props.lesson.hashid)
     showDeleteConfirm.value = false
     emit('close')
   } catch {
@@ -867,7 +867,7 @@ const saveSegment = async () => {
         ...segments[editingSegmentIndex.value],
         text: editedSegmentText.value,
       }
-      await lessonsApi.update(props.lesson.id, { [transcriptToUpdate]: segments })
+      await lessonsApi.update(props.lesson.hashid, { [transcriptToUpdate]: segments })
       if (hasCorrected) {
         props.lesson.corrected_transcript = segments
       } else {

@@ -12,7 +12,30 @@ from schemas.lesson import (
     LessonListResponse,
     LessonResponse,
 )
+from schemas.course import CourseResponse
+from schemas.theme import ThemeResponse
 from storage import rename_audio_object, s3_enabled
+from hashid_utils import encode_id
+
+
+def _build_course_resp(course) -> CourseResponse | None:
+    """Convert a Course DB model to CourseResponse with hashid."""
+    if course is None:
+        return None
+    return CourseResponse(
+        id=course.id,
+        hashid=encode_id(course.id),
+        name=course.name,
+        description=course.description,
+    )
+
+
+def _build_theme_resps(themes) -> list[ThemeResponse]:
+    """Convert a list of Theme DB models to ThemeResponse with hashids."""
+    return [
+        ThemeResponse(id=t.id, hashid=encode_id(t.id), name=t.name)
+        for t in themes
+    ]
 
 
 def build_lesson_response(lesson: Lesson, session: Session) -> LessonResponse:
@@ -21,6 +44,7 @@ def build_lesson_response(lesson: Lesson, session: Session) -> LessonResponse:
     themes = crud.get_themes_by_ids(session, theme_ids) if theme_ids else []
     return LessonResponse(
         id=lesson.id,
+        hashid=encode_id(lesson.id),
         title=lesson.title,
         filename=lesson.filename,
         course_id=lesson.course_id,
@@ -33,8 +57,8 @@ def build_lesson_response(lesson: Lesson, session: Session) -> LessonResponse:
         summary=lesson.summary,
         process_status=lesson.process_status,
         theme_ids=theme_ids,
-        themes=themes,
-        course=lesson.course,
+        themes=_build_theme_resps(themes),
+        course=_build_course_resp(lesson.course),
         transcript_metadata=lesson.transcript_metadata,
         correction_metadata=lesson.correction_metadata,
         summary_metadata=lesson.summary_metadata,
@@ -48,14 +72,15 @@ def build_lesson_list_item(lesson: Lesson, session: Session) -> LessonListRespon
     themes = crud.get_themes_by_ids(session, theme_ids) if theme_ids else []
     return LessonListResponse(
         id=lesson.id,
+        hashid=encode_id(lesson.id),
         title=lesson.title,
         date=lesson.date,
         duration=lesson.duration,
         brief=lesson.brief,
         process_status=lesson.process_status,
         filename=lesson.filename,
-        themes=themes,
-        course=lesson.course,
+        themes=_build_theme_resps(themes),
+        course=_build_course_resp(lesson.course),
     )
 
 

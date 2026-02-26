@@ -36,7 +36,7 @@ const hasAccess = computed(() => allowedRoles.includes(userRole.value));
 const getInitialRoute = () => {
   const path = window.location.pathname;
   // Check if we're on a lesson detail page
-  if (path.match(/^\/lessons\/\d+$/)) {
+  if (path.match(/^\/lessons\/[a-zA-Z0-9]+$/)) {
     return '/lessons';
   }
   // Map common paths
@@ -84,7 +84,7 @@ const handleNavigation = (route) => {
   // Update URL without lesson ID when navigating to main routes
   if (route === '/lessons') {
     // Only update if we're not on a lesson detail page
-    if (!window.location.pathname.match(/^\/lessons\/\d+$/)) {
+    if (!window.location.pathname.match(/^\/lessons\/[a-zA-Z0-9]+$/)) {
       window.history.pushState({}, '', route);
     }
   } else {

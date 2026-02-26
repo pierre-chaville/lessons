@@ -29,27 +29,27 @@ const selectedCourse = ref<Course | null>(null)
 const selectedTheme = ref<Theme | null>(null)
 const showCreateModal = ref(false)
 
-const getLessonIdFromUrl = (): number | null => {
-  const match = window.location.pathname.match(/\/lessons\/(\d+)/)
-  return match ? parseInt(match[1], 10) : null
+const getHashidFromUrl = (): string | null => {
+  const match = window.location.pathname.match(/\/lessons\/([a-zA-Z0-9]+)/)
+  return match ? match[1] : null
 }
 
-const updateUrl = (lessonId: number | null) => {
-  if (lessonId) {
-    window.history.pushState({ lessonId }, '', `/lessons/${lessonId}`)
+const updateUrl = (hashid: string | null) => {
+  if (hashid) {
+    window.history.pushState({ hashid }, '', `/lessons/${hashid}`)
   } else {
     window.history.pushState({}, '', '/lessons')
   }
 }
 
 const handlePopState = (event: PopStateEvent) => {
-  const lessonId = event.state?.lessonId ?? getLessonIdFromUrl()
-  if (lessonId) {
-    const lesson = lessons.value.find((l) => l.id === lessonId)
+  const hashid = event.state?.hashid ?? getHashidFromUrl()
+  if (hashid) {
+    const lesson = lessons.value.find((l) => l.hashid === hashid)
     if (lesson) {
       openLesson(lesson)
     } else {
-      fetchLessonById(lessonId)
+      fetchLessonByHashid(hashid)
     }
   } else {
     closeLesson()
@@ -114,10 +114,10 @@ const formatDuration = (seconds: number | null | undefined): string => {
   return `${secs}s`
 }
 
-const fetchLessonById = async (lessonId: number) => {
+const fetchLessonByHashid = async (hashid: string) => {
   try {
-    selectedLessonDetail.value = await lessonsApi.get(lessonId)
-    selectedLesson.value = { id: lessonId } as LessonListItem
+    selectedLessonDetail.value = await lessonsApi.get(hashid)
+    selectedLesson.value = { hashid } as LessonListItem
   } catch {
     updateUrl(null)
   }
@@ -125,8 +125,8 @@ const fetchLessonById = async (lessonId: number) => {
 
 const openLesson = async (lesson: LessonListItem) => {
   try {
-    updateUrl(lesson.id)
-    selectedLessonDetail.value = await lessonsApi.get(lesson.id)
+    updateUrl(lesson.hashid)
+    selectedLessonDetail.value = await lessonsApi.get(lesson.hashid)
     selectedLesson.value = lesson
   } catch {
     updateUrl(null)
@@ -154,13 +154,13 @@ const onLessonCreated = () => {
 onMounted(async () => {
   window.addEventListener('popstate', handlePopState)
   await Promise.all([fetchCourses(), fetchThemes(), fetchLessons()])
-  const lessonId = getLessonIdFromUrl()
-  if (lessonId) {
-    const lesson = lessons.value.find((l) => l.id === lessonId)
+  const hashid = getHashidFromUrl()
+  if (hashid) {
+    const lesson = lessons.value.find((l) => l.hashid === hashid)
     if (lesson) {
       await openLesson(lesson)
     } else {
-      await fetchLessonById(lessonId)
+      await fetchLessonByHashid(hashid)
     }
   }
 })

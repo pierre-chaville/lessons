@@ -90,7 +90,7 @@ const updateTheme = async () => {
   }
   try {
     isSaving.value = true
-    await themesApi.update(editingTheme.value.id, { name: formData.value.name.trim() })
+    await themesApi.update(editingTheme.value.hashid, { name: formData.value.name.trim() })
     await fetchThemes()
     closeEditModal()
   } catch {
@@ -114,7 +114,7 @@ const deleteTheme = async () => {
   if (!deletingTheme.value) return
   try {
     isDeleting.value = true
-    await themesApi.delete(deletingTheme.value.id)
+    await themesApi.delete(deletingTheme.value.hashid)
     await fetchThemes()
     cancelDelete()
   } catch {
@@ -303,7 +303,7 @@ defineExpose({ openCreateModal })
     <div v-else class="w-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
       <div
         v-for="theme in themes"
-        :key="theme.id"
+        :key="theme.hashid"
         class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-6 hover:shadow-md dark:hover:shadow-gray-900/50 transition-all border border-gray-200 dark:border-gray-700"
       >
         <div class="flex flex-col h-full">

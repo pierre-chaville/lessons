@@ -5,8 +5,9 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 
 from schemas.source import Source
-from models.theme import Theme
-from models.course import Course
+from schemas.theme import ThemeResponse
+from schemas.course import CourseResponse
+from hashid_utils import encode_id
 
 
 class Segment(BaseModel):
@@ -65,14 +66,15 @@ class LessonListResponse(BaseModel):
     """Lightweight lesson response for list view"""
 
     id: int
+    hashid: str = ""
     title: str
     date: datetime
     duration: Optional[float]
     brief: Optional[str]
     process_status: Optional[str] = None
     filename: str
-    themes: List[Theme] = []
-    course: Optional[Course] = None
+    themes: List[ThemeResponse] = []
+    course: Optional[CourseResponse] = None
 
     class Config:
         from_attributes = True
@@ -82,6 +84,7 @@ class LessonResponse(BaseModel):
     """Full lesson response with all fields and enriched relations"""
 
     id: int
+    hashid: str = ""
     title: str
     filename: str
     course_id: Optional[int]
@@ -94,8 +97,8 @@ class LessonResponse(BaseModel):
     summary: Optional[str]
     process_status: Optional[str] = None
     theme_ids: List[int]
-    themes: List[Theme] = []
-    course: Optional[Course] = None
+    themes: List[ThemeResponse] = []
+    course: Optional[CourseResponse] = None
     transcript_metadata: Optional[Dict[str, Any]] = None
     correction_metadata: Optional[Dict[str, Any]] = None
     summary_metadata: Optional[Dict[str, Any]] = None

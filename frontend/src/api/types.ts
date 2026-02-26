@@ -44,6 +44,7 @@ export interface EditedParagraph {
 
 export interface Course {
   id: number
+  hashid: string
   name: string
   description: string | null
   lessons?: LessonListItem[]
@@ -63,6 +64,7 @@ export interface CourseUpdate {
 
 export interface Theme {
   id: number
+  hashid: string
   name: string
 }
 
@@ -79,6 +81,7 @@ export interface ThemeUpdate {
 /** Lightweight shape returned by GET /lessons (list view). */
 export interface LessonListItem {
   id: number
+  hashid: string
   title: string
   date: string
   duration: number | null
@@ -89,9 +92,10 @@ export interface LessonListItem {
   course: Course | null
 }
 
-/** Full shape returned by GET /lessons/:id. */
+/** Full shape returned by GET /lessons/:hashid. */
 export interface LessonDetail {
   id: number
+  hashid: string
   title: string
   filename: string
   course_id: number | null
@@ -140,7 +144,7 @@ export interface LessonUpdate {
   edited_metadata?: Record<string, unknown> | null
 }
 
-/** Response from GET /lessons/:id/audio-url */
+/** Response from GET /lessons/:hashid/audio-url */
 export interface AudioUrlResponse {
   url: string
 }
@@ -195,6 +199,7 @@ export interface SearchMatchSegment {
 
 export interface SearchLessonResult {
   id: number
+  hashid: string
   title: string
   date: string
   duration: number | null

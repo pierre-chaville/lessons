@@ -6,6 +6,25 @@ from typing import List, Optional
 import crud
 import search_utils
 from schemas.search import SearchLessonResult
+from schemas.course import CourseResponse
+from schemas.theme import ThemeResponse
+from hashid_utils import encode_id
+
+
+def _build_course_resp(course) -> CourseResponse | None:
+    if course is None:
+        return None
+    return CourseResponse(
+        id=course.id, hashid=encode_id(course.id),
+        name=course.name, description=course.description,
+    )
+
+
+def _build_theme_resps(themes) -> list[ThemeResponse]:
+    return [
+        ThemeResponse(id=t.id, hashid=encode_id(t.id), name=t.name)
+        for t in themes
+    ]
 
 
 def search_lessons(
@@ -45,13 +64,14 @@ def search_lessons(
         results.append(
             SearchLessonResult(
                 id=lesson.id,
+                hashid=encode_id(lesson.id),
                 title=lesson.title,
                 date=lesson.date,
                 duration=lesson.duration,
                 brief=lesson.brief,
                 filename=lesson.filename,
-                themes=themes,
-                course=lesson.course,
+                themes=_build_theme_resps(themes),
+                course=_build_course_resp(lesson.course),
                 matches=matches,
                 match_count=len(matches),
                 best_score=best_score,
