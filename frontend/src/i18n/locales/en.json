@@ -116,6 +116,7 @@
     "selectAtLeastOneProcess": "Please select at least one process",
     "tasksCreated": "{count} task(s) created successfully",
     "tasksCreationFailed": "Failed to create tasks. Please try again.",
+    "selectAllRemaining": "Select all remaining",
     "processingStatus": "Processing",
     "processStatusTranscript": "Transcription",
     "processStatusEdition": "Edition",

@@ -754,6 +754,30 @@ const deleteLesson = async () => {
   }
 }
 
+// Process option availability: depends on existing data + selected options
+const hasTranscript = computed(() => !!(props.lesson.transcript && props.lesson.transcript.length > 0))
+const hasCorrectedTranscript = computed(() => !!(props.lesson.corrected_transcript && props.lesson.corrected_transcript.length > 0))
+const hasEditedTranscript = computed(() => !!(props.lesson.edited_transcript && props.lesson.edited_transcript.length > 0))
+const hasSourcesExtracted = computed(() => {
+  if (!props.lesson.edited_transcript) return false
+  return props.lesson.edited_transcript.some((p) => p.sources && p.sources.length > 0)
+})
+
+const canCorrect = computed(() => hasTranscript.value || selectedProcesses.value.transcribe)
+const canEdition = computed(() => hasCorrectedTranscript.value || selectedProcesses.value.correct)
+const canExtraction = computed(() => hasEditedTranscript.value || selectedProcesses.value.edition)
+const canSources = computed(() => hasSourcesExtracted.value || selectedProcesses.value.extraction)
+const canSummary = computed(() => hasEditedTranscript.value || selectedProcesses.value.edition)
+
+// Uncheck options that become disabled
+watch([canCorrect, canEdition, canExtraction, canSources, canSummary], () => {
+  if (!canCorrect.value) selectedProcesses.value.correct = false
+  if (!canEdition.value) selectedProcesses.value.edition = false
+  if (!canExtraction.value) selectedProcesses.value.extraction = false
+  if (!canSources.value) selectedProcesses.value.sources = false
+  if (!canSummary.value) selectedProcesses.value.summary = false
+})
+
 // Process tasks modal functions
 const openProcessModal = async () => {
   selectedProcesses.value = {
@@ -771,6 +795,17 @@ const openProcessModal = async () => {
 }
 
 const closeProcessModal = () => { showProcessModal.value = false }
+
+const selectAllRemaining = () => {
+  // Select all steps that haven't been completed yet
+  if (!hasTranscript.value) selectedProcesses.value.transcribe = true
+  if (!hasCorrectedTranscript.value) selectedProcesses.value.correct = true
+  if (!hasEditedTranscript.value) selectedProcesses.value.edition = true
+  if (!hasSourcesExtracted.value) selectedProcesses.value.extraction = true
+  // Sources checking can always be re-run, select if extraction will be done or sources exist
+  if (canSources.value) selectedProcesses.value.sources = true
+  if (!props.lesson.summary) selectedProcesses.value.summary = true
+}
 
 const createTasks = async () => {
   const selectedTasks = Object.keys(selectedProcesses.value).filter((k) => selectedProcesses.value[k])
@@ -917,8 +952,20 @@ const saveSegment = async () => {
             </div>
           </div>
           
+          <!-- Select All Remaining Button -->
+          <div class="flex justify-end mb-4">
+            <button
+              @click="selectAllRemaining"
+              class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 rounded-md transition-colors"
+            >
+              <CheckIcon class="h-3.5 w-3.5" />
+              {{ t('lessons.selectAllRemaining') }}
+            </button>
+          </div>
+
           <!-- Process Selection -->
           <div class="space-y-3 mb-6">
+            <!-- Transcribe (always available) -->
             <label class="flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors">
               <input
                 type="checkbox"
@@ -935,11 +982,18 @@ const saveSegment = async () => {
               </div>
             </label>
             
-            <label class="flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors">
+            <!-- Correct (needs transcript) -->
+            <label :class="[
+              'flex items-center gap-3 p-3 rounded-lg border transition-colors',
+              canCorrect
+                ? 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer'
+                : 'border-gray-100 dark:border-gray-800 opacity-50 cursor-not-allowed'
+            ]">
               <input
                 type="checkbox"
                 v-model="selectedProcesses.correct"
-                class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                :disabled="!canCorrect"
+                class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 disabled:opacity-50"
               />
               <div>
                 <div class="text-sm font-medium text-gray-900 dark:text-white">
@@ -951,11 +1005,18 @@ const saveSegment = async () => {
               </div>
             </label>
             
-            <label class="flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors">
+            <!-- Edition (needs corrected transcript) -->
+            <label :class="[
+              'flex items-center gap-3 p-3 rounded-lg border transition-colors',
+              canEdition
+                ? 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer'
+                : 'border-gray-100 dark:border-gray-800 opacity-50 cursor-not-allowed'
+            ]">
               <input
                 type="checkbox"
                 v-model="selectedProcesses.edition"
-                class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                :disabled="!canEdition"
+                class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 disabled:opacity-50"
               />
               <div>
                 <div class="text-sm font-medium text-gray-900 dark:text-white">
@@ -967,11 +1028,18 @@ const saveSegment = async () => {
               </div>
             </label>
             
-            <label class="flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors">
+            <!-- Extract sources (needs edited transcript) -->
+            <label :class="[
+              'flex items-center gap-3 p-3 rounded-lg border transition-colors',
+              canExtraction
+                ? 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer'
+                : 'border-gray-100 dark:border-gray-800 opacity-50 cursor-not-allowed'
+            ]">
               <input
                 type="checkbox"
                 v-model="selectedProcesses.extraction"
-                class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                :disabled="!canExtraction"
+                class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 disabled:opacity-50"
               />
               <div>
                 <div class="text-sm font-medium text-gray-900 dark:text-white">
@@ -982,12 +1050,42 @@ const saveSegment = async () => {
                 </div>
               </div>
             </label>
-            
-            <label class="flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors">
+
+            <!-- Verify sources (needs sources extracted) -->
+            <label :class="[
+              'flex items-center gap-3 p-3 rounded-lg border transition-colors',
+              canSources
+                ? 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer'
+                : 'border-gray-100 dark:border-gray-800 opacity-50 cursor-not-allowed'
+            ]">
+              <input
+                type="checkbox"
+                v-model="selectedProcesses.sources"
+                :disabled="!canSources"
+                class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 disabled:opacity-50"
+              />
+              <div class="flex-1">
+                <div class="text-sm font-medium text-gray-900 dark:text-white">
+                  {{ t('lessons.processSources') }}
+                </div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('lessons.processSourcesDesc') }}
+                </div>
+              </div>
+            </label>
+
+            <!-- Summary (needs edited transcript) -->
+            <label :class="[
+              'flex items-center gap-3 p-3 rounded-lg border transition-colors',
+              canSummary
+                ? 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer'
+                : 'border-gray-100 dark:border-gray-800 opacity-50 cursor-not-allowed'
+            ]">
               <input
                 type="checkbox"
                 v-model="selectedProcesses.summary"
-                class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                :disabled="!canSummary"
+                class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 disabled:opacity-50"
               />
               <div class="flex-1">
                 <div class="text-sm font-medium text-gray-900 dark:text-white">
@@ -999,21 +1097,6 @@ const saveSegment = async () => {
               </div>
             </label>
             
-            <label class="flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors">
-              <input
-                type="checkbox"
-                v-model="selectedProcesses.sources"
-                class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
-              />
-              <div class="flex-1">
-                <div class="text-sm font-medium text-gray-900 dark:text-white">
-                  {{ t('lessons.processSources') }}
-                </div>
-                <div class="text-xs text-gray-500 dark:text-gray-400">
-                  {{ t('lessons.processSourcesDesc') }}
-                </div>
-              </div>
-            </label>
             
             <!-- Summary Prompt Type Selection (shown when summary is selected) -->
             <div v-if="selectedProcesses.summary" class="ml-7 -mt-1 mb-2">
