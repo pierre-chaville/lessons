@@ -53,6 +53,7 @@ class LessonUpdate(BaseModel):
     edited_transcript: Optional[List[EditedParagraph]] = None
     brief: Optional[str] = None
     summary: Optional[str] = None
+    process_status: Optional[str] = None  # transcript, edition, sources_extraction, sources_checking, summary
     theme_ids: Optional[List[int]] = None
     transcript_metadata: Optional[Dict[str, Any]] = None
     correction_metadata: Optional[Dict[str, Any]] = None
@@ -68,6 +69,7 @@ class LessonListResponse(BaseModel):
     date: datetime
     duration: Optional[float]
     brief: Optional[str]
+    process_status: Optional[str] = None
     filename: str
     themes: List[Theme] = []
     course: Optional[Course] = None
@@ -90,6 +92,7 @@ class LessonResponse(BaseModel):
     edited_transcript: Optional[List[EditedParagraph]]
     brief: Optional[str]
     summary: Optional[str]
+    process_status: Optional[str] = None
     theme_ids: List[int]
     themes: List[Theme] = []
     course: Optional[Course] = None

@@ -43,6 +43,8 @@
     "createLesson": "Create New Lesson",
     "audioFile": "Audio File",
     "clickToUpload": "Click to upload audio file",
+    "clickOrDrop": "Click or drag & drop an audio file",
+    "invalidAudioFile": "Please select a valid audio file.",
     "titlePlaceholder": "Enter lesson title",
     "fillRequired": "Please select a file and enter a title",
     "createFailed": "Failed to create lesson. Please try again.",
@@ -113,7 +115,14 @@
     "creating": "Creating...",
     "selectAtLeastOneProcess": "Please select at least one process",
     "tasksCreated": "{count} task(s) created successfully",
-    "tasksCreationFailed": "Failed to create tasks. Please try again."
+    "tasksCreationFailed": "Failed to create tasks. Please try again.",
+    "processingStatus": "Processing",
+    "processStatusTranscript": "Transcription",
+    "processStatusEdition": "Edition",
+    "processStatusSourcesExtraction": "Sources extraction",
+    "processStatusSourcesChecking": "Sources checking",
+    "processStatusSummary": "Summary",
+    "processingMessage": "This lesson is currently being processed. Editing is disabled."
   },
   "courses": {
     "title": "Courses",

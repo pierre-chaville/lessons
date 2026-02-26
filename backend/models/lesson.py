@@ -33,6 +33,7 @@ class Lesson(SQLModel, table=True):
     )  # List of edited parts with sources
     brief: Optional[str] = None  # Short 1-3 line summary
     summary: Optional[str] = None
+    process_status: Optional[str] = None  # Current processing step: transcript, edition, sources_extraction, sources_checking, summary
 
     # Metadata for transcript, correction, summary and edited transcript
     transcript_metadata: Optional[Dict[str, Any]] = Field(

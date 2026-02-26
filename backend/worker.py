@@ -8,6 +8,7 @@ from datetime import datetime
 from sqlmodel import Session, select
 from database import engine
 from models import Task
+from models.lesson import Lesson
 from tasks import (
     correct_transcript,
     edit_transcript,
@@ -26,6 +27,26 @@ logger = logging.getLogger(__name__)
 
 # Global flag for graceful shutdown — set to True from outside to stop the loop.
 should_stop = False
+
+# Map task types to lesson process_status values
+TASK_TYPE_TO_PROCESS_STATUS = {
+    "transcription": "transcript",
+    "correction": "transcript",
+    "edition": "edition",
+    "extraction": "sources_extraction",
+    "sources": "sources_checking",
+    "summary": "summary",
+}
+
+
+def set_lesson_process_status(session: Session, lesson_id: int, status: str | None):
+    """Set the process_status on a lesson."""
+    lesson = session.get(Lesson, lesson_id)
+    if lesson:
+        lesson.process_status = status
+        session.add(lesson)
+        session.commit()
+        session.refresh(lesson)
 
 
 def get_pending_task(session: Session) -> Task:
@@ -299,9 +320,18 @@ def process_sources_task(session: Session, task: Task):
 
 def process_task(session: Session, task: Task):
     """Process a task based on its type"""
+    # Resolve lesson_id so we can update process_status on the lesson
+    params = task.parameters or {}
+    lesson_id = params.get("lesson_id")
+    process_status = TASK_TYPE_TO_PROCESS_STATUS.get(task.task_type)
+
     try:
         # Update status to running
         update_task_status(session, task, "running")
+
+        # Mark lesson as being processed
+        if lesson_id and process_status:
+            set_lesson_process_status(session, lesson_id, process_status)
 
         # Process based on task type
         if task.task_type == "transcription":
@@ -325,6 +355,10 @@ def process_task(session: Session, task: Task):
     except Exception as e:
         logger.error(f"Error processing task {task.id}: {str(e)}", exc_info=True)
         update_task_status(session, task, "failed", error=str(e))
+    finally:
+        # Clear process_status on the lesson when done (success or failure)
+        if lesson_id:
+            set_lesson_process_status(session, lesson_id, None)
 
 
 def worker_loop():

@@ -146,11 +146,11 @@ def get_lesson(session: Session, lesson_id: int) -> Optional[Lesson]:
 
 
 def get_all_lessons(session: Session, course_id: Optional[int] = None) -> List[Lesson]:
-    """Get all lessons, optionally filtered by course"""
+    """Get all lessons, optionally filtered by course, sorted by date (latest first)"""
     if course_id:
-        statement = select(Lesson).where(Lesson.course_id == course_id)
+        statement = select(Lesson).where(Lesson.course_id == course_id).order_by(Lesson.date.desc())
     else:
-        statement = select(Lesson)
+        statement = select(Lesson).order_by(Lesson.date.desc())
     return list(session.exec(statement).all())
 
 
@@ -167,6 +167,7 @@ def update_lesson(
     edited_transcript: Optional[List[dict]] = None,
     brief: Optional[str] = None,
     summary: Optional[str] = None,
+    process_status: Optional[str] = None,
     theme_ids: Optional[List[int]] = None,
     transcript_metadata: Optional[dict] = None,
     correction_metadata: Optional[dict] = None,
@@ -196,6 +197,8 @@ def update_lesson(
             lesson.brief = brief
         if summary is not None:
             lesson.summary = summary
+        if process_status is not None:
+            lesson.process_status = process_status
         if theme_ids is not None:
             lesson.set_themes(theme_ids)
         if transcript_metadata is not None:

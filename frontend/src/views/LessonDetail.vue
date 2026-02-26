@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { marked } from 'marked'
 import {
@@ -108,6 +108,65 @@ const isCreatingTasks = ref(false)
 
 // Configure marked options
 marked.setOptions({ breaks: true, gfm: true })
+
+// Processing status
+const isProcessing = computed(() => !!props.lesson.process_status)
+
+const processStatusLabel = computed(() => {
+  const statusMap: Record<string, string> = {
+    transcript: t('lessons.processStatusTranscript'),
+    edition: t('lessons.processStatusEdition'),
+    sources_extraction: t('lessons.processStatusSourcesExtraction'),
+    sources_checking: t('lessons.processStatusSourcesChecking'),
+    summary: t('lessons.processStatusSummary'),
+  }
+  return props.lesson.process_status
+    ? statusMap[props.lesson.process_status] ?? props.lesson.process_status
+    : ''
+})
+
+// Auto-refresh while processing
+let refreshInterval: ReturnType<typeof setInterval> | null = null
+let awaitingProcessing = false  // true after creating tasks, before worker picks them up
+
+const refreshLesson = async () => {
+  try {
+    const updated = await lessonsApi.get(props.lesson.id)
+    Object.assign(props.lesson, updated)
+    if (updated.process_status) {
+      // Worker has picked up the task — no longer "awaiting"
+      awaitingProcessing = false
+    } else if (!awaitingProcessing) {
+      // Processing finished (status went from non-null → null) — stop polling
+      stopPolling()
+    }
+  } catch { /* silent */ }
+}
+
+const startPolling = () => {
+  if (refreshInterval) return
+  refreshInterval = setInterval(refreshLesson, 5000)
+}
+
+const stopPolling = () => {
+  if (refreshInterval) {
+    clearInterval(refreshInterval)
+    refreshInterval = null
+  }
+  awaitingProcessing = false
+}
+
+watch(isProcessing, (processing) => {
+  if (processing) {
+    startPolling()
+  } else if (!awaitingProcessing) {
+    stopPolling()
+  }
+}, { immediate: true })
+
+onBeforeUnmount(() => {
+  stopPolling()
+})
 
 // Render markdown to HTML
 const renderMarkdown = (markdown: string | null | undefined): string => {
@@ -737,6 +796,9 @@ const createTasks = async () => {
     }
     toast.success(t('lessons.tasksCreated', { count: orderedTasks.length }))
     closeProcessModal()
+    // Start polling — flag that we're waiting for the worker to pick up the tasks
+    awaitingProcessing = true
+    startPolling()
   } catch {
     toast.error(t('lessons.tasksCreationFailed'))
   } finally {
@@ -1007,6 +1069,26 @@ const saveSegment = async () => {
         <ArrowLeftIcon class="h-5 w-5" />
         {{ t('lessons.backToList') }}
       </button>
+
+      <!-- Processing Status Banner -->
+      <div
+        v-if="isProcessing"
+        class="mb-6 flex items-center gap-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 px-4 py-3"
+      >
+        <svg class="h-5 w-5 text-amber-600 dark:text-amber-400 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+        </svg>
+        <div>
+          <span class="font-medium text-amber-800 dark:text-amber-300">
+            {{ t('lessons.processingStatus') }}: {{ processStatusLabel }}
+          </span>
+          <span class="ml-2 text-sm text-amber-700 dark:text-amber-400">
+            — {{ t('lessons.processingMessage') }}
+          </span>
+        </div>
+      </div>
+
       <!-- Lesson Header -->
       <div class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-6 mb-6 transition-colors">
         <div class="flex items-start justify-between gap-4 mb-4">
@@ -1083,7 +1165,13 @@ const saveSegment = async () => {
             <button
               v-if="can('tasks', 'create')"
               @click="openProcessModal"
-              class="flex-shrink-0 inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md transition-colors"
+              :disabled="isProcessing"
+              :class="[
+                'flex-shrink-0 inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors',
+                isProcessing
+                  ? 'bg-indigo-400 text-white cursor-not-allowed opacity-50'
+                  : 'text-white bg-indigo-600 hover:bg-indigo-700'
+              ]"
             >
               <CogIcon class="h-4 w-4" />
               {{ t('lessons.processLesson') }}
@@ -1091,7 +1179,13 @@ const saveSegment = async () => {
             <button
               v-if="can('lessons', 'update')"
               @click="startEditLesson"
-              class="flex-shrink-0 inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
+              :disabled="isProcessing"
+              :class="[
+                'flex-shrink-0 inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors',
+                isProcessing
+                  ? 'text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-700 cursor-not-allowed opacity-50'
+                  : 'text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600'
+              ]"
             >
               <PencilIcon class="h-4 w-4" />
               {{ t('lessons.editLesson') }}
@@ -1099,7 +1193,13 @@ const saveSegment = async () => {
             <button
               v-if="can('lessons', 'delete')"
               @click="confirmDelete"
-              class="flex-shrink-0 inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-md transition-colors"
+              :disabled="isProcessing"
+              :class="[
+                'flex-shrink-0 inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors',
+                isProcessing
+                  ? 'text-red-300 dark:text-red-600 bg-red-50 dark:bg-red-900/20 cursor-not-allowed opacity-50'
+                  : 'text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30'
+              ]"
             >
               <TrashIcon class="h-4 w-4" />
               {{ t('lessons.delete') }}
@@ -1288,7 +1388,7 @@ const saveSegment = async () => {
               
               <!-- Edit Button (show for summary view) -->
               <button
-                v-if="activeView === 'summary' && !isEditingSummary && can('lessons', 'update')"
+                v-if="activeView === 'summary' && !isEditingSummary && can('lessons', 'update') && !isProcessing"
                 @click="startEditSummary"
                 class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors print:hidden"
               >
@@ -1446,7 +1546,7 @@ const saveSegment = async () => {
                       
                       <!-- Edit Button -->
                       <button
-                        v-if="can('lessons', 'update')"
+                        v-if="can('lessons', 'update') && !isProcessing"
                         @click="startEditSegment(segment.index, segment.correctedText)"
                         class="flex-shrink-0 p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors print:hidden"
                         :title="t('lessons.editSegment')"

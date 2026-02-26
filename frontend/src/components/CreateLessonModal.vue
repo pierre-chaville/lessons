@@ -12,6 +12,7 @@ import { uploadApi } from '@/api/upload'
 import { lessonsApi } from '@/api/lessons'
 import { coursesApi } from '@/api/courses'
 import { themesApi } from '@/api/themes'
+import { tasksApi } from '@/api/tasks'
 import { useToast } from '@/composables/useToast'
 import type { Course, Theme } from '@/api/types'
 
@@ -35,11 +36,27 @@ const courses = ref<Course[]>([])
 const themes = ref<Theme[]>([])
 const fileInput = ref<HTMLInputElement | null>(null)
 
+const audioDuration = ref<number | null>(null)
+
+const getAudioDuration = (file: File): Promise<number | null> => {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file)
+    const audio = new Audio(url)
+    audio.addEventListener('loadedmetadata', () => {
+      const duration = isFinite(audio.duration) ? audio.duration : null
+      URL.revokeObjectURL(url)
+      resolve(duration)
+    })
+    audio.addEventListener('error', () => {
+      URL.revokeObjectURL(url)
+      resolve(null)
+    })
+  })
+}
+
 const onFileSelected = (event: Event) => {
   const file = (event.target as HTMLInputElement).files?.[0]
-  if (!file) return
-  selectedFile.value = file
-  parseFilename(file.name)
+  if (file) handleFile(file)
 }
 
 const parseFilename = (filename: string) => {
@@ -59,6 +76,34 @@ const parseFilename = (filename: string) => {
   }
 }
 
+const isDragging = ref(false)
+
+const handleFile = async (file: File) => {
+  if (!file.type.startsWith('audio/')) {
+    toast.error(t('lessons.invalidAudioFile'))
+    return
+  }
+  selectedFile.value = file
+  parseFilename(file.name)
+  audioDuration.value = await getAudioDuration(file)
+}
+
+const onDragOver = (event: DragEvent) => {
+  event.preventDefault()
+  isDragging.value = true
+}
+
+const onDragLeave = () => {
+  isDragging.value = false
+}
+
+const onDrop = (event: DragEvent) => {
+  event.preventDefault()
+  isDragging.value = false
+  const file = event.dataTransfer?.files?.[0]
+  if (file) handleFile(file)
+}
+
 const selectFile = () => {
   fileInput.value?.click()
 }
@@ -67,6 +112,7 @@ const removeFile = () => {
   selectedFile.value = null
   title.value = ''
   date.value = ''
+  audioDuration.value = null
   if (fileInput.value) fileInput.value.value = ''
 }
 
@@ -95,12 +141,18 @@ const createLesson = async () => {
   try {
     isUploading.value = true
     const { filename: uploadedFilename } = await uploadApi.audio(selectedFile.value)
-    await lessonsApi.create({
+    const lesson = await lessonsApi.create({
       title: title.value,
       filename: uploadedFilename,
       date: date.value ? new Date(date.value).toISOString() : new Date().toISOString(),
       course_id: courseId.value,
+      duration: audioDuration.value,
       theme_ids: themeIds.value.length > 0 ? themeIds.value : null,
+    })
+    // Automatically create a transcription task for the new lesson
+    await tasksApi.create({
+      task_type: 'transcription',
+      parameters: { lesson_id: lesson.id },
     })
     resetForm()
     emit('created')
@@ -118,6 +170,7 @@ const resetForm = () => {
   date.value = ''
   courseId.value = null
   themeIds.value = []
+  audioDuration.value = null
   if (fileInput.value) fileInput.value.value = ''
 }
 
@@ -175,11 +228,19 @@ watch(
             <div v-if="!selectedFile">
               <button
                 @click="selectFile"
-                class="w-full flex flex-col items-center justify-center px-6 py-8 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg hover:border-indigo-500 dark:hover:border-indigo-400 transition-colors"
+                @dragover="onDragOver"
+                @dragleave="onDragLeave"
+                @drop="onDrop"
+                :class="[
+                  'w-full flex flex-col items-center justify-center px-6 py-8 border-2 border-dashed rounded-lg transition-colors',
+                  isDragging
+                    ? 'border-indigo-500 dark:border-indigo-400 bg-indigo-50 dark:bg-indigo-900/20'
+                    : 'border-gray-300 dark:border-gray-600 hover:border-indigo-500 dark:hover:border-indigo-400'
+                ]"
               >
                 <CloudArrowUpIcon class="h-12 w-12 text-gray-400 dark:text-gray-500 mb-2" />
                 <span class="text-sm text-gray-600 dark:text-gray-400">
-                  {{ t('lessons.clickToUpload') }}
+                  {{ t('lessons.clickOrDrop') }}
                 </span>
                 <span class="text-xs text-gray-500 dark:text-gray-500 mt-1">
                   MP3, WAV, M4A, etc.

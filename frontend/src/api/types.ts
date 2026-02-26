@@ -83,6 +83,7 @@ export interface LessonListItem {
   date: string
   duration: number | null
   brief: string | null
+  process_status: string | null
   filename: string
   themes: Theme[]
   course: Course | null
@@ -101,6 +102,7 @@ export interface LessonDetail {
   edited_transcript: EditedParagraph[] | null
   brief: string | null
   summary: string | null
+  process_status: string | null
   theme_ids: number[]
   themes: Theme[]
   course: Course | null
@@ -130,6 +132,7 @@ export interface LessonUpdate {
   edited_transcript?: EditedParagraph[] | null
   brief?: string | null
   summary?: string | null
+  process_status?: string | null
   theme_ids?: number[] | null
   transcript_metadata?: Record<string, unknown> | null
   correction_metadata?: Record<string, unknown> | null

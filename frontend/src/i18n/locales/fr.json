@@ -43,6 +43,8 @@
     "createLesson": "Créer une Nouvelle session",
     "audioFile": "Fichier Audio",
     "clickToUpload": "Cliquez pour téléverser le fichier audio",
+    "clickOrDrop": "Cliquez ou glissez-déposez un fichier audio",
+    "invalidAudioFile": "Veuillez sélectionner un fichier audio valide.",
     "titlePlaceholder": "Entrez le titre de la session",
     "fillRequired": "Veuillez sélectionner un fichier et entrer un titre",
     "createFailed": "Échec de la création de la session. Veuillez réessayer.",
@@ -113,7 +115,14 @@
     "creating": "Création...",
     "selectAtLeastOneProcess": "Veuillez sélectionner au moins un processus",
     "tasksCreated": "{count} tâche(s) créée(s) avec succès",
-    "tasksCreationFailed": "Échec de la création des tâches. Veuillez réessayer."
+    "tasksCreationFailed": "Échec de la création des tâches. Veuillez réessayer.",
+    "processingStatus": "En cours de traitement",
+    "processStatusTranscript": "Transcription",
+    "processStatusEdition": "Édition",
+    "processStatusSourcesExtraction": "Extraction des sources",
+    "processStatusSourcesChecking": "Vérification des sources",
+    "processStatusSummary": "Résumé",
+    "processingMessage": "Cette session est en cours de traitement. La modification est désactivée."
   },
   "courses": {
     "title": "Cours",
