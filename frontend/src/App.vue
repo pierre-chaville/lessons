@@ -38,33 +38,20 @@ const hasAccess = computed(() => allowedRoles.includes(userRole.value));
 
 // Initialize current route from URL
 const getInitialRoute = () => {
-  const path = window.location.pathname;
-  // Check if we're on a lesson detail page
-  if (path.match(/^\/lessons\/[a-zA-Z0-9]+$/)) {
-    return '/lessons';
-  }
-  // Map common paths
+  // Normalize: strip trailing slash (but keep "/" as-is)
+  const raw = window.location.pathname;
+  const path = raw.length > 1 && raw.endsWith('/') ? raw.slice(0, -1) : raw;
+
+  // Known routes
+  const routes = ['/search', '/courses', '/themes', '/processing', '/users', '/preferences'];
+  const match = routes.find(r => path === r);
+  if (match) return match;
+
+  // Lessons (list or detail)
   if (path === '/' || path === '/lessons' || path.startsWith('/lessons')) {
     return '/lessons';
   }
-  if (path === '/search') {
-    return '/search';
-  }
-  if (path === '/courses') {
-    return '/courses';
-  }
-  if (path === '/themes') {
-    return '/themes';
-  }
-  if (path === '/processing') {
-    return '/processing';
-  }
-  if (path === '/users') {
-    return '/users';
-  }
-  if (path === '/preferences') {
-    return '/preferences';
-  }
+
   return '/lessons';
 };
 
