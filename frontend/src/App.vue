@@ -25,6 +25,10 @@ import Preferences from './views/Preferences.vue';
 const { locale, t } = useI18n();
 const { user, isLoaded, isSignedIn } = useAuth();
 const { can } = usePermissions();
+
+const appTitle = import.meta.env.VITE_APP_TITLE || t('app.title');
+document.title = appTitle;
+
 const allowedRoles = ['admin', 'reader', 'editor', 'publisher'];
 const userRole = computed(() => {
   const role = user.value?.publicMetadata?.role || user.value?.unsafeMetadata?.role;
@@ -195,7 +199,7 @@ onMounted(() => {
           <div class="flex items-center space-x-3">
             <MicrophoneIcon class="h-8 w-8 text-indigo-600 dark:text-indigo-400" />
             <h1 class="text-2xl font-bold text-gray-900 dark:text-white">
-              {{ t('app.title') }}
+              {{ appTitle }}
             </h1>
           </div>
           
