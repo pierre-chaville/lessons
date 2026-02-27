@@ -21,6 +21,7 @@ import {
   ChevronUpIcon,
   MagnifyingGlassIcon,
   ChartBarIcon,
+  StopIcon,
 } from '@heroicons/vue/24/outline'
 import { SpeakerWaveIcon } from '@heroicons/vue/24/solid'
 import { Dialog, DialogPanel, DialogTitle } from '@headlessui/vue'
@@ -79,6 +80,11 @@ const isSavingLesson = ref(false)
 const editingSegmentIndex = ref<number | null>(null)
 const editedSegmentText = ref('')
 const isSavingSegment = ref(false)
+
+// Edit edited-paragraph state
+const editingParagraphIndex = ref<number | null>(null)
+const editedParagraphText = ref('')
+const isSavingParagraph = ref(false)
 
 // Delete confirmation state
 const showDeleteConfirm = ref(false)
@@ -247,6 +253,15 @@ const togglePlayPause = () => {
     audioPlayer.value.play()
     isPlaying.value = true
   }
+};
+
+// Stop audio completely (pause + rewind to start)
+const stopAudio = () => {
+  if (!audioPlayer.value) return
+  audioPlayer.value.pause()
+  audioPlayer.value.currentTime = 0
+  isPlaying.value = false
+  currentTime.value = 0
 };
 
 // Update current time
@@ -616,6 +631,27 @@ const getTranscriptSegments = (part: { start: number; end: number }) => {
 const isEditedPartPlaying = (part: { start: number; end: number }): boolean =>
   isPlaying.value && currentTime.value >= part.start && currentTime.value < part.end
 
+// Get currently active edited paragraph index (for auto-scroll)
+const activeEditedParagraphIndex = computed(() => {
+  if (activeView.value !== 'edited' || !isPlaying.value) return -1
+  const parts = props.lesson.edited_transcript
+  if (!parts) return -1
+  return parts.findIndex(
+    (part) => currentTime.value >= part.start && currentTime.value < part.end,
+  )
+})
+
+// Auto-scroll to active edited paragraph
+watch(activeEditedParagraphIndex, (newIndex) => {
+  if (newIndex === -1 || !isPlaying.value) return
+  nextTick(() => {
+    const el = document.querySelector(`[data-paragraph-index="${newIndex}"]`)
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' })
+    }
+  })
+})
+
 // Toggle play/pause for edited part
 const togglePlayEditedPart = (part: { start: number; end: number }) => {
   if (!audioPlayer.value) return
@@ -880,6 +916,40 @@ const saveSegment = async () => {
     toast.error(t('lessons.saveFailed'))
   } finally {
     isSavingSegment.value = false
+  }
+}
+
+// Edit edited-paragraph functions
+const startEditParagraph = (index: number, currentText: string) => {
+  editingParagraphIndex.value = index
+  editedParagraphText.value = currentText
+}
+
+const cancelEditParagraph = () => {
+  editingParagraphIndex.value = null
+  editedParagraphText.value = ''
+}
+
+const saveParagraph = async () => {
+  if (isSavingParagraph.value || editingParagraphIndex.value === null) return
+  if (!props.lesson.edited_transcript) return
+  try {
+    isSavingParagraph.value = true
+    const paragraphs = [...props.lesson.edited_transcript]
+    if (editingParagraphIndex.value < paragraphs.length) {
+      paragraphs[editingParagraphIndex.value] = {
+        ...paragraphs[editingParagraphIndex.value],
+        text: editedParagraphText.value,
+      }
+      await lessonsApi.update(props.lesson.hashid, { edited_transcript: paragraphs })
+      props.lesson.edited_transcript = paragraphs
+      editingParagraphIndex.value = null
+      editedParagraphText.value = ''
+    }
+  } catch {
+    toast.error(t('lessons.saveFailed'))
+  } finally {
+    isSavingParagraph.value = false
   }
 }
 </script>
@@ -1553,7 +1623,34 @@ const saveSegment = async () => {
           
           <!-- Unified Transcript View with Diffs -->
           <div v-else-if="activeView === 'transcript'">
-            <div v-if="unifiedTranscript.length > 0" class="space-y-4 max-h-[600px] overflow-auto scroll-smooth print:max-h-none">
+            <div v-if="unifiedTranscript.length > 0" class="space-y-4 max-h-[600px] overflow-auto scroll-smooth print:max-h-none relative">
+              <!-- Sticky Now-Playing bar -->
+              <div
+                v-if="isPlaying"
+                class="sticky top-0 z-10 flex items-center justify-between gap-3 px-4 py-2 bg-indigo-50 dark:bg-indigo-900/40 border border-indigo-300 dark:border-indigo-700 rounded-lg shadow-sm print:hidden"
+              >
+                <div class="flex items-center gap-2 text-sm font-medium text-indigo-700 dark:text-indigo-300">
+                  <SpeakerWaveIcon class="h-4 w-4 animate-pulse" />
+                  <span>{{ t('lessons.nowPlaying') }}</span>
+                  <span class="font-mono text-xs">{{ formatTimestamp(currentTime) }}</span>
+                </div>
+                <div class="flex items-center gap-1">
+                  <button
+                    @click="togglePlayPause"
+                    class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-indigo-700 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-800/50 hover:bg-indigo-200 dark:hover:bg-indigo-800 rounded-md transition-colors"
+                  >
+                    <PauseIcon class="h-3.5 w-3.5" />
+                    {{ t('lessons.pause') }}
+                  </button>
+                  <button
+                    @click="stopAudio"
+                    class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
+                  >
+                    <StopIcon class="h-3.5 w-3.5" />
+                    {{ t('lessons.stop') }}
+                  </button>
+                </div>
+              </div>
               <div
                 v-for="segment in unifiedTranscript"
                 :key="segment.index"
@@ -1739,13 +1836,44 @@ const saveSegment = async () => {
               </label>
             </div>
 
-            <div v-if="lesson.edited_transcript && lesson.edited_transcript.length > 0" class="max-h-[600px] overflow-auto scroll-smooth print:max-h-none">
+            <div v-if="lesson.edited_transcript && lesson.edited_transcript.length > 0" class="max-h-[600px] overflow-auto scroll-smooth print:max-h-none relative">
+              <!-- Sticky Now-Playing bar -->
+              <div
+                v-if="isPlaying"
+                class="sticky top-0 z-10 flex items-center justify-between gap-3 px-4 py-2 mb-2 bg-indigo-50 dark:bg-indigo-900/40 border border-indigo-300 dark:border-indigo-700 rounded-lg shadow-sm print:hidden"
+              >
+                <div class="flex items-center gap-2 text-sm font-medium text-indigo-700 dark:text-indigo-300">
+                  <SpeakerWaveIcon class="h-4 w-4 animate-pulse" />
+                  <span>{{ t('lessons.nowPlaying') }}</span>
+                  <span class="font-mono text-xs">{{ formatTimestamp(currentTime) }}</span>
+                </div>
+                <div class="flex items-center gap-1">
+                  <button
+                    @click="togglePlayPause"
+                    class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-indigo-700 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-800/50 hover:bg-indigo-200 dark:hover:bg-indigo-800 rounded-md transition-colors"
+                  >
+                    <PauseIcon class="h-3.5 w-3.5" />
+                    {{ t('lessons.pause') }}
+                  </button>
+                  <button
+                    @click="stopAudio"
+                    class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
+                  >
+                    <StopIcon class="h-3.5 w-3.5" />
+                    {{ t('lessons.stop') }}
+                  </button>
+                </div>
+              </div>
               <!-- Side-by-side layout: one row per paragraph -->
               <div v-if="showSideBySideTranscript">
                 <div
                   v-for="(part, index) in lesson.edited_transcript"
                   :key="'sbs-' + index"
-                  class="grid grid-cols-2 gap-4 py-1.5 print:py-1"
+                  :data-paragraph-index="index"
+                  :class="[
+                    'grid grid-cols-2 gap-4 py-1.5 print:py-1 rounded-lg transition-colors',
+                    isEditedPartPlaying(part) ? 'bg-indigo-50 dark:bg-indigo-900/20' : ''
+                  ]"
                 >
                   <!-- Left: Edited paragraph + sources -->
                   <div>
@@ -1761,8 +1889,8 @@ const saveSegment = async () => {
                         <PauseIcon v-else class="h-4 w-4" />
                       </button>
                       
-                      <!-- Edited Text -->
-                      <div class="flex-1">
+                      <!-- Edited Text (view mode) -->
+                      <div v-if="editingParagraphIndex !== index" class="flex-1">
                         <div class="prose prose-sm dark:prose-invert max-w-none">
                           <div 
                             class="text-gray-900 dark:text-gray-100 leading-relaxed whitespace-pre-wrap print:text-black"
@@ -1770,6 +1898,44 @@ const saveSegment = async () => {
                           ></div>
                         </div>
                       </div>
+
+                      <!-- Edited Text (edit mode) -->
+                      <div v-else class="flex-1 space-y-2">
+                        <textarea
+                          v-model="editedParagraphText"
+                          class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-y"
+                          rows="6"
+                          @keydown.esc="cancelEditParagraph"
+                        ></textarea>
+                        <div class="flex gap-2">
+                          <button
+                            @click="saveParagraph"
+                            :disabled="isSavingParagraph"
+                            class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 rounded-md transition-colors"
+                          >
+                            <CheckIcon class="h-3.5 w-3.5" />
+                            {{ isSavingParagraph ? t('lessons.saving') : t('lessons.save') }}
+                          </button>
+                          <button
+                            @click="cancelEditParagraph"
+                            :disabled="isSavingParagraph"
+                            class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 rounded-md transition-colors"
+                          >
+                            <XMarkIcon class="h-3.5 w-3.5" />
+                            {{ t('lessons.cancel') }}
+                          </button>
+                        </div>
+                      </div>
+
+                      <!-- Edit Paragraph Button -->
+                      <button
+                        v-if="can('lessons', 'update') && !isProcessing && editingParagraphIndex !== index"
+                        @click="startEditParagraph(index, part.text)"
+                        class="flex-shrink-0 p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors print:hidden"
+                        :title="t('lessons.editParagraph')"
+                      >
+                        <PencilIcon class="h-4 w-4" />
+                      </button>
                     </div>
 
                     <!-- Sources -->
@@ -1848,7 +2014,11 @@ const saveSegment = async () => {
                 <div
                   v-for="(part, index) in lesson.edited_transcript"
                   :key="index"
-                  class="print:py-0.5"
+                  :data-paragraph-index="index"
+                  :class="[
+                    'print:py-0.5 rounded-lg transition-colors',
+                    isEditedPartPlaying(part) ? 'bg-indigo-50 dark:bg-indigo-900/20' : ''
+                  ]"
                 >
                   <!-- Controls and Text -->
                   <div class="flex gap-2">
@@ -1863,8 +2033,8 @@ const saveSegment = async () => {
                       <PauseIcon v-else class="h-4 w-4" />
                     </button>
                     
-                    <!-- Edited Text -->
-                    <div class="flex-1">
+                    <!-- Edited Text (view mode) -->
+                    <div v-if="editingParagraphIndex !== index" class="flex-1">
                       <div class="prose prose-sm dark:prose-invert max-w-none">
                         <div 
                           class="text-gray-900 dark:text-gray-100 leading-normal whitespace-pre-wrap print:text-black"
@@ -1872,6 +2042,44 @@ const saveSegment = async () => {
                         ></div>
                       </div>
                     </div>
+
+                    <!-- Edited Text (edit mode) -->
+                    <div v-else class="flex-1 space-y-2">
+                      <textarea
+                        v-model="editedParagraphText"
+                        class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-y"
+                        rows="6"
+                        @keydown.esc="cancelEditParagraph"
+                      ></textarea>
+                      <div class="flex gap-2">
+                        <button
+                          @click="saveParagraph"
+                          :disabled="isSavingParagraph"
+                          class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 rounded-md transition-colors"
+                        >
+                          <CheckIcon class="h-3.5 w-3.5" />
+                          {{ isSavingParagraph ? t('lessons.saving') : t('lessons.save') }}
+                        </button>
+                        <button
+                          @click="cancelEditParagraph"
+                          :disabled="isSavingParagraph"
+                          class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 rounded-md transition-colors"
+                        >
+                          <XMarkIcon class="h-3.5 w-3.5" />
+                          {{ t('lessons.cancel') }}
+                        </button>
+                      </div>
+                    </div>
+
+                    <!-- Edit Paragraph Button -->
+                    <button
+                      v-if="can('lessons', 'update') && !isProcessing && editingParagraphIndex !== index"
+                      @click="startEditParagraph(index, part.text)"
+                      class="flex-shrink-0 p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors print:hidden"
+                      :title="t('lessons.editParagraph')"
+                    >
+                      <PencilIcon class="h-4 w-4" />
+                    </button>
                   </div>
                   
                   <!-- Sources -->

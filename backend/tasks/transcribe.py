@@ -143,8 +143,9 @@ def transcribe_lesson(
 
         segments_data, metadata = transcribe_audio(audio_bytes, language=language)
 
-        # Update lesson with transcript
+        # Update lesson with transcript and corrected_transcript
         lesson.transcript = segments_data
+        lesson.corrected_transcript = segments_data
 
         # Calculate and set duration from segments
         if segments_data:
