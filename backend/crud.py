@@ -3,7 +3,7 @@
 from sqlmodel import Session, select
 from typing import List, Optional
 from datetime import datetime
-from models import Lesson, Course, Theme, Task
+from models import Lesson, Course, Theme, Task, SefariaCache
 
 
 # Course CRUD
@@ -298,6 +298,99 @@ def delete_task(session: Session, task_id: int) -> bool:
     task = session.get(Task, task_id)
     if task:
         session.delete(task)
+        session.commit()
+        return True
+    return False
+
+
+# SefariaCache CRUD
+def get_sefaria_cache_by_slugs(session: Session, slugs: List[str]) -> List[SefariaCache]:
+    """Get cached Sefaria entries for a list of standard slugs (batch lookup)."""
+    if not slugs:
+        return []
+    statement = select(SefariaCache).where(SefariaCache.standard_slug.in_(slugs))
+    return list(session.exec(statement).all())
+
+
+def get_sefaria_cache_by_slug(session: Session, standard_slug: str) -> Optional[SefariaCache]:
+    """Get a cached Sefaria entry by its standard slug."""
+    statement = select(SefariaCache).where(SefariaCache.standard_slug == standard_slug)
+    return session.exec(statement).first()
+
+
+def get_all_sefaria_cache(session: Session) -> List[SefariaCache]:
+    """Get all cached Sefaria entries."""
+    statement = select(SefariaCache).order_by(SefariaCache.fetched_at.desc())
+    return list(session.exec(statement).all())
+
+
+def create_sefaria_cache(
+    session: Session,
+    standard_slug: str,
+    type: Optional[str] = None,
+    work: Optional[str] = None,
+    ref: Optional[str] = None,
+    he_ref: Optional[str] = None,
+    text_english: Optional[str] = None,
+    text_hebrew: Optional[str] = None,
+) -> SefariaCache:
+    """Create a new Sefaria cache entry."""
+    entry = SefariaCache(
+        standard_slug=standard_slug,
+        type=type,
+        work=work,
+        ref=ref,
+        he_ref=he_ref,
+        text_english=text_english,
+        text_hebrew=text_hebrew,
+    )
+    session.add(entry)
+    session.commit()
+    session.refresh(entry)
+    return entry
+
+
+def upsert_sefaria_cache(
+    session: Session,
+    standard_slug: str,
+    type: Optional[str] = None,
+    work: Optional[str] = None,
+    ref: Optional[str] = None,
+    he_ref: Optional[str] = None,
+    text_english: Optional[str] = None,
+    text_hebrew: Optional[str] = None,
+) -> SefariaCache:
+    """Create or update a Sefaria cache entry by standard_slug."""
+    existing = get_sefaria_cache_by_slug(session, standard_slug)
+    if existing:
+        if type is not None:
+            existing.type = type
+        if work is not None:
+            existing.work = work
+        if ref is not None:
+            existing.ref = ref
+        if he_ref is not None:
+            existing.he_ref = he_ref
+        if text_english is not None:
+            existing.text_english = text_english
+        if text_hebrew is not None:
+            existing.text_hebrew = text_hebrew
+        existing.fetched_at = datetime.utcnow()
+        session.add(existing)
+        session.commit()
+        session.refresh(existing)
+        return existing
+    return create_sefaria_cache(
+        session, standard_slug=standard_slug, type=type, work=work,
+        ref=ref, he_ref=he_ref, text_english=text_english, text_hebrew=text_hebrew,
+    )
+
+
+def delete_sefaria_cache(session: Session, cache_id: int) -> bool:
+    """Delete a Sefaria cache entry."""
+    entry = session.get(SefariaCache, cache_id)
+    if entry:
+        session.delete(entry)
         session.commit()
         return True
     return False

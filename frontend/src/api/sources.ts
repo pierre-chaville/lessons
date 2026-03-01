@@ -1,22 +1,24 @@
-import axios from 'axios'
+import { apiClient } from './client'
 
-/** Shape of a Sefaria /api/texts/:ref response (partial — only used fields). */
-export interface SefariaText {
-  ref: string
-  heRef: string
-  text: string | string[]
-  he: string | string[]
-  titleVariants: string[]
-  heTitleVariants: string[]
+/** Shape returned by the backend /sefaria-cache/:slug endpoint. */
+export interface SefariaCacheEntry {
+  id: number
+  type: string | null
+  work: string | null
+  ref: string | null
+  he_ref: string | null
+  standard_slug: string
+  text_english: string | null
+  text_hebrew: string | null
+  fetched_at: string
 }
 
 /**
- * Fetch source text from the Sefaria public API.
- * Uses a plain axios instance — not the authenticated apiClient.
+ * Fetch source text from the backend Sefaria cache.
  */
 export const sourcesApi = {
-  getSefaria: (slug: string) =>
-    axios
-      .get<SefariaText>(`https://www.sefaria.org/api/texts/${encodeURIComponent(slug)}`)
+  getSefariaCache: (slug: string) =>
+    apiClient
+      .get<SefariaCacheEntry>(`/sefaria-cache/${encodeURIComponent(slug)}`)
       .then((r) => r.data),
 }

@@ -14,9 +14,11 @@ import logging
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from database import engine
 from models import Lesson
+from models.sefaria_cache import SefariaCache
 from schemas import Source
 from config import load_config
 from .llm_utils import get_llm_model
+import crud
 
 logger = logging.getLogger(__name__)
 
@@ -79,9 +81,21 @@ async def fetch_sefaria_text(slug: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def _flatten_text(data) -> str:
+    """Flatten a Sefaria text field (string, list of strings, or nested list) to a single string."""
+    if isinstance(data, str):
+        return data
+    if isinstance(data, list):
+        return "\n".join(
+            item.replace("\n", " ") if isinstance(item, str) else " ".join(item) if isinstance(item, list) else str(item).replace("\n", " ")
+            for item in data
+        )
+    return str(data)
+
+
 def extract_text_from_sefaria_response(sefaria_data: Dict[str, Any]) -> str:
     """
-    Extract the text content from Sefaria API response.
+    Extract the English text content from Sefaria API response.
 
     Args:
         sefaria_data: JSON response from Sefaria API
@@ -90,25 +104,32 @@ def extract_text_from_sefaria_response(sefaria_data: Dict[str, Any]) -> str:
         Extracted text as a string
     """
     try:
-        # Sefaria API returns text in different formats depending on the source
-        # Common structure: {"text": [...]} or {"he": "...", "text": [...]}
         if "text" in sefaria_data:
-            text_data = sefaria_data["text"]
-            if isinstance(text_data, list):
-                # Flatten list of strings/paragraphs
-                return "\n".join(
-                    item if isinstance(item, str) else " ".join(item)
-                    for item in text_data
-                )
-            elif isinstance(text_data, str):
-                return text_data
-        # Fallback: try to get Hebrew text
+            return _flatten_text(sefaria_data["text"])
         if "he" in sefaria_data:
-            return sefaria_data["he"]
-        # Last resort: convert entire response to string
+            return _flatten_text(sefaria_data["he"])
         return str(sefaria_data)
     except Exception as e:
         logger.error(f"Error extracting text from Sefaria response: {e}")
+        return ""
+
+
+def extract_hebrew_text_from_sefaria_response(sefaria_data: Dict[str, Any]) -> str:
+    """
+    Extract the Hebrew text content from Sefaria API response.
+
+    Args:
+        sefaria_data: JSON response from Sefaria API
+
+    Returns:
+        Hebrew text as a string, or empty string if not available
+    """
+    try:
+        if "he" in sefaria_data:
+            return _flatten_text(sefaria_data["he"])
+        return ""
+    except Exception as e:
+        logger.error(f"Error extracting Hebrew text from Sefaria response: {e}")
         return ""
 
 
@@ -174,14 +195,18 @@ Return verification_status as one of:
 
 
 async def verify_single_source(
-    source: Source, sources_config: Dict[str, Any]
+    source: Source,
+    sources_config: Dict[str, Any],
+    prefetched_text: Optional[str] = None,
 ) -> Source:
     """
-    Verify a single source by fetching from Sefaria and checking with LLM.
+    Verify a single source using pre-fetched Sefaria text and LLM.
 
     Args:
         source: Source object to verify (can be dict or Source instance)
         sources_config: Configuration dictionary for sources task
+        prefetched_text: Pre-fetched Sefaria text (from cache or API). None means
+                         the slug was not found / not available.
 
     Returns:
         Updated Source object with verification results
@@ -202,26 +227,21 @@ async def verify_single_source(
         source.verification_explanation = "No standard_slug provided for verification"
         return source
 
-    # Fetch text from Sefaria API
-    sefaria_data = await fetch_sefaria_text(source.standard_slug)
-
-    if sefaria_data is None:
+    # Check if we have text to verify against
+    if prefetched_text is None:
         source.verification_explanation = (
             f"Failed to retrieve text from Sefaria API for slug: {source.standard_slug}"
         )
         return source
 
-    # Mark that slug was retrieved successfully
-    source.slug_retrieved = True
-
-    # Extract text from Sefaria response
-    sefaria_text = extract_text_from_sefaria_response(sefaria_data)
-
-    if not sefaria_text:
+    if not prefetched_text:
         source.verification_explanation = (
             f"Retrieved Sefaria data but could not extract text for slug: {source.standard_slug}"
         )
         return source
+
+    # Mark that slug was retrieved successfully
+    source.slug_retrieved = True
 
     # Get LLM model and prompt from config
     model = sources_config.get("model", "gpt-4o")
@@ -238,7 +258,7 @@ async def verify_single_source(
 
     # Verify with LLM
     verification_result = await verify_source_with_llm(
-        source, sefaria_text, prompt, llm_with_structure
+        source, prefetched_text, prompt, llm_with_structure
     )
 
     # Update source with verification results
@@ -250,16 +270,115 @@ async def verify_single_source(
     return source
 
 
+async def _prefetch_sefaria_texts(
+    sources: List[Source],
+    db_session: Session,
+) -> Dict[str, Optional[str]]:
+    """
+    Pre-fetch all required Sefaria texts, using the cache first and calling the
+    Sefaria API only for slugs that are missing from the cache.  Newly fetched
+    texts are stored back in the cache for future use.
+
+    Args:
+        sources: List of Source objects whose slugs we need to resolve.
+        db_session: Active SQLModel session for cache reads / writes.
+
+    Returns:
+        Mapping  slug → english_text  (value is None when the slug could not be
+        resolved from either cache or API).
+    """
+    # 1. Collect unique slugs that need to be looked up
+    slugs_needed: Dict[str, Source] = {}
+    for src in sources:
+        s = src if not isinstance(src, dict) else Source(**src)
+        if s.standard_slug and s.standard_slug not in slugs_needed:
+            slugs_needed[s.standard_slug] = s
+
+    if not slugs_needed:
+        return {}
+
+    unique_slugs = list(slugs_needed.keys())
+    logger.info(f"Sefaria prefetch: {len(unique_slugs)} unique slugs required")
+
+    # 2. Batch-lookup cache
+    cached_entries = crud.get_sefaria_cache_by_slugs(db_session, unique_slugs)
+    cached_map: Dict[str, SefariaCache] = {e.standard_slug: e for e in cached_entries}
+
+    slug_text_map: Dict[str, Optional[str]] = {}
+    missing_slugs: List[str] = []
+
+    for slug in unique_slugs:
+        if slug in cached_map:
+            entry = cached_map[slug]
+            # Prefer English text, fallback to Hebrew
+            text = entry.text_english or entry.text_hebrew or ""
+            slug_text_map[slug] = text
+        else:
+            missing_slugs.append(slug)
+
+    logger.info(
+        f"Sefaria prefetch: {len(cached_map)} found in cache, "
+        f"{len(missing_slugs)} need API call"
+    )
+
+    # 3. Fetch missing slugs from Sefaria API (in parallel with concurrency control)
+    if missing_slugs:
+        semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
+
+        async def _fetch_one(slug: str) -> tuple:
+            async with semaphore:
+                data = await fetch_sefaria_text(slug)
+                return slug, data
+
+        api_results = await asyncio.gather(*[_fetch_one(s) for s in missing_slugs])
+
+        for slug, data in api_results:
+            if data is None:
+                slug_text_map[slug] = None
+                continue
+
+            en_text = extract_text_from_sefaria_response(data)
+            he_text = extract_hebrew_text_from_sefaria_response(data)
+
+            slug_text_map[slug] = en_text or he_text or ""
+
+            # 4. Store in cache (only when we actually got something)
+            if en_text or he_text:
+                ref_source = slugs_needed.get(slug)
+                try:
+                    crud.upsert_sefaria_cache(
+                        db_session,
+                        standard_slug=slug,
+                        type=ref_source.type if ref_source else None,
+                        work=ref_source.work if ref_source else None,
+                        ref=ref_source.ref if ref_source else None,
+                        he_ref=data.get("heRef"),
+                        text_english=en_text or None,
+                        text_hebrew=he_text or None,
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to cache Sefaria text for {slug}: {e}")
+
+        logger.info(
+            f"Sefaria prefetch: fetched {sum(1 for _, d in api_results if d is not None)} "
+            f"of {len(missing_slugs)} from API"
+        )
+
+    return slug_text_map
+
+
 async def verify_sources_async(
     sources: List[Source],
     session: Optional[Session] = None,
 ) -> List[Source]:
     """
     Verify multiple sources in parallel with concurrency limit.
+    Uses sefaria_cache to avoid redundant API calls: texts are looked up in
+    cache first, only missing slugs are fetched from Sefaria and stored back.
 
     Args:
         sources: List of Source objects to verify
-        session: Optional SQLModel session (not used but kept for consistency)
+        session: Optional SQLModel session
 
     Returns:
         List of updated Source objects with verification results
@@ -268,24 +387,42 @@ async def verify_sources_async(
     config = load_config()
     sources_config = config.get("sources", {})
 
-    # Create semaphore for concurrency control
-    semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
+    # Open a DB session for cache operations
+    should_close = False
+    if session is None:
+        session = Session(engine)
+        should_close = True
 
-    async def verify_with_semaphore(source: Source) -> Source:
-        async with semaphore:
-            return await verify_single_source(source, sources_config)
+    try:
+        # --- Phase 1: Pre-fetch all Sefaria texts (cache + API) ---
+        slug_text_map = await _prefetch_sefaria_texts(sources, session)
 
-    # Process all sources in parallel (with concurrency limit)
-    logger.info(f"Verifying {len(sources)} sources with max concurrency {MAX_CONCURRENCY}")
-    results = await asyncio.gather(*[verify_with_semaphore(source) for source in sources])
+        # --- Phase 2: Run LLM verification in parallel ---
+        semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
 
-    logger.info(
-        f"Completed verification of {len(sources)} sources. "
-        f"Retrieved: {sum(1 for s in results if s.slug_retrieved)}, "
-        f"Found: {sum(1 for s in results if s.verification_status and s.verification_status in [VerificationStatus.FOUND.value, VerificationStatus.SIMILAR.value, VerificationStatus.PARTIAL.value])}"
-    )
+        async def verify_with_semaphore(source: Source) -> Source:
+            async with semaphore:
+                s = source if not isinstance(source, dict) else Source(**source)
+                text = slug_text_map.get(s.standard_slug) if s.standard_slug else None
+                return await verify_single_source(s, sources_config, prefetched_text=text)
 
-    return results
+        logger.info(
+            f"Verifying {len(sources)} sources with max concurrency {MAX_CONCURRENCY}"
+        )
+        results = await asyncio.gather(
+            *[verify_with_semaphore(source) for source in sources]
+        )
+
+        logger.info(
+            f"Completed verification of {len(sources)} sources. "
+            f"Retrieved: {sum(1 for s in results if s.slug_retrieved)}, "
+            f"Found: {sum(1 for s in results if s.verification_status and s.verification_status in [VerificationStatus.FOUND.value, VerificationStatus.SIMILAR.value, VerificationStatus.PARTIAL.value])}"
+        )
+
+        return results
+    finally:
+        if should_close:
+            session.close()
 
 
 def verify_sources(

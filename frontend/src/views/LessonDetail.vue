@@ -94,8 +94,10 @@ const isDeleting = ref(false)
 const showSourceModal = ref(false)
 const selectedSourceEditedText = ref('')
 const selectedSource = ref<Record<string, unknown> | null>(null)
-const sefariaText = ref('')
+const sefariaTextEnglish = ref('')
+const sefariaTextHebrew = ref('')
 const isLoadingSefaria = ref(false)
+const sefariaDisplayMode = ref<'he' | 'en' | 'both'>('both')
 
 // Source stats modal state
 const showSourceStatsModal = ref(false)
@@ -572,41 +574,62 @@ const saveSummary = async () => {
   }
 }
 
-// Fetch text from Sefaria API
+// Fetch text from backend Sefaria cache
 const fetchSefariaText = async (slug: string) => {
-  if (!slug) { sefariaText.value = ''; return }
+  if (!slug) { sefariaTextEnglish.value = ''; sefariaTextHebrew.value = ''; return }
   try {
     isLoadingSefaria.value = true
-    const data = await sourcesApi.getSefaria(slug)
-    let text = ''
-    if (data.text) {
-      const textData = data.text
-      if (Array.isArray(textData)) {
-        text = (textData as unknown[])
-          .map((item) => (typeof item === 'string' ? item : Array.isArray(item) ? (item as string[]).join(' ') : String(item)))
-          .join('\n')
-      } else {
-        text = textData as string
-      }
-    } else if (data.he) {
-      const heData = data.he
-      text = Array.isArray(heData) ? (heData as string[]).join('\n') : (heData as string)
-    } else {
-      text = JSON.stringify(data, null, 2)
-    }
-    sefariaText.value = text
+    const entry = await sourcesApi.getSefariaCache(slug)
+    sefariaTextEnglish.value = entry.text_english || ''
+    sefariaTextHebrew.value = entry.text_hebrew || ''
   } catch (err) {
-    sefariaText.value = `Error fetching text from Sefaria: ${err instanceof Error ? err.message : String(err)}`
+    const msg = `Error fetching cached text: ${err instanceof Error ? err.message : String(err)}`
+    sefariaTextEnglish.value = msg
+    sefariaTextHebrew.value = ''
   } finally {
     isLoadingSefaria.value = false
   }
 }
 
+/**
+ * Split a text block into lines/sentences for interleaved display.
+ * Sefaria stores paragraphs separated by newlines.
+ */
+const splitSefariaLines = (text: string): string[] => {
+  if (!text) return []
+  return text.split('\n').filter(line => line.trim() !== '')
+}
+
+/**
+ * Build interleaved Hebrew + English pairs for side-by-side display.
+ * Each pair is { he: string, en: string }.
+ */
+const sefariaInterleavedLines = computed(() => {
+  const heLines = splitSefariaLines(sefariaTextHebrew.value)
+  const enLines = splitSefariaLines(sefariaTextEnglish.value)
+  const maxLen = Math.max(heLines.length, enLines.length)
+  const pairs: Array<{ he: string; en: string }> = []
+  for (let i = 0; i < maxLen; i++) {
+    pairs.push({ he: heLines[i] || '', en: enLines[i] || '' })
+  }
+  return pairs
+})
+
+/** The text to display when a single language mode is selected. */
+const sefariaDisplayText = computed(() => {
+  if (sefariaDisplayMode.value === 'he') return sefariaTextHebrew.value || sefariaTextEnglish.value
+  if (sefariaDisplayMode.value === 'en') return sefariaTextEnglish.value || sefariaTextHebrew.value
+  return ''  // 'both' mode uses the interleaved view
+})
+
+const hasSefariaText = computed(() => !!(sefariaTextEnglish.value || sefariaTextHebrew.value))
+
 // Open source modal with edited part text and source data
 const openSourceModal = async (editedPart: { text: string }, source: Record<string, unknown>) => {
   selectedSourceEditedText.value = editedPart.text
   selectedSource.value = source
-  sefariaText.value = ''
+  sefariaTextEnglish.value = ''
+  sefariaTextHebrew.value = ''
   if (source.standard_slug) await fetchSefariaText(source.standard_slug as string)
   showSourceModal.value = true
 }
@@ -2153,7 +2176,7 @@ const saveParagraph = async () => {
     >
       <div class="fixed inset-0 bg-black/30" aria-hidden="true" />
       <div class="fixed inset-0 flex items-center justify-center p-4">
-        <DialogPanel class="w-full max-w-4xl bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-h-[90vh] overflow-auto">
+        <DialogPanel class="w-full max-w-6xl bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-h-[90vh] overflow-auto">
           <div class="p-6">
             <DialogTitle class="text-xl font-bold text-gray-900 dark:text-white mb-4">
               {{ t('lessons.sourceDetails') }}
@@ -2244,18 +2267,68 @@ const saveParagraph = async () => {
 
               <!-- Sefaria Text -->
               <div v-if="selectedSource && selectedSource.standard_slug" class="bg-gray-50 dark:bg-gray-900 p-4 rounded-lg">
-                <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-3">
-                  Text from Sefaria ({{ selectedSource.standard_slug }})
-                </h3>
+                <div class="flex items-center justify-between mb-3">
+                  <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
+                    Text from Sefaria ({{ selectedSource.standard_slug }})
+                  </h3>
+                  <!-- Language toggle -->
+                  <div v-if="hasSefariaText && !isLoadingSefaria" class="flex rounded-lg overflow-hidden border border-gray-300 dark:border-gray-600 text-sm">
+                    <button
+                      @click="sefariaDisplayMode = 'he'"
+                      :class="sefariaDisplayMode === 'he' ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'"
+                      class="px-3 py-1 transition-colors font-medium"
+                    >{{ t('lessons.sefariaHebrew') }}</button>
+                    <button
+                      @click="sefariaDisplayMode = 'both'"
+                      :class="sefariaDisplayMode === 'both' ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'"
+                      class="px-3 py-1 transition-colors border-l border-r border-gray-300 dark:border-gray-600 font-medium"
+                    >{{ t('lessons.sefariaHebrewEnglish') }}</button>
+                    <button
+                      @click="sefariaDisplayMode = 'en'"
+                      :class="sefariaDisplayMode === 'en' ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'"
+                      class="px-3 py-1 transition-colors font-medium"
+                    >{{ t('lessons.sefariaEnglish') }}</button>
+                  </div>
+                </div>
+
                 <div v-if="isLoadingSefaria" class="text-center py-4">
                   <div class="text-gray-500 dark:text-gray-400">Loading...</div>
                 </div>
-                <div v-else-if="sefariaText" class="prose prose-sm dark:prose-invert max-w-none">
+
+                <!-- Single language mode (Hebrew or English) -->
+                <div v-else-if="hasSefariaText && sefariaDisplayMode !== 'both'" class="prose prose-sm dark:prose-invert max-w-none">
                   <div 
-                    class="text-gray-900 dark:text-gray-100 leading-relaxed whitespace-pre-wrap max-h-96 overflow-auto"
-                    v-html="selectedSource && selectedSource.matched_text ? highlightMatchedText(sefariaText, selectedSource.matched_text) : sefariaText"
+                    class="leading-relaxed whitespace-pre-wrap max-h-96 overflow-auto"
+                    :class="sefariaDisplayMode === 'he' ? 'text-right text-gray-900 dark:text-gray-100' : 'text-gray-900 dark:text-gray-100'"
+                    :dir="sefariaDisplayMode === 'he' ? 'rtl' : 'ltr'"
+                    v-html="selectedSource && selectedSource.matched_text ? highlightMatchedText(sefariaDisplayText, selectedSource.matched_text as string) : sefariaDisplayText"
                   ></div>
                 </div>
+
+                <!-- Interleaved Hebrew + English mode -->
+                <div v-else-if="hasSefariaText && sefariaDisplayMode === 'both'" class="max-h-96 overflow-auto">
+                  <div
+                    v-for="(pair, idx) in sefariaInterleavedLines"
+                    :key="idx"
+                    class="mb-3 pb-3"
+                    :class="idx < sefariaInterleavedLines.length - 1 ? 'border-b border-gray-200 dark:border-gray-700' : ''"
+                  >
+                    <!-- Hebrew line -->
+                    <div
+                      v-if="pair.he"
+                      dir="rtl"
+                      class="text-right text-gray-900 dark:text-gray-100 leading-relaxed text-base mb-1"
+                      v-html="selectedSource && selectedSource.matched_text ? highlightMatchedText(pair.he, selectedSource.matched_text as string) : pair.he"
+                    ></div>
+                    <!-- English line -->
+                    <div
+                      v-if="pair.en"
+                      class="text-gray-600 dark:text-gray-400 leading-relaxed text-sm italic"
+                      v-html="selectedSource && selectedSource.matched_text ? highlightMatchedText(pair.en, selectedSource.matched_text as string) : pair.en"
+                    ></div>
+                  </div>
+                </div>
+
                 <div v-else class="text-gray-500 dark:text-gray-400 italic">
                   No text available
                 </div>

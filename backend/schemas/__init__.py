@@ -8,6 +8,7 @@ from schemas.theme import ThemeCreate, ThemeUpdate
 from schemas.task import TaskCreate, TaskResponse
 from schemas.search import SearchMatchSegment, SearchLessonResult
 from schemas.config import ConfigUpdate
+from schemas.sefaria_cache import SefariaCacheCreate, SefariaCacheUpdate, SefariaCacheResponse
 
 __all__ = [
     "Metadata",
@@ -28,4 +29,7 @@ __all__ = [
     "SearchMatchSegment",
     "SearchLessonResult",
     "ConfigUpdate",
+    "SefariaCacheCreate",
+    "SefariaCacheUpdate",
+    "SefariaCacheResponse",
 ]
