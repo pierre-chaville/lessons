@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from sqlmodel import Session
 from database import engine
 from models import Lesson
-from tasks import transcribe_lesson
+from services import transcribe_lesson
 from storage import s3_enabled, get_audio_object_key, download_audio_bytes
 
 # Configure logging

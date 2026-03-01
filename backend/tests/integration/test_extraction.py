@@ -10,7 +10,7 @@ from sqlmodel import Session
 from database import engine
 from models import Lesson
 from schemas import Source
-from tasks.extract_sources import extract_sources_async
+from services.extract_sources import extract_sources_async
 
 # Configure logging
 logging.basicConfig(

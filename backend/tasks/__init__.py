@@ -1,12 +1,12 @@
-"""Tasks module for handling asynchronous operations"""
+"""Tasks module — re-exports from services/ for backward compatibility."""
 
-from .llm_utils import get_llm_model
-from .correction import correct_transcript, correct_transcript_async
-from .edition import edit_transcript, edit_transcript_async
-from .extract_sources import extract_sources, extract_sources_async
-from .summary import generate_summary, generate_summary_async
-from .transcribe import transcribe_lesson, transcribe_audio
-from .sources import verify_lesson_sources, verify_lesson_sources_async
+from services.llm_utils import get_llm_model
+from services.correction import correct_transcript, correct_transcript_async
+from services.edition import edit_transcript, edit_transcript_async
+from services.extract_sources import extract_sources, extract_sources_async
+from services.summary import generate_summary, generate_summary_async
+from services.transcribe import transcribe_lesson, transcribe_audio
+from services.sources import verify_lesson_sources, verify_lesson_sources_async
 
 __all__ = [
     "get_llm_model",

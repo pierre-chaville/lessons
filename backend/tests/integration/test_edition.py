@@ -9,7 +9,7 @@ from sqlmodel import Session
 from database import engine
 from models import Lesson
 from schemas import Segment, EditedParagraph, Source
-from tasks import edit_transcript
+from services import edit_transcript
 
 # Configure logging
 logging.basicConfig(

@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from sqlmodel import Session
 from database import engine
 from models import Lesson
-from tasks import generate_summary
+from services import generate_summary
 
 # Configure logging
 logging.basicConfig(

@@ -9,7 +9,7 @@ from sqlmodel import Session, select
 from database import engine
 from models import Task
 from models.lesson import Lesson
-from tasks import (
+from services import (
     correct_transcript,
     edit_transcript,
     extract_sources,
