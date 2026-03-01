@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
-from schemas.source import Source
+from schemas.source import Source, LessonSourceResponse
 from schemas.theme import ThemeResponse
 from schemas.course import CourseResponse
 from hashid_utils import encode_id
@@ -24,7 +24,7 @@ class EditedParagraph(BaseModel):
     start: float  # Start time in seconds
     end: float  # End time in seconds
     text: str  # Original text
-    sources: List[Source]  # List of sources used in this part
+    sources: List[Source] = []  # kept for backward compat with JSON storage during edition
 
 
 class LessonCreate(BaseModel):
@@ -99,6 +99,7 @@ class LessonResponse(BaseModel):
     theme_ids: List[int]
     themes: List[ThemeResponse] = []
     course: Optional[CourseResponse] = None
+    sources: List[LessonSourceResponse] = []
     transcript_metadata: Optional[Dict[str, Any]] = None
     correction_metadata: Optional[Dict[str, Any]] = None
     summary_metadata: Optional[Dict[str, Any]] = None

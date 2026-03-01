@@ -27,6 +27,13 @@ export interface Source {
   matched_text: string | null
 }
 
+/** Source row from the lesson_source table, linked to a specific lesson & paragraph. */
+export interface LessonSource extends Source {
+  id: number
+  lesson_id: number
+  paragraph_index: number
+}
+
 export interface Segment {
   start: number
   end: number
@@ -37,7 +44,7 @@ export interface EditedParagraph {
   start: number
   end: number
   text: string
-  sources: Source[]
+  sources?: Source[]  // kept for backward compat but may be empty
 }
 
 // ── Course ────────────────────────────────────────────────────────────────────
@@ -110,6 +117,7 @@ export interface LessonDetail {
   theme_ids: number[]
   themes: Theme[]
   course: Course | null
+  sources: LessonSource[]
   transcript_metadata: Record<string, unknown> | null
   correction_metadata: Record<string, unknown> | null
   summary_metadata: Record<string, unknown> | null

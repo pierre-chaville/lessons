@@ -11,6 +11,7 @@ from database import engine
 from models import Lesson
 from schemas import Source
 from services.extract_sources import extract_sources_async
+import crud
 
 # Configure logging
 logging.basicConfig(
@@ -45,22 +46,28 @@ def display_lesson_extraction(lesson_id: int):
             print("="*80 + "\n")
             return
 
-        # Collect all sources
-        all_sources = []
-        parts_with_sources = 0
-        for part_dict in lesson.edited_transcript:
-            if isinstance(part_dict, dict):
-                sources = part_dict.get("sources", [])
-            else:
-                sources = part_dict.sources if hasattr(part_dict, "sources") else []
+        # Collect all sources from lesson_source table
+        db_sources = crud.get_lesson_sources(session, lesson_id)
+        all_sources = [
+            Source(
+                type=s.type, work=s.work, ref=s.ref,
+                standard_slug=s.standard_slug,
+                original_text=s.original_text,
+                translation_text=s.translation_text,
+                cited_excerpt=s.cited_excerpt,
+                confidence=s.confidence,
+                slug_retrieved=s.slug_retrieved,
+                verification_status=s.verification_status,
+                verification_confidence=s.verification_confidence,
+                verification_explanation=s.verification_explanation,
+                matched_text=s.matched_text,
+            )
+            for s in db_sources
+        ]
 
-            if sources:
-                parts_with_sources += 1
-                for source_dict in sources:
-                    if isinstance(source_dict, dict):
-                        all_sources.append(Source(**source_dict))
-                    else:
-                        all_sources.append(source_dict)
+        # Count parts with sources
+        para_indices_with_sources = set(s.paragraph_index for s in db_sources)
+        parts_with_sources = len(para_indices_with_sources)
 
         print(f"Edited parts: {len(lesson.edited_transcript)}")
         print(f"Parts with sources: {parts_with_sources}")
@@ -85,38 +92,31 @@ def display_lesson_extraction(lesson_id: int):
             print("="*80 + "\n")
             return
 
-        # Display sources grouped by edited part
+        # Display sources grouped by edited part (from lesson_source table)
         print("\n📚 EXTRACTED SOURCES:")
         print("-"*80)
         source_index = 1
-        for part_idx, part_dict in enumerate(lesson.edited_transcript, 1):
-            if isinstance(part_dict, dict):
-                sources = part_dict.get("sources", [])
-                text = part_dict.get("text", "")
-            else:
-                sources = part_dict.sources if hasattr(part_dict, "sources") else []
-                text = part_dict.text if hasattr(part_dict, "text") else ""
+        # Group DB sources by paragraph_index
+        sources_by_para: dict[int, list] = {}
+        for s in db_sources:
+            sources_by_para.setdefault(s.paragraph_index, []).append(s)
 
-            if sources:
-                print(f"\n📝 Part {part_idx} ({len(sources)} source{'s' if len(sources) > 1 else ''}):")
+        for part_idx, part_dict in enumerate(lesson.edited_transcript):
+            text = part_dict.get("text", "") if isinstance(part_dict, dict) else (part_dict.text if hasattr(part_dict, "text") else "")
+            para_sources = sources_by_para.get(part_idx, [])
+
+            if para_sources:
+                print(f"\n📝 Part {part_idx + 1} ({len(para_sources)} source{'s' if len(para_sources) > 1 else ''}):")
                 text_preview = text[:150] + "..." if len(text) > 150 else text
                 print(f"   Text: {text_preview}")
                 print(f"   Sources:")
-                for source in sources:
-                    if isinstance(source, dict):
-                        src_type = source.get("type", "N/A")
-                        src_work = source.get("work", "N/A")
-                        src_ref = source.get("ref", "N/A")
-                        src_slug = source.get("standard_slug", "N/A")
-                        src_cited = source.get("cited_excerpt", "N/A")
-                        src_conf = source.get("confidence")
-                    else:
-                        src_type = source.type or "N/A"
-                        src_work = source.work or "N/A"
-                        src_ref = source.ref or "N/A"
-                        src_slug = source.standard_slug or "N/A"
-                        src_cited = source.cited_excerpt or "N/A"
-                        src_conf = source.confidence
+                for s in para_sources:
+                    src_type = s.type or "N/A"
+                    src_work = s.work or "N/A"
+                    src_ref = s.ref or "N/A"
+                    src_slug = s.standard_slug or "N/A"
+                    src_cited = s.cited_excerpt or "N/A"
+                    src_conf = s.confidence
 
                     print(f"     [{source_index}] {src_type}: {src_work} {src_ref}")
                     if src_slug != "N/A":

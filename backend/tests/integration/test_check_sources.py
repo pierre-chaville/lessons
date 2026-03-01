@@ -11,6 +11,7 @@ from database import engine
 from models import Lesson
 from schemas import Source
 from services.sources import verify_lesson_sources_async
+import crud
 
 # Configure logging
 logging.basicConfig(
@@ -44,18 +45,24 @@ def display_lesson_sources(lesson_id: int):
             print("="*80 + "\n")
             return
 
-        # Collect all sources
-        all_sources = []
-        for part_dict in lesson.edited_transcript:
-            if isinstance(part_dict, dict) and part_dict.get("sources"):
-                for source_dict in part_dict["sources"]:
-                    all_sources.append(Source(**source_dict))
-            elif hasattr(part_dict, "sources") and part_dict.sources:
-                for source in part_dict.sources:
-                    if isinstance(source, dict):
-                        all_sources.append(Source(**source))
-                    else:
-                        all_sources.append(source)
+        # Collect all sources from lesson_source table
+        db_sources = crud.get_lesson_sources(session, lesson_id)
+        all_sources = [
+            Source(
+                type=s.type, work=s.work, ref=s.ref,
+                standard_slug=s.standard_slug,
+                original_text=s.original_text,
+                translation_text=s.translation_text,
+                cited_excerpt=s.cited_excerpt,
+                confidence=s.confidence,
+                slug_retrieved=s.slug_retrieved,
+                verification_status=s.verification_status,
+                verification_confidence=s.verification_confidence,
+                verification_explanation=s.verification_explanation,
+                matched_text=s.matched_text,
+            )
+            for s in db_sources
+        ]
 
         print(f"Total sources found: {len(all_sources)}")
 

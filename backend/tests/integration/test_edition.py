@@ -10,6 +10,7 @@ from database import engine
 from models import Lesson
 from schemas import Segment, EditedParagraph, Source
 from services import edit_transcript
+import crud
 
 # Configure logging
 logging.basicConfig(
@@ -57,19 +58,9 @@ def display_lesson_edition(lesson_id: int):
             print("-"*80)
             print(f"Edited parts: {len(lesson.edited_transcript)}")
 
-            # Collect all sources
-            all_sources = []
-            for part_dict in lesson.edited_transcript:
-                if isinstance(part_dict, dict) and part_dict.get("sources"):
-                    for source_dict in part_dict["sources"]:
-                        all_sources.append(Source(**source_dict))
-                elif hasattr(part_dict, "sources") and part_dict.sources:
-                    for source in part_dict.sources:
-                        if isinstance(source, dict):
-                            all_sources.append(Source(**source))
-                        else:
-                            all_sources.append(source)
-
+            # Collect all sources from lesson_source table
+            db_sources = crud.get_lesson_sources(session, lesson_id)
+            all_sources = db_sources
             print(f"Total sources: {len(all_sources)}")
 
             # Display metadata
@@ -89,35 +80,31 @@ def display_lesson_edition(lesson_id: int):
             # Display first few edited parts
             print("\n📖 EDITED PARTS PREVIEW (first 3 parts):")
             print("-"*80)
-            for i, part_dict in enumerate(lesson.edited_transcript[:3], 1):
+            # Group DB sources by paragraph_index
+            sources_by_para: dict[int, list] = {}
+            for s in db_sources:
+                sources_by_para.setdefault(s.paragraph_index, []).append(s)
+
+            for i, part_dict in enumerate(lesson.edited_transcript[:3]):
                 if isinstance(part_dict, dict):
                     start = part_dict.get("start", 0)
                     end = part_dict.get("end", 0)
                     text = part_dict.get("text", "")
-                    sources = part_dict.get("sources", [])
                 else:
                     start = part_dict.start
                     end = part_dict.end
                     text = part_dict.text
-                    sources = part_dict.sources if hasattr(part_dict, "sources") else []
 
-                print(f"\n[{i}] Part ({start:.1f}s - {end:.1f}s):")
+                para_sources = sources_by_para.get(i, [])
+                print(f"\n[{i + 1}] Part ({start:.1f}s - {end:.1f}s):")
                 text_preview = text[:200] + "..." if len(text) > 200 else text
                 print(f"    {text_preview}")
-                if sources:
-                    print(f"    Sources: {len(sources)}")
-                    for j, src in enumerate(sources[:2], 1):  # Show first 2 sources
-                        if isinstance(src, dict):
-                            src_type = src.get("type", "N/A")
-                            src_work = src.get("work", "N/A")
-                            src_ref = src.get("ref", "N/A")
-                        else:
-                            src_type = src.type or "N/A"
-                            src_work = src.work or "N/A"
-                            src_ref = src.ref or "N/A"
-                        print(f"      [{j}] {src_type}: {src_work} {src_ref}")
-                    if len(sources) > 2:
-                        print(f"      ... and {len(sources) - 2} more")
+                if para_sources:
+                    print(f"    Sources: {len(para_sources)}")
+                    for j, src in enumerate(para_sources[:2], 1):
+                        print(f"      [{j}] {src.type or 'N/A'}: {src.work or 'N/A'} {src.ref or 'N/A'}")
+                    if len(para_sources) > 2:
+                        print(f"      ... and {len(para_sources) - 2} more")
         else:
             print("\n⚠️  No edited transcript available")
 

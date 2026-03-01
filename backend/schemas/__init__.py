@@ -1,7 +1,7 @@
 """Pydantic request/response schemas (non-table models)."""
 
 from schemas.common import Metadata, TranscriptMetadata
-from schemas.source import Source
+from schemas.source import Source, LessonSourceResponse
 from schemas.lesson import Segment, EditedParagraph, LessonCreate, LessonUpdate, LessonListResponse, LessonResponse
 from schemas.course import CourseCreate, CourseUpdate
 from schemas.theme import ThemeCreate, ThemeUpdate
@@ -14,6 +14,7 @@ __all__ = [
     "Metadata",
     "TranscriptMetadata",
     "Source",
+    "LessonSourceResponse",
     "Segment",
     "EditedParagraph",
     "LessonCreate",

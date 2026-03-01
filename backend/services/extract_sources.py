@@ -15,6 +15,7 @@ from models import Lesson
 from schemas import EditedParagraph, Source, Metadata
 from config import load_config
 from .llm_utils import get_llm_model
+import crud
 import logging
 
 logger = logging.getLogger(__name__)
@@ -376,8 +377,11 @@ async def extract_sources_async(
         tasks = [process_with_semaphore(group) for group in paragraph_groups]
         results = await asyncio.gather(*tasks)
 
-        # Accumulate sources per paragraph
-        sources_by_paragraph: List[List[Source]] = [[] for _ in edited_parts]
+        # Delete existing sources for this lesson before re-extracting
+        crud.delete_lesson_sources(session, lesson_id)
+
+        # Build lesson_source rows from LLM results
+        total_sources = 0
         for group_sources in results:
             for src in group_sources:
                 if src.paragraph_number < 0 or src.paragraph_number >= len(edited_parts):
@@ -386,25 +390,20 @@ async def extract_sources_async(
                         src.paragraph_number,
                     )
                     continue
-                sources_by_paragraph[src.paragraph_number].append(
-                    Source(
-                        type=str(src.type) if src.type is not None else None,
-                        work=src.work,
-                        ref=src.ref,
-                        standard_slug=src.standard_slug,
-                        original_text=src.original_text,
-                        translation_text=src.translation_text,
-                        cited_excerpt=src.cited_excerpt,
-                        confidence=src.confidence,
-                    )
+                crud.create_lesson_source(
+                    session,
+                    lesson_id=lesson_id,
+                    paragraph_index=src.paragraph_number,
+                    type=str(src.type) if src.type is not None else None,
+                    work=src.work,
+                    ref=src.ref,
+                    standard_slug=src.standard_slug,
+                    original_text=src.original_text,
+                    translation_text=src.translation_text,
+                    cited_excerpt=src.cited_excerpt,
+                    confidence=src.confidence,
                 )
-
-        # Update edited parts with extracted sources
-        for idx, part in enumerate(edited_parts):
-            part.sources = sources_by_paragraph[idx]
-
-        # Update lesson with edited transcript (convert to dicts for JSON storage)
-        lesson.edited_transcript = [part.model_dump() for part in edited_parts]
+                total_sources += 1
 
         # Save extraction metadata
         extraction_provider = extraction_config.get("provider", config.get("provider"))
@@ -414,15 +413,12 @@ async def extract_sources_async(
             temperature=extraction_config.get("temperature"),
             prompt=extraction_prompt,
         )
-        # Note: We might want to store extraction metadata separately or combine with edition metadata
-        # For now, we'll update the edited metadata
         lesson.set_edited_metadata(metadata)
 
         # Commit changes
         session.add(lesson)
         session.commit()
 
-        total_sources = sum(len(part.sources) for part in edited_parts)
         logger.info(
             f"Successfully extracted sources from lesson {lesson_id}: "
             f"{total_sources} sources found across {len(edited_parts)} edited paragraphs"

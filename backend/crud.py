@@ -3,7 +3,7 @@
 from sqlmodel import Session, select
 from typing import List, Optional
 from datetime import datetime
-from models import Lesson, Course, Theme, Task, SefariaCache
+from models import Lesson, LessonSource, Course, Theme, Task, SefariaCache
 
 
 # Course CRUD
@@ -217,13 +217,91 @@ def update_lesson(
 
 
 def delete_lesson(session: Session, lesson_id: int) -> bool:
-    """Delete a lesson"""
+    """Delete a lesson and its associated sources"""
     lesson = session.get(Lesson, lesson_id)
     if lesson:
+        # Delete associated lesson sources first
+        delete_lesson_sources(session, lesson_id)
         session.delete(lesson)
         session.commit()
         return True
     return False
+
+
+# LessonSource CRUD
+def get_lesson_sources(session: Session, lesson_id: int) -> List[LessonSource]:
+    """Get all sources for a lesson, ordered by paragraph_index then id."""
+    statement = (
+        select(LessonSource)
+        .where(LessonSource.lesson_id == lesson_id)
+        .order_by(LessonSource.paragraph_index, LessonSource.id)
+    )
+    return list(session.exec(statement).all())
+
+
+def get_lesson_sources_by_paragraph(
+    session: Session, lesson_id: int, paragraph_index: int
+) -> List[LessonSource]:
+    """Get all sources for a specific paragraph of a lesson."""
+    statement = (
+        select(LessonSource)
+        .where(
+            LessonSource.lesson_id == lesson_id,
+            LessonSource.paragraph_index == paragraph_index,
+        )
+        .order_by(LessonSource.id)
+    )
+    return list(session.exec(statement).all())
+
+
+def create_lesson_source(session: Session, **kwargs) -> LessonSource:
+    """Create a single lesson source row."""
+    source = LessonSource(**kwargs)
+    session.add(source)
+    return source
+
+
+def bulk_create_lesson_sources(
+    session: Session, sources: List[dict]
+) -> List[LessonSource]:
+    """Bulk-insert lesson sources. Caller must commit."""
+    objs = [LessonSource(**s) for s in sources]
+    session.add_all(objs)
+    return objs
+
+
+def delete_lesson_sources(session: Session, lesson_id: int) -> int:
+    """Delete all sources for a lesson. Returns count deleted."""
+    sources = get_lesson_sources(session, lesson_id)
+    count = len(sources)
+    for s in sources:
+        session.delete(s)
+    return count
+
+
+def delete_lesson_sources_by_paragraph(
+    session: Session, lesson_id: int, paragraph_index: int
+) -> int:
+    """Delete sources for a specific paragraph. Returns count deleted."""
+    sources = get_lesson_sources_by_paragraph(session, lesson_id, paragraph_index)
+    count = len(sources)
+    for s in sources:
+        session.delete(s)
+    return count
+
+
+def update_lesson_source(
+    session: Session, source_id: int, **kwargs
+) -> Optional[LessonSource]:
+    """Update specific fields of a lesson source."""
+    source = session.get(LessonSource, source_id)
+    if not source:
+        return None
+    for key, value in kwargs.items():
+        if value is not None:
+            setattr(source, key, value)
+    session.add(source)
+    return source
 
 
 # Task CRUD

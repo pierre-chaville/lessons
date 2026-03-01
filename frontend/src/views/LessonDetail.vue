@@ -33,7 +33,7 @@ import { configApi } from '@/api/config'
 import { sourcesApi } from '@/api/sources'
 import { useToast } from '@/composables/useToast'
 import { usePermissions } from '@/composables/usePermissions'
-import type { LessonDetail as LessonDetailType, Course, Theme } from '@/api/types'
+import type { LessonDetail as LessonDetailType, LessonSource, Course, Theme } from '@/api/types'
 
 const props = defineProps<{
   lesson: LessonDetailType
@@ -313,6 +313,24 @@ const formatDuration = (seconds: number | null | undefined): string => {
   return `${secs}s`
 }
 
+// Build a map of paragraph_index → LessonSource[] from the top-level sources array
+const sourcesByParagraph = computed(() => {
+  const map = new Map<number, LessonSource[]>()
+  if (!props.lesson.sources) return map
+  for (const s of props.lesson.sources) {
+    if (!map.has(s.paragraph_index)) {
+      map.set(s.paragraph_index, [])
+    }
+    map.get(s.paragraph_index)!.push(s)
+  }
+  return map
+})
+
+/** Return the sources for a given paragraph index from the lesson_source table. */
+const getSourcesForParagraph = (paragraphIndex: number): LessonSource[] => {
+  return sourcesByParagraph.value.get(paragraphIndex) ?? []
+}
+
 // Function to add source markers to edited text
 const addSourceMarkers = (text: string, sources: Record<string, unknown>[], globalStartIndex = 0): string => {
   if (!sources || sources.length === 0) return text
@@ -386,28 +404,26 @@ const highlightMatchedText = (text: string, matchedText: string): string => {
   )
 }
 
-// Collect all sources from edited transcript, grouped by type
+// Collect all sources from lesson_source table, grouped by type
 const allSources = computed(() => {
-  if (!props.lesson.edited_transcript) return [];
+  if (!props.lesson.sources || props.lesson.sources.length === 0) return [];
   
   const typeMap = new Map();
+  const editedParts = props.lesson.edited_transcript ?? [];
   
-  props.lesson.edited_transcript.forEach((part) => {
-    if (part.sources && part.sources.length > 0) {
-      part.sources.forEach((source) => {
-        const type = source.type || 'Unknown';
-        
-        if (!typeMap.has(type)) {
-          typeMap.set(type, []);
-        }
-        
-        // Add this source with its edited part
-        typeMap.get(type).push({
-          ...source,
-          editedPart: part
-        });
-      });
+  props.lesson.sources.forEach((source) => {
+    const type = source.type || 'Unknown';
+    
+    if (!typeMap.has(type)) {
+      typeMap.set(type, []);
     }
+    
+    // Attach the corresponding edited paragraph for context
+    const editedPart = editedParts[source.paragraph_index] ?? null;
+    typeMap.get(type).push({
+      ...source,
+      editedPart
+    });
   });
   
   // Convert to array of types with their sources, sorted by type name
@@ -416,48 +432,44 @@ const allSources = computed(() => {
     .sort((a, b) => a.type.localeCompare(b.type));
 });
 
-// Compute source statistics by type
+// Compute source statistics by type (from lesson_source table)
 const sourceStats = computed(() => {
-  if (!props.lesson.edited_transcript) return [];
+  if (!props.lesson.sources || props.lesson.sources.length === 0) return [];
   
   const typeStatsMap = new Map();
   
-  props.lesson.edited_transcript.forEach((part) => {
-    if (part.sources && part.sources.length > 0) {
-      part.sources.forEach((source) => {
-        const type = source.type || 'Unknown';
-        
-        if (!typeStatsMap.has(type)) {
-          typeStatsMap.set(type, {
-            type,
-            total: 0,
-            slugRetrieved: 0,
-            citationFound: 0,
-            checked: 0 // verified with confidence > 90%
-          });
-        }
-        
-        const stats = typeStatsMap.get(type);
-        stats.total++;
-        
-        if (source.slug_retrieved === true) {
-          stats.slugRetrieved++;
-        }
-        
-        // Citation found: FOUND, SIMILAR, or PARTIAL
-        if (source.verification_status && 
-            ['exactly_found', 'paraphrase_or_similar', 'partially_found'].includes(source.verification_status)) {
-          stats.citationFound++;
-        }
-        
-        // Checked: FOUND or SIMILAR AND verification confidence > 90%
-        if (source.verification_status && 
-            ['exactly_found', 'paraphrase_or_similar'].includes(source.verification_status) &&
-            source.verification_confidence !== null && 
-            source.verification_confidence > 0.9) {
-          stats.checked++;
-        }
+  props.lesson.sources.forEach((source) => {
+    const type = source.type || 'Unknown';
+    
+    if (!typeStatsMap.has(type)) {
+      typeStatsMap.set(type, {
+        type,
+        total: 0,
+        slugRetrieved: 0,
+        citationFound: 0,
+        checked: 0 // verified with confidence > 90%
       });
+    }
+    
+    const stats = typeStatsMap.get(type);
+    stats.total++;
+    
+    if (source.slug_retrieved === true) {
+      stats.slugRetrieved++;
+    }
+    
+    // Citation found: FOUND, SIMILAR, or PARTIAL
+    if (source.verification_status && 
+        ['exactly_found', 'paraphrase_or_similar', 'partially_found'].includes(source.verification_status)) {
+      stats.citationFound++;
+    }
+    
+    // Checked: FOUND or SIMILAR AND verification confidence > 90%
+    if (source.verification_status && 
+        ['exactly_found', 'paraphrase_or_similar'].includes(source.verification_status) &&
+        source.verification_confidence !== null && 
+        source.verification_confidence > 0.9) {
+      stats.checked++;
     }
   });
   
@@ -477,16 +489,11 @@ const totalStats = computed(() => {
   }, { total: 0, slugRetrieved: 0, citationFound: 0, checked: 0 });
 });
 
-// Compute global source indices for each part
-const getGlobalSourceIndex = (partIndex) => {
-  if (!props.lesson.edited_transcript) return 0;
-  
+// Compute global source indices for each part (uses lesson_source table data)
+const getGlobalSourceIndex = (partIndex: number) => {
   let count = 0;
   for (let i = 0; i < partIndex; i++) {
-    const part = props.lesson.edited_transcript[i];
-    if (part.sources) {
-      count += part.sources.length;
-    }
+    count += getSourcesForParagraph(i).length;
   }
   return count;
 };
@@ -819,8 +826,7 @@ const hasTranscript = computed(() => !!(props.lesson.transcript && props.lesson.
 const hasCorrectedTranscript = computed(() => !!(props.lesson.corrected_transcript && props.lesson.corrected_transcript.length > 0))
 const hasEditedTranscript = computed(() => !!(props.lesson.edited_transcript && props.lesson.edited_transcript.length > 0))
 const hasSourcesExtracted = computed(() => {
-  if (!props.lesson.edited_transcript) return false
-  return props.lesson.edited_transcript.some((p) => p.sources && p.sources.length > 0)
+  return !!(props.lesson.sources && props.lesson.sources.length > 0)
 })
 
 const canCorrect = computed(() => hasTranscript.value || selectedProcesses.value.transcribe)
@@ -1917,7 +1923,7 @@ const saveParagraph = async () => {
                         <div class="prose prose-sm dark:prose-invert max-w-none">
                           <div 
                             class="text-gray-900 dark:text-gray-100 leading-relaxed whitespace-pre-wrap print:text-black"
-                            v-html="renderMarkdown(addSourceMarkers(part.text, part.sources, getGlobalSourceIndex(index)))"
+                            v-html="renderMarkdown(addSourceMarkers(part.text, getSourcesForParagraph(index) as any, getGlobalSourceIndex(index)))"
                           ></div>
                         </div>
                       </div>
@@ -1962,12 +1968,12 @@ const saveParagraph = async () => {
                     </div>
 
                     <!-- Sources -->
-                    <div v-if="part.sources && part.sources.length > 0" class="space-y-2 mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 print:border-gray-300">
+                    <div v-if="getSourcesForParagraph(index).length > 0" class="space-y-2 mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 print:border-gray-300">
                       <div class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
                         {{ t('lessons.sources') }}
                       </div>
                       <div
-                        v-for="(source, srcIndex) in part.sources"
+                        v-for="(source, srcIndex) in getSourcesForParagraph(index)"
                         :key="srcIndex"
                         @click="openSourceModal(part, source)"
                         class="flex gap-3 p-3 rounded-md bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 print:bg-gray-50 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors print:cursor-default"
@@ -2061,7 +2067,7 @@ const saveParagraph = async () => {
                       <div class="prose prose-sm dark:prose-invert max-w-none">
                         <div 
                           class="text-gray-900 dark:text-gray-100 leading-normal whitespace-pre-wrap print:text-black"
-                          v-html="renderMarkdown(addSourceMarkers(part.text, part.sources, getGlobalSourceIndex(index)))"
+                          v-html="renderMarkdown(addSourceMarkers(part.text, getSourcesForParagraph(index) as any, getGlobalSourceIndex(index)))"
                         ></div>
                       </div>
                     </div>
@@ -2106,12 +2112,12 @@ const saveParagraph = async () => {
                   </div>
                   
                   <!-- Sources -->
-                  <div v-if="part.sources && part.sources.length > 0" class="space-y-2 mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 print:border-gray-300">
+                  <div v-if="getSourcesForParagraph(index).length > 0" class="space-y-2 mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 print:border-gray-300">
                     <div class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
                       {{ t('lessons.sources') }}
                     </div>
                     <div
-                      v-for="(source, srcIndex) in part.sources"
+                      v-for="(source, srcIndex) in getSourcesForParagraph(index)"
                       :key="srcIndex"
                       @click="openSourceModal(part, source)"
                       class="flex gap-3 p-3 rounded-md bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 print:bg-gray-50 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors print:cursor-default"

@@ -447,7 +447,7 @@ async def verify_lesson_sources_async(
     session: Optional[Session] = None,
 ) -> bool:
     """
-    Verify all sources in a lesson's edited transcript.
+    Verify all sources in a lesson's lesson_source table rows.
 
     Args:
         lesson_id: ID of the lesson to verify sources for
@@ -464,68 +464,45 @@ async def verify_lesson_sources_async(
             session = Session(engine)
             should_close_session = True
 
-        # Load lesson
+        # Load lesson (needed to confirm it exists)
         from models import Lesson
         lesson = session.get(Lesson, lesson_id)
         if not lesson:
             logger.error(f"Lesson {lesson_id} not found")
             return False
 
-        if not lesson.edited_transcript:
-            logger.error(f"Lesson {lesson_id} has no edited transcript")
-            return False
-
-        # Collect all sources from edited transcript
-        # Note: edited_transcript is stored as JSON, so sources are dicts
-        all_sources = []
-        for part_dict in lesson.edited_transcript:
-            if isinstance(part_dict, dict) and part_dict.get("sources"):
-                for source_dict in part_dict["sources"]:
-                    all_sources.append(Source(**source_dict))
-            elif hasattr(part_dict, "sources") and part_dict.sources:
-                for source in part_dict.sources:
-                    if isinstance(source, dict):
-                        all_sources.append(Source(**source))
-                    else:
-                        all_sources.append(source)
-
-        if not all_sources:
+        # Collect all sources from the lesson_source table
+        db_sources = crud.get_lesson_sources(session, lesson_id)
+        if not db_sources:
             logger.info(f"Lesson {lesson_id} has no sources to verify")
             return True
 
-        # Verify sources
+        # Convert LessonSource rows to Source schema objects for verification
+        all_sources: List[Source] = []
+        for ls in db_sources:
+            all_sources.append(Source(
+                type=ls.type,
+                work=ls.work,
+                ref=ls.ref,
+                standard_slug=ls.standard_slug,
+                original_text=ls.original_text,
+                translation_text=ls.translation_text,
+                cited_excerpt=ls.cited_excerpt,
+                confidence=ls.confidence,
+            ))
+
+        # Verify sources (handles Sefaria pre-fetch + LLM)
         verified_sources = await verify_sources_async(all_sources, session)
 
-        # Update sources in edited transcript
-        source_index = 0
-        updated_parts = []
-        for part_dict in lesson.edited_transcript:
-            if isinstance(part_dict, dict):
-                # Handle dict format (from JSON storage)
-                part = part_dict.copy()
-                if part.get("sources"):
-                    updated_sources = []
-                    for i in range(len(part["sources"])):
-                        updated_sources.append(verified_sources[source_index].model_dump())
-                        source_index += 1
-                    part["sources"] = updated_sources
-                updated_parts.append(part)
-            else:
-                # Handle object format
-                part = part_dict
-                if hasattr(part, "sources") and part.sources:
-                    updated_sources = []
-                    for i in range(len(part.sources)):
-                        updated_sources.append(verified_sources[source_index].model_dump())
-                        source_index += 1
-                    part.sources = updated_sources
-                updated_parts.append(part.model_dump() if hasattr(part, "model_dump") else part)
+        # Write verification results back to the lesson_source rows
+        for ls_row, verified in zip(db_sources, verified_sources):
+            ls_row.slug_retrieved = verified.slug_retrieved
+            ls_row.verification_status = verified.verification_status
+            ls_row.verification_confidence = verified.verification_confidence
+            ls_row.verification_explanation = verified.verification_explanation
+            ls_row.matched_text = verified.matched_text
+            session.add(ls_row)
 
-        # Update lesson with verified sources
-        lesson.edited_transcript = updated_parts
-
-        # Commit changes
-        session.add(lesson)
         session.commit()
 
         logger.info(

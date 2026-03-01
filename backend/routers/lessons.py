@@ -154,7 +154,7 @@ def get_lesson_edited_transcript_pdf(
     if not lesson.edited_transcript or len(lesson.edited_transcript) == 0:
         raise HTTPException(status_code=404, detail="No edited transcript available")
 
-    pdf_bytes, filename = pdf_service.generate_edited_pdf(lesson)
+    pdf_bytes, filename = pdf_service.generate_edited_pdf(lesson, session)
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
@@ -172,7 +172,7 @@ def get_lesson_sources_pdf(lesson_hashid: str, session: Session = Depends(get_se
     if not lesson.edited_transcript or len(lesson.edited_transcript) == 0:
         raise HTTPException(status_code=404, detail="No sources available")
 
-    pdf_bytes, filename = pdf_service.generate_sources_pdf(lesson)
+    pdf_bytes, filename = pdf_service.generate_sources_pdf(lesson, session)
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
@@ -192,7 +192,7 @@ def get_lesson_detailed_sources_pdf(
     if not lesson.edited_transcript or len(lesson.edited_transcript) == 0:
         raise HTTPException(status_code=404, detail="No sources available")
 
-    pdf_bytes, filename = pdf_service.generate_detailed_sources_pdf(lesson)
+    pdf_bytes, filename = pdf_service.generate_detailed_sources_pdf(lesson, session)
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",

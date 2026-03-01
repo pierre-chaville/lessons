@@ -12,6 +12,7 @@ from schemas.lesson import (
     LessonListResponse,
     LessonResponse,
 )
+from schemas.source import LessonSourceResponse
 from schemas.course import CourseResponse
 from schemas.theme import ThemeResponse
 from storage import rename_audio_object, s3_enabled
@@ -38,10 +39,16 @@ def _build_theme_resps(themes) -> list[ThemeResponse]:
     ]
 
 
+def _build_source_resps(db_sources) -> list[LessonSourceResponse]:
+    """Convert LessonSource DB rows to LessonSourceResponse schemas."""
+    return [LessonSourceResponse.model_validate(s) for s in db_sources]
+
+
 def build_lesson_response(lesson: Lesson, session: Session) -> LessonResponse:
-    """Build a full LessonResponse enriched with resolved themes and course."""
+    """Build a full LessonResponse enriched with resolved themes, course, and sources."""
     theme_ids = lesson.get_themes()
     themes = crud.get_themes_by_ids(session, theme_ids) if theme_ids else []
+    db_sources = crud.get_lesson_sources(session, lesson.id)
     return LessonResponse(
         id=lesson.id,
         hashid=encode_id(lesson.id),
@@ -59,6 +66,7 @@ def build_lesson_response(lesson: Lesson, session: Session) -> LessonResponse:
         theme_ids=theme_ids,
         themes=_build_theme_resps(themes),
         course=_build_course_resp(lesson.course),
+        sources=_build_source_resps(db_sources),
         transcript_metadata=lesson.transcript_metadata,
         correction_metadata=lesson.correction_metadata,
         summary_metadata=lesson.summary_metadata,
