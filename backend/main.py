@@ -11,7 +11,7 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.security import HTTPBearer
 
 from auth import require_auth
-from routers import courses, themes, lessons, upload, tasks, config, search, users, sefaria_cache
+from routers import courses, themes, lessons, upload, tasks, config, search, users, sefaria_cache, webhooks
 import worker as worker_module
 
 bearer_scheme = HTTPBearer()
@@ -96,6 +96,7 @@ app.include_router(config.router)
 app.include_router(search.router)
 app.include_router(users.router)
 app.include_router(sefaria_cache.router)
+app.include_router(webhooks.router)
 
 
 # ── Health check ──────────────────────────────────────────────────────────────

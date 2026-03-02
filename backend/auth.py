@@ -90,6 +90,9 @@ def require_auth(
 ) -> Dict[str, Any]:
     if request.method == "OPTIONS":
         return {}
+    # Webhook endpoints handle their own authentication (Svix signature)
+    if request.url.path.startswith("/webhooks/"):
+        return {}
     token = ""
     if authorization and authorization.startswith("Bearer "):
         token = authorization.split(" ", 1)[1].strip()
