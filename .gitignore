@@ -39,3 +39,7 @@ logs/
 
 # Data
 backend/data/
+
+# screenshots
+docs/guide/fr/images/
+docs/guide/fr/guide-utilisateur.pdf
