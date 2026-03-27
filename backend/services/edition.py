@@ -376,6 +376,7 @@ async def edit_transcript_async(
     lesson_id: int,
     words_per_group: int = 1000,
     max_concurrency: int = 10,
+    prompt_type: Optional[str] = None,
     session: Optional[Session] = None,
 ) -> bool:
     """
@@ -415,15 +416,30 @@ async def edit_transcript_async(
         config = load_config()
         edition_config = config.get("edition", {})
 
-        edition_prompt = edition_config.get(
-            "prompt",
-            "Please rewrite the following transcript in a clear, written style while maintaining the original meaning and flow. "
-            "For each edited part, specify start_segment and end_segment (segment numbers, 0-indexed, INCLUSIVE boundaries) "
-            "to indicate which segments are covered by that part. "
-            "IMPORTANT: All segments must be covered exactly once without gaps or overlaps. "
-            "Each segment number can only appear in one edited part. "
-            "Focus only on rewriting the text - do not extract or mention sources.",
-        )
+        # Resolve prompt from prompts list (like summary) with backward compat
+        prompts = edition_config.get("prompts", [])
+        if not prompts and "prompt" in edition_config:
+            prompts = [{"name": "Default", "text": edition_config["prompt"]}]
+
+        edition_prompt = None
+        if prompt_type:
+            for p in prompts:
+                if p.get("name") == prompt_type:
+                    edition_prompt = p.get("text")
+                    break
+
+        if not edition_prompt and prompts:
+            edition_prompt = prompts[0].get("text")
+
+        if not edition_prompt:
+            edition_prompt = (
+                "Please rewrite the following transcript in a clear, written style while maintaining the original meaning and flow. "
+                "For each edited part, specify start_segment and end_segment (segment numbers, 0-indexed, INCLUSIVE boundaries) "
+                "to indicate which segments are covered by that part. "
+                "IMPORTANT: All segments must be covered exactly once without gaps or overlaps. "
+                "Each segment number can only appear in one edited part. "
+                "Focus only on rewriting the text - do not extract or mention sources."
+            )
 
         # Get LLM model
         llm = get_llm_model(task_name="edition")
@@ -533,6 +549,7 @@ def edit_transcript(
     lesson_id: int,
     words_per_group: int = 1000,
     max_concurrency: int = 10,
+    prompt_type: Optional[str] = None,
     session: Optional[Session] = None,
 ) -> bool:
     """
@@ -542,6 +559,7 @@ def edit_transcript(
         lesson_id: ID of the lesson to edit
         words_per_group: Target number of words to process in each group
         max_concurrency: Maximum number of concurrent LLM calls
+        prompt_type: Name of the prompt to use from the prompts list
         session: Optional SQLModel session
 
     Returns:
@@ -552,6 +570,7 @@ def edit_transcript(
             lesson_id=lesson_id,
             words_per_group=words_per_group,
             max_concurrency=max_concurrency,
+            prompt_type=prompt_type,
             session=session,
         )
     )

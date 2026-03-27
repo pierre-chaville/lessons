@@ -20,10 +20,10 @@ const { t } = useI18n()
 const { can } = usePermissions()
 
 const config = ref<AppConfig>({
-  correction:  { provider: 'OpenAI', model: '', prompt: '', temperature: 0.3, max_tokens: 16000 },
-  edition:     { provider: 'OpenAI', model: '', prompt: '', temperature: 0.5, max_tokens: 16000 },
+  correction:  { provider: 'OpenAI', model: '', prompt: '', prompts: [{ name: 'Default', text: '' }], temperature: 0.3, max_tokens: 16000 },
+  edition:     { provider: 'OpenAI', model: '', prompt: '', prompts: [{ name: 'Default', text: '' }], temperature: 0.5, max_tokens: 16000 },
   extraction:  { provider: 'OpenAI', model: '', prompt: '', temperature: 0.3, max_tokens: 4000 },
-  sources:     { provider: 'OpenAI', model: '', prompt: '', temperature: 0.3, max_tokens: 4000 },
+  sources:     { provider: 'OpenAI', model: '', prompt: '', prompts: [{ name: 'Default', text: '' }], temperature: 0.3, max_tokens: 4000 },
   source_types: {},
   summary: {
     max_length: 300,
@@ -54,6 +54,15 @@ const loadConfig = async () => {
     const data = await configApi.get()
     config.value = data
     if (!config.value.source_types) config.value.source_types = {}
+    // Ensure prompts arrays exist for backward compatibility with old single-prompt configs
+    for (const section of ['correction', 'edition', 'sources'] as const) {
+      const cfg = config.value[section]
+      if (!cfg.prompts || cfg.prompts.length === 0) {
+        cfg.prompts = cfg.prompt
+          ? [{ name: 'Default', text: cfg.prompt }]
+          : [{ name: 'Default', text: '' }]
+      }
+    }
   } catch {
     saveError.value = t('preferences.loadFailed')
   } finally {
@@ -89,6 +98,19 @@ const resetConfig = async () => {
     saveError.value = t('preferences.resetFailed')
   } finally {
     isResetting.value = false
+  }
+}
+
+const addPrompt = (section: 'correction' | 'edition' | 'sources') => {
+  const cfg = config.value[section]
+  if (!cfg.prompts) cfg.prompts = []
+  cfg.prompts.push({ name: '', text: '' })
+}
+
+const removePrompt = (section: 'correction' | 'edition' | 'sources', index: number) => {
+  const cfg = config.value[section]
+  if (cfg.prompts && cfg.prompts.length > 1) {
+    cfg.prompts.splice(index, 1)
   }
 }
 
@@ -439,17 +461,53 @@ const updateSourceType = (oldType: string, newType: string, description: string)
                   </p>
                 </div>
 
-                <!-- Prompt -->
+                <!-- Prompts -->
                 <div>
-                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {{ t('preferences.prompt') }}
-                  </label>
-                  <textarea
-                    v-model="config.correction.prompt"
-                    rows="10"
-                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
-                  ></textarea>
-                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  <div class="flex items-center justify-between mb-2">
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {{ t('preferences.correctionPrompts') }}
+                    </label>
+                    <button
+                      @click="addPrompt('correction')"
+                      type="button"
+                      class="px-3 py-1 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 border border-indigo-300 dark:border-indigo-600 rounded-md hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
+                    >
+                      + {{ t('preferences.addPrompt') }}
+                    </button>
+                  </div>
+                  
+                  <div class="space-y-4">
+                    <div
+                      v-for="(prompt, index) in config.correction.prompts"
+                      :key="index"
+                      class="border border-gray-300 dark:border-gray-600 rounded-md p-4 bg-gray-50 dark:bg-gray-900/30"
+                    >
+                      <div class="flex items-center gap-3 mb-3">
+                        <input
+                          v-model="prompt.name"
+                          type="text"
+                          :placeholder="t('preferences.promptName')"
+                          class="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 text-sm font-medium"
+                        />
+                        <button
+                          v-if="(config.correction.prompts?.length ?? 0) > 1"
+                          @click="removePrompt('correction', index)"
+                          type="button"
+                          class="px-3 py-2 text-xs font-medium text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors"
+                        >
+                          {{ t('preferences.remove') }}
+                        </button>
+                      </div>
+                      <textarea
+                        v-model="prompt.text"
+                        rows="8"
+                        :placeholder="t('preferences.promptText')"
+                        class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
+                      ></textarea>
+                    </div>
+                  </div>
+                  
+                  <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
                     {{ t('preferences.correctionPromptDesc') }}
                   </p>
                 </div>
@@ -530,17 +588,53 @@ const updateSourceType = (oldType: string, newType: string, description: string)
                   </p>
                 </div>
 
-                <!-- Prompt -->
+                <!-- Prompts -->
                 <div>
-                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {{ t('preferences.prompt') }}
-                  </label>
-                  <textarea
-                    v-model="config.edition.prompt"
-                    rows="10"
-                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
-                  ></textarea>
-                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  <div class="flex items-center justify-between mb-2">
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {{ t('preferences.editionPrompts') }}
+                    </label>
+                    <button
+                      @click="addPrompt('edition')"
+                      type="button"
+                      class="px-3 py-1 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 border border-indigo-300 dark:border-indigo-600 rounded-md hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
+                    >
+                      + {{ t('preferences.addPrompt') }}
+                    </button>
+                  </div>
+                  
+                  <div class="space-y-4">
+                    <div
+                      v-for="(prompt, index) in config.edition.prompts"
+                      :key="index"
+                      class="border border-gray-300 dark:border-gray-600 rounded-md p-4 bg-gray-50 dark:bg-gray-900/30"
+                    >
+                      <div class="flex items-center gap-3 mb-3">
+                        <input
+                          v-model="prompt.name"
+                          type="text"
+                          :placeholder="t('preferences.promptName')"
+                          class="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 text-sm font-medium"
+                        />
+                        <button
+                          v-if="(config.edition.prompts?.length ?? 0) > 1"
+                          @click="removePrompt('edition', index)"
+                          type="button"
+                          class="px-3 py-2 text-xs font-medium text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors"
+                        >
+                          {{ t('preferences.remove') }}
+                        </button>
+                      </div>
+                      <textarea
+                        v-model="prompt.text"
+                        rows="8"
+                        :placeholder="t('preferences.promptText')"
+                        class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
+                      ></textarea>
+                    </div>
+                  </div>
+                  
+                  <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
                     {{ t('preferences.editionPromptDesc') }}
                   </p>
                 </div>
@@ -777,17 +871,53 @@ const updateSourceType = (oldType: string, newType: string, description: string)
                       </p>
                     </div>
 
-                    <!-- Prompt -->
+                    <!-- Prompts -->
                     <div>
-                      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        {{ t('preferences.prompt') }}
-                      </label>
-                      <textarea
-                        v-model="config.sources.prompt"
-                        rows="10"
-                        class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
-                      ></textarea>
-                      <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      <div class="flex items-center justify-between mb-2">
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                          {{ t('preferences.sourcesPrompts') }}
+                        </label>
+                        <button
+                          @click="addPrompt('sources')"
+                          type="button"
+                          class="px-3 py-1 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 border border-indigo-300 dark:border-indigo-600 rounded-md hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
+                        >
+                          + {{ t('preferences.addPrompt') }}
+                        </button>
+                      </div>
+                      
+                      <div class="space-y-4">
+                        <div
+                          v-for="(prompt, index) in config.sources.prompts"
+                          :key="index"
+                          class="border border-gray-300 dark:border-gray-600 rounded-md p-4 bg-gray-50 dark:bg-gray-900/30"
+                        >
+                          <div class="flex items-center gap-3 mb-3">
+                            <input
+                              v-model="prompt.name"
+                              type="text"
+                              :placeholder="t('preferences.promptName')"
+                              class="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 text-sm font-medium"
+                            />
+                            <button
+                              v-if="(config.sources.prompts?.length ?? 0) > 1"
+                              @click="removePrompt('sources', index)"
+                              type="button"
+                              class="px-3 py-2 text-xs font-medium text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors"
+                            >
+                              {{ t('preferences.remove') }}
+                            </button>
+                          </div>
+                          <textarea
+                            v-model="prompt.text"
+                            rows="8"
+                            :placeholder="t('preferences.promptText')"
+                            class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
+                          ></textarea>
+                        </div>
+                      </div>
+                      
+                      <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
                         {{ t('preferences.sourcesPromptDesc') }}
                       </p>
                     </div>

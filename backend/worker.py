@@ -122,6 +122,7 @@ def process_correction_task(session: Session, task: Task):
         lesson_id = params.get("lesson_id")
         segments_per_group = params.get("segments_per_group", 10)
         max_concurrency = params.get("max_concurrency", 10)
+        prompt_type = params.get("prompt_type")
 
         if not lesson_id:
             raise ValueError("lesson_id is required in task parameters")
@@ -131,6 +132,7 @@ def process_correction_task(session: Session, task: Task):
             lesson_id=lesson_id,
             segments_per_group=segments_per_group,
             max_concurrency=max_concurrency,
+            prompt_type=prompt_type,
             session=session,
         )
 
@@ -166,6 +168,7 @@ def process_edition_task(session: Session, task: Task):
         if words_per_group is None:
             words_per_group = params.get("segments_per_group", 1000)
         max_concurrency = params.get("max_concurrency", 10)
+        prompt_type = params.get("prompt_type")
 
         if not lesson_id:
             raise ValueError("lesson_id is required in task parameters")
@@ -176,6 +179,7 @@ def process_edition_task(session: Session, task: Task):
             lesson_id=lesson_id,
             words_per_group=words_per_group,
             max_concurrency=max_concurrency,
+            prompt_type=prompt_type,
             session=session,
         )
 
@@ -288,6 +292,7 @@ def process_sources_task(session: Session, task: Task):
         # Get parameters from task
         params = task.parameters or {}
         lesson_id = params.get("lesson_id")
+        prompt_type = params.get("prompt_type")
 
         if not lesson_id:
             raise ValueError("lesson_id is required in task parameters")
@@ -295,6 +300,7 @@ def process_sources_task(session: Session, task: Task):
         # Verify sources
         success = verify_lesson_sources(
             lesson_id=lesson_id,
+            prompt_type=prompt_type,
             session=session,
         )
 

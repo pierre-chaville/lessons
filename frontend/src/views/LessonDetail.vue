@@ -113,6 +113,12 @@ const selectedProcesses = ref<Record<string, boolean>>({
 })
 const selectedSummaryPrompt = ref('')
 const availableSummaryPrompts = ref<Array<{ name: string; text: string }>>([])
+const selectedCorrectionPrompt = ref('')
+const availableCorrectionPrompts = ref<Array<{ name: string; text: string }>>([])
+const selectedEditionPrompt = ref('')
+const availableEditionPrompts = ref<Array<{ name: string; text: string }>>([])
+const selectedSourcesPrompt = ref('')
+const availableSourcesPrompts = ref<Array<{ name: string; text: string }>>([])
 const isCreatingTasks = ref(false)
 
 // Configure marked options
@@ -852,11 +858,26 @@ const openProcessModal = async () => {
   showProcessModal.value = true
   try {
     const config = await configApi.get()
-    const prompts = config?.summary?.prompts ?? []
-    availableSummaryPrompts.value = prompts
-    if (prompts.length > 0 && !selectedSummaryPrompt.value) {
-      selectedSummaryPrompt.value = prompts[0].name
+
+    const loadPrompts = (
+      section: { prompts?: Array<{ name: string; text: string }>; prompt?: string },
+      availableRef: typeof availableSummaryPrompts,
+      selectedRef: typeof selectedSummaryPrompt,
+    ) => {
+      let prompts = section?.prompts ?? []
+      if (prompts.length === 0 && section?.prompt) {
+        prompts = [{ name: 'Default', text: section.prompt }]
+      }
+      availableRef.value = prompts
+      if (prompts.length > 0 && !selectedRef.value) {
+        selectedRef.value = prompts[0].name
+      }
     }
+
+    loadPrompts(config?.summary, availableSummaryPrompts, selectedSummaryPrompt)
+    loadPrompts(config?.correction, availableCorrectionPrompts, selectedCorrectionPrompt)
+    loadPrompts(config?.edition, availableEditionPrompts, selectedEditionPrompt)
+    loadPrompts(config?.sources, availableSourcesPrompts, selectedSourcesPrompt)
   } catch { /* silent */ }
 }
 
@@ -889,10 +910,11 @@ const createTasks = async () => {
     }
     for (const taskType of orderedTasks) {
       const parameters: Record<string, unknown> = { lesson_id: props.lesson.id }
-      if (taskType === 'correct')    { parameters.segments_per_group = 100; parameters.max_concurrency = 10 }
-      if (taskType === 'edition')    { parameters.words_per_group = 1000; parameters.max_concurrency = 10 }
+      if (taskType === 'correct')    { parameters.segments_per_group = 100; parameters.max_concurrency = 10; parameters.prompt_type = selectedCorrectionPrompt.value }
+      if (taskType === 'edition')    { parameters.words_per_group = 1000; parameters.max_concurrency = 10; parameters.prompt_type = selectedEditionPrompt.value }
       if (taskType === 'extraction') { parameters.max_concurrency = 10 }
       if (taskType === 'summary')    { parameters.prompt_type = selectedSummaryPrompt.value }
+      if (taskType === 'sources')    { parameters.prompt_type = selectedSourcesPrompt.value }
       await tasksApi.create({ task_type: taskTypeMap[taskType] as import('@/api/types').TaskType, parameters })
     }
     toast.success(t('lessons.tasksCreated', { count: orderedTasks.length }))
@@ -1095,7 +1117,7 @@ const saveParagraph = async () => {
                 :disabled="!canCorrect"
                 class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 disabled:opacity-50"
               />
-              <div>
+              <div class="flex-1">
                 <div class="text-sm font-medium text-gray-900 dark:text-white">
                   {{ t('lessons.processCorrect') }}
                 </div>
@@ -1104,6 +1126,25 @@ const saveParagraph = async () => {
                 </div>
               </div>
             </label>
+            
+            <!-- Correction Prompt Type Selection -->
+            <div v-if="selectedProcesses.correct && availableCorrectionPrompts.length > 0" class="ml-7 -mt-1 mb-2">
+              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                {{ t('lessons.correctionPromptType') }}
+              </label>
+              <select
+                v-model="selectedCorrectionPrompt"
+                class="w-full max-w-md px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+              >
+                <option
+                  v-for="prompt in availableCorrectionPrompts"
+                  :key="prompt.name"
+                  :value="prompt.name"
+                >
+                  {{ prompt.name }}
+                </option>
+              </select>
+            </div>
             
             <!-- Edition (needs corrected transcript) -->
             <label :class="[
@@ -1118,7 +1159,7 @@ const saveParagraph = async () => {
                 :disabled="!canEdition"
                 class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 disabled:opacity-50"
               />
-              <div>
+              <div class="flex-1">
                 <div class="text-sm font-medium text-gray-900 dark:text-white">
                   {{ t('lessons.processEdition') }}
                 </div>
@@ -1127,6 +1168,25 @@ const saveParagraph = async () => {
                 </div>
               </div>
             </label>
+            
+            <!-- Edition Prompt Type Selection -->
+            <div v-if="selectedProcesses.edition && availableEditionPrompts.length > 0" class="ml-7 -mt-1 mb-2">
+              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                {{ t('lessons.editionPromptType') }}
+              </label>
+              <select
+                v-model="selectedEditionPrompt"
+                class="w-full max-w-md px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+              >
+                <option
+                  v-for="prompt in availableEditionPrompts"
+                  :key="prompt.name"
+                  :value="prompt.name"
+                >
+                  {{ prompt.name }}
+                </option>
+              </select>
+            </div>
             
             <!-- Extract sources (needs edited transcript) -->
             <label :class="[
@@ -1173,6 +1233,25 @@ const saveParagraph = async () => {
                 </div>
               </div>
             </label>
+            
+            <!-- Sources Prompt Type Selection -->
+            <div v-if="selectedProcesses.sources && availableSourcesPrompts.length > 0" class="ml-7 -mt-1 mb-2">
+              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                {{ t('lessons.sourcesPromptType') }}
+              </label>
+              <select
+                v-model="selectedSourcesPrompt"
+                class="w-full max-w-md px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+              >
+                <option
+                  v-for="prompt in availableSourcesPrompts"
+                  :key="prompt.name"
+                  :value="prompt.name"
+                >
+                  {{ prompt.name }}
+                </option>
+              </select>
+            </div>
 
             <!-- Summary (needs edited transcript) -->
             <label :class="[
@@ -1198,8 +1277,8 @@ const saveParagraph = async () => {
             </label>
             
             
-            <!-- Summary Prompt Type Selection (shown when summary is selected) -->
-            <div v-if="selectedProcesses.summary" class="ml-7 -mt-1 mb-2">
+            <!-- Summary Prompt Type Selection -->
+            <div v-if="selectedProcesses.summary && availableSummaryPrompts.length > 0" class="ml-7 -mt-1 mb-2">
               <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                 {{ t('lessons.summaryPromptType') }}
               </label>

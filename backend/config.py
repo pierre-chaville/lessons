@@ -18,14 +18,24 @@ DEFAULT_CONFIG = {
     "correction": {
         "provider": "OpenAI",
         "model": "gpt-4o",
-        "prompt": "Please correct the following transcript, fixing any errors while maintaining the original meaning and style.",
+        "prompts": [
+            {
+                "name": "Default",
+                "text": "Please correct the following transcript, fixing any errors while maintaining the original meaning and style.",
+            }
+        ],
         "temperature": 0.3,
         "max_tokens": 16000,
     },
     "edition": {
         "provider": "OpenAI",
         "model": "gpt-4o",
-        "prompt": "Please rewrite the following transcript in a clear, written style, maintaining the original meaning and flow. Include timing information (start/end) and cite any sources mentioned.",
+        "prompts": [
+            {
+                "name": "Default",
+                "text": "Please rewrite the following transcript in a clear, written style, maintaining the original meaning and flow. Include timing information (start/end) and cite any sources mentioned.",
+            }
+        ],
         "temperature": 0.5,
         "max_tokens": 16000,
     },
@@ -59,7 +69,12 @@ DEFAULT_CONFIG = {
     "sources": {
         "provider": "OpenAI",
         "model": "gpt-4o",
-        "prompt": "Please verify sources and provide standardized references.",
+        "prompts": [
+            {
+                "name": "Default",
+                "text": "Please verify sources and provide standardized references.",
+            }
+        ],
         "temperature": 0.3,
         "max_tokens": 4000,
     },

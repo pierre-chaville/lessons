@@ -194,7 +194,8 @@ async def correct_transcript_async(
     lesson_id: int,
     segments_per_group: int = 100,
     max_concurrency: int = 10,
-    session: Optional[Session] = None
+    prompt_type: Optional[str] = None,
+    session: Optional[Session] = None,
 ) -> bool:
     """
     Correct a lesson transcript by processing segments in parallel groups.
@@ -229,11 +230,24 @@ async def correct_transcript_async(
         # Load config
         config = load_config()
         correction_config = config.get('correction', {})
-        
-        correction_prompt = correction_config.get(
-            'prompt',
-            'Please correct the following transcript, fixing any errors while maintaining the original meaning and style.'
-        )
+
+        # Resolve prompt from prompts list (like summary) with backward compat
+        prompts = correction_config.get('prompts', [])
+        if not prompts and 'prompt' in correction_config:
+            prompts = [{'name': 'Default', 'text': correction_config['prompt']}]
+
+        correction_prompt = None
+        if prompt_type:
+            for p in prompts:
+                if p.get('name') == prompt_type:
+                    correction_prompt = p.get('text')
+                    break
+
+        if not correction_prompt and prompts:
+            correction_prompt = prompts[0].get('text')
+
+        if not correction_prompt:
+            correction_prompt = 'Please correct the following transcript, fixing any errors while maintaining the original meaning and style.'
         
         # Get LLM model
         llm = get_llm_model(task_name='correction')
@@ -329,7 +343,8 @@ def correct_transcript(
     lesson_id: int,
     segments_per_group: int = 10,
     max_concurrency: int = 10,
-    session: Optional[Session] = None
+    prompt_type: Optional[str] = None,
+    session: Optional[Session] = None,
 ) -> bool:
     """
     Synchronous wrapper for correct_transcript_async.
@@ -338,6 +353,7 @@ def correct_transcript(
         lesson_id: ID of the lesson to correct
         segments_per_group: Number of segments to process in each group
         max_concurrency: Maximum number of concurrent LLM calls
+        prompt_type: Name of the prompt to use from the prompts list
         session: Optional SQLModel session
         
     Returns:
@@ -348,7 +364,8 @@ def correct_transcript(
             lesson_id=lesson_id,
             segments_per_group=segments_per_group,
             max_concurrency=max_concurrency,
-            session=session
+            prompt_type=prompt_type,
+            session=session,
         )
     )
 

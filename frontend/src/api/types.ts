@@ -232,14 +232,18 @@ export interface LLMConfig {
   provider: string
   model: string
   prompt: string
+  prompts?: NamedPrompt[]
   temperature: number
   max_tokens: number
 }
 
-export interface SummaryPrompt {
+export interface NamedPrompt {
   name: string
   text: string
 }
+
+/** @deprecated Use NamedPrompt instead */
+export type SummaryPrompt = NamedPrompt
 
 export interface SummaryConfig {
   provider: string
@@ -248,7 +252,7 @@ export interface SummaryConfig {
   temperature: number
   max_tokens: number
   max_length: number
-  prompts: SummaryPrompt[]
+  prompts: NamedPrompt[]
   brief: LLMConfig
 }
 

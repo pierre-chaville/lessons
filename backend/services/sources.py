@@ -246,7 +246,22 @@ async def verify_single_source(
     # Get LLM model and prompt from config
     model = sources_config.get("model", "gpt-4o")
     temperature = sources_config.get("temperature", 0.3)
-    prompt = sources_config.get("prompt", "")
+
+    # Resolve prompt from prompts list with backward compat
+    prompt_type = sources_config.get("_prompt_type")
+    prompts = sources_config.get("prompts", [])
+    if not prompts and "prompt" in sources_config:
+        prompts = [{"name": "Default", "text": sources_config["prompt"]}]
+
+    prompt = None
+    if prompt_type:
+        for p in prompts:
+            if p.get("name") == prompt_type:
+                prompt = p.get("text")
+                break
+
+    if not prompt and prompts:
+        prompt = prompts[0].get("text", "")
 
     if not prompt:
         source.verification_explanation = "No prompt configured for source verification"
@@ -369,6 +384,7 @@ async def _prefetch_sefaria_texts(
 
 async def verify_sources_async(
     sources: List[Source],
+    prompt_type: Optional[str] = None,
     session: Optional[Session] = None,
 ) -> List[Source]:
     """
@@ -378,6 +394,7 @@ async def verify_sources_async(
 
     Args:
         sources: List of Source objects to verify
+        prompt_type: Name of the prompt to use from the prompts list
         session: Optional SQLModel session
 
     Returns:
@@ -386,6 +403,8 @@ async def verify_sources_async(
     # Load sources configuration
     config = load_config()
     sources_config = config.get("sources", {})
+    if prompt_type:
+        sources_config = {**sources_config, "_prompt_type": prompt_type}
 
     # Open a DB session for cache operations
     should_close = False
@@ -427,6 +446,7 @@ async def verify_sources_async(
 
 def verify_sources(
     sources: List[Source],
+    prompt_type: Optional[str] = None,
     session: Optional[Session] = None,
 ) -> List[Source]:
     """
@@ -434,16 +454,18 @@ def verify_sources(
 
     Args:
         sources: List of Source objects to verify
+        prompt_type: Name of the prompt to use from the prompts list
         session: Optional SQLModel session
 
     Returns:
         List of updated Source objects with verification results
     """
-    return asyncio.run(verify_sources_async(sources, session=session))
+    return asyncio.run(verify_sources_async(sources, prompt_type=prompt_type, session=session))
 
 
 async def verify_lesson_sources_async(
     lesson_id: int,
+    prompt_type: Optional[str] = None,
     session: Optional[Session] = None,
 ) -> bool:
     """
@@ -451,6 +473,7 @@ async def verify_lesson_sources_async(
 
     Args:
         lesson_id: ID of the lesson to verify sources for
+        prompt_type: Name of the prompt to use from the prompts list
         session: Optional SQLModel session (will create one if not provided)
 
     Returns:
@@ -492,7 +515,7 @@ async def verify_lesson_sources_async(
             ))
 
         # Verify sources (handles Sefaria pre-fetch + LLM)
-        verified_sources = await verify_sources_async(all_sources, session)
+        verified_sources = await verify_sources_async(all_sources, prompt_type=prompt_type, session=session)
 
         # Write verification results back to the lesson_source rows
         for ls_row, verified in zip(db_sources, verified_sources):
@@ -523,6 +546,7 @@ async def verify_lesson_sources_async(
 
 def verify_lesson_sources(
     lesson_id: int,
+    prompt_type: Optional[str] = None,
     session: Optional[Session] = None,
 ) -> bool:
     """
@@ -530,9 +554,10 @@ def verify_lesson_sources(
 
     Args:
         lesson_id: ID of the lesson to verify sources for
+        prompt_type: Name of the prompt to use from the prompts list
         session: Optional SQLModel session
 
     Returns:
         True if verification was successful, False otherwise
     """
-    return asyncio.run(verify_lesson_sources_async(lesson_id, session=session))
+    return asyncio.run(verify_lesson_sources_async(lesson_id, prompt_type=prompt_type, session=session))
