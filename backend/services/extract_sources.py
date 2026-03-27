@@ -233,6 +233,7 @@ async def extract_sources_from_paragraphs(
 async def extract_sources_async(
     lesson_id: int,
     max_concurrency: int = 10,
+    prompt_type: Optional[str] = None,
     session: Optional[Session] = None,
 ) -> bool:
     """
@@ -292,23 +293,38 @@ async def extract_sources_async(
         else:
             type_instruction = "Type of source (e.g., Torah, Mishnah, Gemara, Midrash, Rashi, etc.)"
 
-        extraction_prompt = extraction_config.get(
-            "prompt",
-            "Analyze the following edited paragraphs and extract all sources (citations, references to religious texts, etc.) mentioned in them. "
-            "For each source, provide:\n"
-            "- paragraph_number: Paragraph number (0-indexed) where the source appears\n"
-            f"- type: {type_instruction}\n"
-            "- work: Work title (e.g., Pirkei Avot, Bereshit, etc.) using Sefaria classification\n"
-            "- ref: Reference (e.g., 4.2, 18:1, etc.) using Sefaria classification\n"
-            "- standard_slug: Standard Sefaria slug if known (e.g., Pirkei_Avot.4.2) using Sefaria api\n"
-            "- original_text: The original text from the source in Hebrew/Aramaic\n"
-            "- translation_text: The translation of the source text\n"
-            "- cited_excerpt: The exact excerpt from the edited text that cites this source. "
-            "This must match exactly how the source appears in the text.\n"
-            "- confidence: Your confidence in this extraction (0-1)\n\n"
-            "If no sources are found, return an empty list. "
-            "Be thorough but only extract sources that are clearly mentioned in the text.",
-        )
+        # Resolve prompt from prompts list with backward compat
+        prompts = extraction_config.get("prompts", [])
+        if not prompts and "prompt" in extraction_config:
+            prompts = [{"name": "Default", "text": extraction_config["prompt"]}]
+
+        extraction_prompt = None
+        if prompt_type:
+            for p in prompts:
+                if p.get("name") == prompt_type:
+                    extraction_prompt = p.get("text")
+                    break
+
+        if not extraction_prompt and prompts:
+            extraction_prompt = prompts[0].get("text")
+
+        if not extraction_prompt:
+            extraction_prompt = (
+                "Analyze the following edited paragraphs and extract all sources (citations, references to religious texts, etc.) mentioned in them. "
+                "For each source, provide:\n"
+                "- paragraph_number: Paragraph number (0-indexed) where the source appears\n"
+                f"- type: {type_instruction}\n"
+                "- work: Work title (e.g., Pirkei Avot, Bereshit, etc.) using Sefaria classification\n"
+                "- ref: Reference (e.g., 4.2, 18:1, etc.) using Sefaria classification\n"
+                "- standard_slug: Standard Sefaria slug if known (e.g., Pirkei_Avot.4.2) using Sefaria api\n"
+                "- original_text: The original text from the source in Hebrew/Aramaic\n"
+                "- translation_text: The translation of the source text\n"
+                "- cited_excerpt: The exact excerpt from the edited text that cites this source. "
+                "This must match exactly how the source appears in the text.\n"
+                "- confidence: Your confidence in this extraction (0-1)\n\n"
+                "If no sources are found, return an empty list. "
+                "Be thorough but only extract sources that are clearly mentioned in the text."
+            )
         
         # If we have allowed types, append them to the prompt with descriptions
         if allowed_types:
@@ -439,6 +455,7 @@ async def extract_sources_async(
 def extract_sources(
     lesson_id: int,
     max_concurrency: int = 10,
+    prompt_type: Optional[str] = None,
     session: Optional[Session] = None,
 ) -> bool:
     """
@@ -447,6 +464,7 @@ def extract_sources(
     Args:
         lesson_id: ID of the lesson
         max_concurrency: Maximum number of concurrent LLM calls
+        prompt_type: Name of the prompt to use from the prompts list
         session: Optional SQLModel session
 
     Returns:
@@ -456,6 +474,7 @@ def extract_sources(
         extract_sources_async(
             lesson_id=lesson_id,
             max_concurrency=max_concurrency,
+            prompt_type=prompt_type,
             session=session,
         )
     )

@@ -62,7 +62,12 @@ DEFAULT_CONFIG = {
     "extraction": {
         "provider": "OpenAI",
         "model": "gpt-4o",
-        "prompt": "Please extract any sources mentioned in the edited transcript.",
+        "prompts": [
+            {
+                "name": "Default",
+                "text": "Please extract any sources mentioned in the edited transcript.",
+            }
+        ],
         "temperature": 0.3,
         "max_tokens": 4000,
     },

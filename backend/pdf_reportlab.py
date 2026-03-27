@@ -251,62 +251,6 @@ def generate_lesson_summary_pdf(
     story.append(Paragraph(title, title_style))
     story.append(Spacer(1, 0.5 * cm))
 
-    # Metadata
-    if date:
-        date_str = date.strftime("%Y-%m-%d %H:%M")
-        story.append(Paragraph(f"<b>Date:</b> {date_str}", metadata_style))
-    if course_name:
-        story.append(Paragraph(f"<b>Course:</b> {course_name}", metadata_style))
-    if prompt_name:
-        story.append(Paragraph(f"<b>Prompt:</b> {prompt_name}", metadata_style))
-    if summary_metadata:
-        summary_provider = summary_metadata.get("provider")
-        summary_model = summary_metadata.get("model")
-        summary_temperature = summary_metadata.get("temperature")
-        summary_max_tokens = summary_metadata.get("max_tokens")
-        summary_prompt = summary_metadata.get("prompt")
-
-        if summary_provider:
-            story.append(
-                Paragraph(f"<b>Summary Provider:</b> {summary_provider}", metadata_style)
-            )
-        if summary_model:
-            story.append(
-                Paragraph(f"<b>Summary Model:</b> {summary_model}", metadata_style)
-            )
-        if summary_temperature is not None:
-            story.append(
-                Paragraph(
-                    f"<b>Summary Temperature:</b> {summary_temperature}",
-                    metadata_style,
-                )
-            )
-        if summary_max_tokens is not None:
-            story.append(
-                Paragraph(
-                    f"<b>Summary Max Tokens:</b> {summary_max_tokens}",
-                    metadata_style,
-                )
-            )
-        if summary_prompt:
-            prompt_html = _apply_inline_formatting(str(summary_prompt))
-            story.append(
-                Paragraph(
-                    f"<b>Summary Prompt:</b><br/>{prompt_html}",
-                    metadata_style,
-                )
-            )
-    story.append(
-        Paragraph("<b>Document Type:</b> Summary", metadata_style)
-    )
-    story.append(Spacer(1, 0.5 * cm))
-
-    if brief_text:
-        story.append(Paragraph("<b>Brief:</b>", metadata_style))
-        story.append(Paragraph(_apply_inline_formatting(brief_text), summary_style))
-        story.append(Spacer(1, 0.4 * cm))
-        story.append(Paragraph("<b>Summary:</b>", metadata_style))
-
     # Convert markdown to HTML-like format for ReportLab
     # Simple markdown parsing
     summary_lines = summary_markdown.split("\n")
@@ -443,19 +387,6 @@ def generate_lesson_transcript_pdf(
 
     # Title
     story.append(Paragraph(title, title_style))
-    story.append(Spacer(1, 0.5 * cm))
-
-    # Metadata
-    if date:
-        date_str = date.strftime("%Y-%m-%d %H:%M")
-        story.append(Paragraph(f"<b>Date:</b> {date_str}", metadata_style))
-    if course_name:
-        story.append(Paragraph(f"<b>Course:</b> {course_name}", metadata_style))
-    story.append(
-        Paragraph(
-            f"<b>Transcript Type:</b> {transcript_type.capitalize()}", metadata_style
-        )
-    )
     story.append(Spacer(1, 0.5 * cm))
 
     # Prepare transcript segments for two-column layout
@@ -691,35 +622,6 @@ def generate_lesson_edited_transcript_pdf(
     story.append(Paragraph(title, title_style))
     story.append(Spacer(1, 0.5 * cm))
 
-    # Metadata
-    if date:
-        date_str = date.strftime("%Y-%m-%d %H:%M")
-        story.append(Paragraph(f"<b>Date:</b> {date_str}", metadata_style))
-    if course_name:
-        story.append(Paragraph(f"<b>Course:</b> {course_name}", metadata_style))
-    story.append(Paragraph("<b>Document Type:</b> Edited Transcript", metadata_style))
-    config = load_config()
-    edition_config = config.get("edition", {})
-    edition_model = edition_config.get("model")
-    edition_temperature = edition_config.get("temperature")
-    edition_prompt = edition_config.get("prompt", "")
-    if edition_model:
-        story.append(
-            Paragraph(f"<b>Edition Model:</b> {edition_model}", metadata_style)
-        )
-    if edition_temperature is not None:
-        story.append(
-            Paragraph(
-                f"<b>Edition Temperature:</b> {edition_temperature}", metadata_style
-            )
-        )
-    if edition_prompt:
-        prompt_html = _apply_inline_formatting(edition_prompt)
-        story.append(
-            Paragraph(f"<b>Edition Prompt:</b><br/>{prompt_html}", metadata_style)
-        )
-    story.append(Spacer(1, 0.5 * cm))
-
     # Edited transcript parts
     source_counter = 0  # Global counter for source numbers
     for part in edited_transcript:
@@ -951,15 +853,6 @@ def generate_lesson_sources_pdf(
     # Title
     story.append(Paragraph(title, title_style))
     story.append(Spacer(1, 0.5 * cm))
-
-    # Metadata
-    if date:
-        date_str = date.strftime("%Y-%m-%d %H:%M")
-        story.append(Paragraph(f"<b>Date:</b> {date_str}", metadata_style))
-    if course_name:
-        story.append(Paragraph(f"<b>Course:</b> {course_name}", metadata_style))
-    story.append(Paragraph("<b>Document Type:</b> Sources", metadata_style))
-    story.append(Spacer(1, 0.8 * cm))
 
     # Calculate and add statistics table
     source_stats_by_type, total_stats = _calculate_source_statistics(edited_transcript)
@@ -1255,15 +1148,6 @@ def generate_lesson_detailed_sources_pdf(
     # Title
     story.append(Paragraph(title, title_style))
     story.append(Spacer(1, 0.5 * cm))
-
-    # Metadata
-    if date:
-        date_str = date.strftime("%Y-%m-%d %H:%M")
-        story.append(Paragraph(f"<b>Date:</b> {date_str}", metadata_style))
-    if course_name:
-        story.append(Paragraph(f"<b>Course:</b> {course_name}", metadata_style))
-    story.append(Paragraph("<b>Document Type:</b> Detailed Sources Review", metadata_style))
-    story.append(Spacer(1, 0.8 * cm))
 
     # Calculate and add statistics table
     source_stats_by_type, total_stats = _calculate_source_statistics(edited_transcript)

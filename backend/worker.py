@@ -253,6 +253,7 @@ def process_extraction_task(session: Session, task: Task):
         params = task.parameters or {}
         lesson_id = params.get("lesson_id")
         max_concurrency = params.get("max_concurrency", 10)
+        prompt_type = params.get("prompt_type")
 
         if not lesson_id:
             raise ValueError("lesson_id is required in task parameters")
@@ -260,6 +261,7 @@ def process_extraction_task(session: Session, task: Task):
         success = extract_sources(
             lesson_id=lesson_id,
             max_concurrency=max_concurrency,
+            prompt_type=prompt_type,
             session=session,
         )
 

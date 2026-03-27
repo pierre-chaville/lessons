@@ -117,6 +117,8 @@ const selectedCorrectionPrompt = ref('')
 const availableCorrectionPrompts = ref<Array<{ name: string; text: string }>>([])
 const selectedEditionPrompt = ref('')
 const availableEditionPrompts = ref<Array<{ name: string; text: string }>>([])
+const selectedExtractionPrompt = ref('')
+const availableExtractionPrompts = ref<Array<{ name: string; text: string }>>([])
 const selectedSourcesPrompt = ref('')
 const availableSourcesPrompts = ref<Array<{ name: string; text: string }>>([])
 const isCreatingTasks = ref(false)
@@ -887,6 +889,7 @@ const openProcessModal = async () => {
     loadPrompts(config?.summary, availableSummaryPrompts, selectedSummaryPrompt)
     loadPrompts(config?.correction, availableCorrectionPrompts, selectedCorrectionPrompt)
     loadPrompts(config?.edition, availableEditionPrompts, selectedEditionPrompt)
+    loadPrompts(config?.extraction, availableExtractionPrompts, selectedExtractionPrompt)
     loadPrompts(config?.sources, availableSourcesPrompts, selectedSourcesPrompt)
   } catch { /* silent */ }
 }
@@ -922,7 +925,7 @@ const createTasks = async () => {
       const parameters: Record<string, unknown> = { lesson_id: props.lesson.id }
       if (taskType === 'correct')    { parameters.segments_per_group = 100; parameters.max_concurrency = 10; parameters.prompt_type = selectedCorrectionPrompt.value }
       if (taskType === 'edition')    { parameters.words_per_group = 1000; parameters.max_concurrency = 10; parameters.prompt_type = selectedEditionPrompt.value }
-      if (taskType === 'extraction') { parameters.max_concurrency = 10 }
+      if (taskType === 'extraction') { parameters.max_concurrency = 10; parameters.prompt_type = selectedExtractionPrompt.value }
       if (taskType === 'summary')    { parameters.prompt_type = selectedSummaryPrompt.value }
       if (taskType === 'sources')    { parameters.prompt_type = selectedSourcesPrompt.value }
       await tasksApi.create({ task_type: taskTypeMap[taskType] as import('@/api/types').TaskType, parameters })
@@ -1211,7 +1214,7 @@ const saveParagraph = async () => {
                 :disabled="!canExtraction"
                 class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 disabled:opacity-50"
               />
-              <div>
+              <div class="flex-1">
                 <div class="text-sm font-medium text-gray-900 dark:text-white">
                   {{ t('lessons.processExtraction') }}
                 </div>
@@ -1220,6 +1223,25 @@ const saveParagraph = async () => {
                 </div>
               </div>
             </label>
+            
+            <!-- Extraction Prompt Type Selection -->
+            <div v-if="selectedProcesses.extraction && availableExtractionPrompts.length > 0" class="ml-7 -mt-1 mb-2">
+              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                {{ t('lessons.extractionPromptType') }}
+              </label>
+              <select
+                v-model="selectedExtractionPrompt"
+                class="w-full max-w-md px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+              >
+                <option
+                  v-for="prompt in availableExtractionPrompts"
+                  :key="prompt.name"
+                  :value="prompt.name"
+                >
+                  {{ prompt.name }}
+                </option>
+              </select>
+            </div>
 
             <!-- Verify sources (needs sources extracted) -->
             <label :class="[
