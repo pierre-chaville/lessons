@@ -834,6 +834,16 @@ const hasEditedTranscript = computed(() => !!(props.lesson.edited_transcript && 
 const hasSourcesExtracted = computed(() => {
   return !!(props.lesson.sources && props.lesson.sources.length > 0)
 })
+const hasSummary = computed(() => !!props.lesson.summary)
+
+const pipelineSteps = computed(() => [
+  { key: 'transcription', done: hasTranscript.value },
+  { key: 'correction', done: hasCorrectedTranscript.value },
+  { key: 'edition', done: hasEditedTranscript.value },
+  { key: 'extraction', done: hasSourcesExtracted.value },
+  { key: 'sources', done: hasSourcesExtracted.value && props.lesson.sources?.some((s: any) => s.verification_status != null) },
+  { key: 'summary', done: hasSummary.value },
+])
 
 const canCorrect = computed(() => hasTranscript.value || selectedProcesses.value.transcribe)
 const canEdition = computed(() => hasCorrectedTranscript.value || selectedProcesses.value.correct)
@@ -1410,7 +1420,7 @@ const saveParagraph = async () => {
             </div>
 
             <!-- Themes -->
-            <div v-if="lesson.themes && lesson.themes.length > 0" class="flex flex-wrap gap-2">
+            <div v-if="lesson.themes && lesson.themes.length > 0" class="flex flex-wrap gap-2 mb-4">
               <span
                 v-for="theme in lesson.themes"
                 :key="theme.id"
@@ -1418,6 +1428,29 @@ const saveParagraph = async () => {
               >
                 {{ theme.name }}
               </span>
+            </div>
+
+            <!-- Pipeline Progress -->
+            <div v-if="pipelineSteps.some(s => s.done)" class="flex items-center gap-1 flex-wrap">
+              <template v-for="(step, idx) in pipelineSteps" :key="step.key">
+                <div
+                  class="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors"
+                  :class="step.done
+                    ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
+                    : 'bg-gray-100 dark:bg-gray-700/50 text-gray-400 dark:text-gray-500'"
+                >
+                  <svg v-if="step.done" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                  </svg>
+                  <span v-else class="h-3.5 w-3.5 flex items-center justify-center">
+                    <span class="block h-1.5 w-1.5 rounded-full bg-current"></span>
+                  </span>
+                  {{ t('lessons.step_' + step.key) }}
+                </div>
+                <svg v-if="idx < pipelineSteps.length - 1" class="h-3 w-3 text-gray-300 dark:text-gray-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                </svg>
+              </template>
             </div>
             </div>
           </div>
