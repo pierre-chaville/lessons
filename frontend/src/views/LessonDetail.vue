@@ -31,9 +31,11 @@ import { themesApi } from '@/api/themes'
 import { tasksApi } from '@/api/tasks'
 import { configApi } from '@/api/config'
 import { sourcesApi } from '@/api/sources'
+import { usersApi, type ClerkUser } from '@/api/users'
 import { useToast } from '@/composables/useToast'
 import { usePermissions } from '@/composables/usePermissions'
-import type { LessonDetail as LessonDetailType, LessonSource, Course, Theme } from '@/api/types'
+import { useAuth } from '@/composables/useAuth'
+import type { LessonDetail as LessonDetailType, LessonSource, LessonStatus, Course, Theme } from '@/api/types'
 
 const props = defineProps<{
   lesson: LessonDetailType
@@ -44,7 +46,17 @@ const emit = defineEmits<{ (e: 'close'): void }>()
 
 const { t } = useI18n()
 const toast = useToast()
-const { can } = usePermissions()
+const { can, role } = usePermissions()
+const { user } = useAuth()
+
+const canEditLesson = computed(() => {
+  if (['publisher', 'admin'].includes(role.value)) return true
+  if (role.value === 'editor') {
+    const userId = user.value?.id
+    return !!userId && (props.lesson.editors ?? []).some((e) => e.user_id === userId)
+  }
+  return false
+})
 
 const audioUrl = ref<string | null>(null)
 
@@ -56,6 +68,7 @@ const currentSegment = ref<{ start: number; end: number } | null>(null)
 
 const courses = ref<Course[]>([])
 const themes = ref<Theme[]>([])
+const users = ref<ClerkUser[]>([])
 
 // Toggle between summary, corrected transcript, and initial transcript
 const activeView = ref('summary')
@@ -72,8 +85,9 @@ const editedLesson = ref<{
   date: string
   course_id: number | null
   theme_ids: number[]
+  editor_ids: string[]
   brief: string
-}>({ title: '', date: '', course_id: null, theme_ids: [], brief: '' })
+}>({ title: '', date: '', course_id: null, theme_ids: [], editor_ids: [], brief: '' })
 const isSavingLesson = ref(false)
 
 // Edit segment state
@@ -768,14 +782,37 @@ const fetchThemes = async () => {
   try { themes.value = await themesApi.list() } catch { /* silent */ }
 }
 
+const fetchUsers = async () => {
+  try { users.value = await usersApi.list() } catch { /* silent */ }
+}
+
+watch(
+  () => props.lesson.editors,
+  (editors) => {
+    if (editors?.length && !users.value.length) fetchUsers()
+  },
+  { immediate: true },
+)
+
+const getUserName = (userId: string) => {
+  const u = users.value.find((u) => u.id === userId)
+  if (u) {
+    const name = [u.first_name, u.last_name].filter(Boolean).join(' ')
+    return name || u.email || userId
+  }
+  return userId
+}
+
 const startEditLesson = async () => {
   if (!courses.value.length) await fetchCourses()
   if (!themes.value.length) await fetchThemes()
+  if (!users.value.length) await fetchUsers()
   editedLesson.value = {
     title: props.lesson.title,
     date: props.lesson.date ? new Date(props.lesson.date).toISOString().slice(0, 10) : '',
     course_id: props.lesson.course_id ?? null,
     theme_ids: props.lesson.theme_ids ?? [],
+    editor_ids: props.lesson.editors?.map((e) => e.user_id) ?? [],
     brief: props.lesson.brief ?? '',
   }
   isEditingLesson.value = true
@@ -792,6 +829,7 @@ const saveLesson = async () => {
       date: editedLesson.value.date ? new Date(editedLesson.value.date).toISOString() : null,
       course_id: editedLesson.value.course_id,
       theme_ids: editedLesson.value.theme_ids,
+      editor_ids: editedLesson.value.editor_ids,
       brief: editedLesson.value.brief || null,
     })
     Object.assign(props.lesson, updated)
@@ -811,6 +849,19 @@ const toggleTheme = (themeId: number) => {
     editedLesson.value.theme_ids.splice(index, 1)
   }
 }
+
+const toggleEditor = (userId: string) => {
+  const index = editedLesson.value.editor_ids.indexOf(userId)
+  if (index === -1) {
+    editedLesson.value.editor_ids.push(userId)
+  } else {
+    editedLesson.value.editor_ids.splice(index, 1)
+  }
+}
+
+const editorRoleUsers = computed(() =>
+  users.value.filter((u) => u.role && ['editor', 'publisher', 'admin'].includes(u.role))
+)
 
 // Delete lesson functions
 const confirmDelete = () => { showDeleteConfirm.value = true }
@@ -846,6 +897,47 @@ const pipelineSteps = computed(() => [
   { key: 'sources', done: hasSourcesExtracted.value && props.lesson.sources?.some((s: any) => s.verification_status != null) },
   { key: 'summary', done: hasSummary.value },
 ])
+
+// Status transitions
+const TRANSITIONS: Record<string, Record<string, string[]>> = {
+  draft:              { in_progress:       ['editor', 'publisher', 'admin'] },
+  in_progress:        { review_requested:  ['editor', 'publisher', 'admin'] },
+  review_requested:   { validated:         ['publisher', 'admin'],
+                        revision_requested:['publisher', 'admin'] },
+  revision_requested: { in_progress:       ['editor', 'publisher', 'admin'] },
+  validated:          { in_progress:       ['admin'] },
+}
+
+const availableTransitions = computed(() => {
+  const current = props.lesson.status || 'draft'
+  const transitions = TRANSITIONS[current] || {}
+  return Object.entries(transitions)
+    .filter(([_, roles]) => roles.includes(role.value))
+    .map(([target]) => target as LessonStatus)
+})
+
+const isUpdatingStatus = ref(false)
+
+const updateStatus = async (newStatus: LessonStatus) => {
+  try {
+    isUpdatingStatus.value = true
+    const updated = await lessonsApi.updateStatus(props.lesson.hashid, newStatus)
+    Object.assign(props.lesson, updated)
+    toast.success(t('lessons.statusUpdated'))
+  } catch (e: any) {
+    toast.error(e?.response?.data?.detail || t('lessons.statusUpdateFailed'))
+  } finally {
+    isUpdatingStatus.value = false
+  }
+}
+
+const statusConfig: Record<string, { color: string; darkColor: string }> = {
+  draft:              { color: 'bg-gray-100 text-gray-700', darkColor: 'dark:bg-gray-700 dark:text-gray-300' },
+  in_progress:        { color: 'bg-blue-100 text-blue-700', darkColor: 'dark:bg-blue-900/30 dark:text-blue-400' },
+  review_requested:   { color: 'bg-amber-100 text-amber-700', darkColor: 'dark:bg-amber-900/30 dark:text-amber-400' },
+  revision_requested: { color: 'bg-orange-100 text-orange-700', darkColor: 'dark:bg-orange-900/30 dark:text-orange-400' },
+  validated:          { color: 'bg-green-100 text-green-700', darkColor: 'dark:bg-green-900/30 dark:text-green-400' },
+}
 
 const canCorrect = computed(() => hasTranscript.value || selectedProcesses.value.transcribe)
 const canEdition = computed(() => hasCorrectedTranscript.value || selectedProcesses.value.correct)
@@ -1441,6 +1533,47 @@ const saveParagraph = async () => {
               </div>
             </div>
 
+            <!-- Status -->
+            <div class="flex items-center gap-3 mb-4">
+              <span
+                :class="[
+                  'inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold',
+                  statusConfig[lesson.status || 'draft']?.color,
+                  statusConfig[lesson.status || 'draft']?.darkColor,
+                ]"
+              >
+                {{ t('lessons.status_' + (lesson.status || 'draft')) }}
+              </span>
+              <template v-if="availableTransitions.length > 0 && !isUpdatingStatus">
+                <button
+                  v-for="target in availableTransitions"
+                  :key="target"
+                  @click="updateStatus(target)"
+                  class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                >
+                  <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                  </svg>
+                  {{ t('lessons.status_' + target) }}
+                </button>
+              </template>
+              <span v-if="isUpdatingStatus" class="text-xs text-gray-400 dark:text-gray-500">
+                {{ t('lessons.statusUpdating') }}
+              </span>
+            </div>
+
+            <!-- Editors -->
+            <div v-if="lesson.editors && lesson.editors.length > 0" class="flex flex-wrap items-center gap-2 mb-4">
+              <span class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('lessons.editors') }}:</span>
+              <span
+                v-for="editor in lesson.editors"
+                :key="editor.user_id"
+                class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-sky-100 dark:bg-sky-900/30 text-sky-700 dark:text-sky-300"
+              >
+                {{ getUserName(editor.user_id) }}
+              </span>
+            </div>
+
             <!-- Themes -->
             <div v-if="lesson.themes && lesson.themes.length > 0" class="flex flex-wrap gap-2 mb-4">
               <span
@@ -1480,7 +1613,7 @@ const saveParagraph = async () => {
           <!-- Action Buttons -->
           <div v-if="!isEditingLesson" class="flex gap-2">
             <button
-              v-if="can('tasks', 'create')"
+              v-if="canEditLesson"
               @click="openProcessModal"
               :disabled="isProcessing"
               :class="[
@@ -1494,7 +1627,7 @@ const saveParagraph = async () => {
               {{ t('lessons.processLesson') }}
             </button>
             <button
-              v-if="can('lessons', 'update')"
+              v-if="canEditLesson"
               @click="startEditLesson"
               :disabled="isProcessing"
               :class="[
@@ -1598,6 +1731,28 @@ const saveParagraph = async () => {
                   ]"
                 >
                   {{ theme.name }}
+                </button>
+              </div>
+            </div>
+
+            <!-- Editors -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                {{ t('lessons.editors') }}
+              </label>
+              <div class="flex flex-wrap gap-2">
+                <button
+                  v-for="user in editorRoleUsers"
+                  :key="user.id"
+                  @click="toggleEditor(user.id)"
+                  :class="[
+                    'px-3 py-1.5 rounded-full text-sm font-medium transition-colors',
+                    editedLesson.editor_ids.includes(user.id)
+                      ? 'bg-sky-600 text-white'
+                      : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                  ]"
+                >
+                  {{ [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email || user.id }}
                 </button>
               </div>
             </div>
@@ -1705,7 +1860,7 @@ const saveParagraph = async () => {
               
               <!-- Edit Button (show for summary view) -->
               <button
-                v-if="activeView === 'summary' && !isEditingSummary && can('lessons', 'update') && !isProcessing"
+                v-if="activeView === 'summary' && !isEditingSummary && canEditLesson && !isProcessing"
                 @click="startEditSummary"
                 class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors print:hidden"
               >
@@ -1890,7 +2045,7 @@ const saveParagraph = async () => {
                       
                       <!-- Edit Button -->
                       <button
-                        v-if="can('lessons', 'update') && !isProcessing"
+                        v-if="canEditLesson && !isProcessing"
                         @click="startEditSegment(segment.index, segment.correctedText)"
                         class="flex-shrink-0 p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors print:hidden"
                         :title="t('lessons.editSegment')"
@@ -2092,7 +2247,7 @@ const saveParagraph = async () => {
 
                       <!-- Edit Paragraph Button -->
                       <button
-                        v-if="can('lessons', 'update') && !isProcessing && editingParagraphIndex !== index"
+                        v-if="canEditLesson && !isProcessing && editingParagraphIndex !== index"
                         @click="startEditParagraph(index, part.text)"
                         class="flex-shrink-0 p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors print:hidden"
                         :title="t('lessons.editParagraph')"
@@ -2236,7 +2391,7 @@ const saveParagraph = async () => {
 
                     <!-- Edit Paragraph Button -->
                     <button
-                      v-if="can('lessons', 'update') && !isProcessing && editingParagraphIndex !== index"
+                      v-if="canEditLesson && !isProcessing && editingParagraphIndex !== index"
                       @click="startEditParagraph(index, part.text)"
                       class="flex-shrink-0 p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors print:hidden"
                       :title="t('lessons.editParagraph')"

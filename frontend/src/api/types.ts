@@ -85,6 +85,14 @@ export interface ThemeUpdate {
 
 // ── Lesson ────────────────────────────────────────────────────────────────────
 
+export type LessonStatus = 'draft' | 'in_progress' | 'review_requested' | 'revision_requested' | 'validated'
+
+export interface LessonEditorAssignment {
+  user_id: string
+  assigned_at: string
+  assigned_by: string | null
+}
+
 /** Lightweight shape returned by GET /lessons (list view). */
 export interface LessonListItem {
   id: number
@@ -93,10 +101,12 @@ export interface LessonListItem {
   date: string
   duration: number | null
   brief: string | null
+  status: LessonStatus
   process_status: string | null
   filename: string
   themes: Theme[]
   course: Course | null
+  editors: LessonEditorAssignment[]
 }
 
 /** Full shape returned by GET /lessons/:hashid. */
@@ -113,11 +123,13 @@ export interface LessonDetail {
   edited_transcript: EditedParagraph[] | null
   brief: string | null
   summary: string | null
+  status: LessonStatus
   process_status: string | null
   theme_ids: number[]
   themes: Theme[]
   course: Course | null
   sources: LessonSource[]
+  editors: LessonEditorAssignment[]
   transcript_metadata: Record<string, unknown> | null
   correction_metadata: Record<string, unknown> | null
   summary_metadata: Record<string, unknown> | null
@@ -131,6 +143,7 @@ export interface LessonCreate {
   date?: string | null
   duration?: number | null
   theme_ids?: number[] | null
+  editor_ids?: string[] | null
 }
 
 export interface LessonUpdate {
@@ -146,6 +159,7 @@ export interface LessonUpdate {
   summary?: string | null
   process_status?: string | null
   theme_ids?: number[] | null
+  editor_ids?: string[] | null
   transcript_metadata?: Record<string, unknown> | null
   correction_metadata?: Record<string, unknown> | null
   summary_metadata?: Record<string, unknown> | null

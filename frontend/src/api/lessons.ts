@@ -4,6 +4,7 @@ import type {
   LessonDetail,
   LessonCreate,
   LessonUpdate,
+  LessonStatus,
   AudioUrlResponse,
 } from './types'
 
@@ -21,6 +22,9 @@ export const lessonsApi = {
     apiClient.patch<LessonDetail>(`/lessons/${hashid}`, data).then((r) => r.data),
 
   delete: (hashid: string) => apiClient.delete(`/lessons/${hashid}`),
+
+  updateStatus: (hashid: string, status: LessonStatus) =>
+    apiClient.patch<LessonDetail>(`/lessons/${hashid}/status`, { status }).then((r) => r.data),
 
   getAudioUrl: (hashid: string) =>
     apiClient.get<AudioUrlResponse>(`/lessons/${hashid}/audio-url`).then((r) => r.data),

@@ -3,7 +3,7 @@
 from sqlmodel import Session, select
 from typing import List, Optional
 from datetime import datetime
-from models import Lesson, LessonSource, Course, Theme, Task, SefariaCache
+from models import Lesson, LessonEditor, LessonSource, Course, Theme, Task, SefariaCache
 
 
 # Course CRUD
@@ -217,15 +217,60 @@ def update_lesson(
 
 
 def delete_lesson(session: Session, lesson_id: int) -> bool:
-    """Delete a lesson and its associated sources"""
+    """Delete a lesson and its associated sources and editors"""
     lesson = session.get(Lesson, lesson_id)
     if lesson:
-        # Delete associated lesson sources first
+        delete_lesson_editors(session, lesson_id)
         delete_lesson_sources(session, lesson_id)
         session.delete(lesson)
         session.commit()
         return True
     return False
+
+
+# LessonEditor CRUD
+def get_lesson_editors(session: Session, lesson_id: int) -> List[LessonEditor]:
+    """Get all editor assignments for a lesson."""
+    statement = (
+        select(LessonEditor)
+        .where(LessonEditor.lesson_id == lesson_id)
+        .order_by(LessonEditor.assigned_at)
+    )
+    return list(session.exec(statement).all())
+
+
+def set_lesson_editors(
+    session: Session,
+    lesson_id: int,
+    user_ids: List[str],
+    assigned_by: Optional[str] = None,
+) -> List[LessonEditor]:
+    """Replace the full set of editors for a lesson (diff-based)."""
+    existing = {e.user_id: e for e in get_lesson_editors(session, lesson_id)}
+    target = set(user_ids)
+
+    for uid in existing:
+        if uid not in target:
+            session.delete(existing[uid])
+
+    for uid in target:
+        if uid not in existing:
+            session.add(LessonEditor(
+                lesson_id=lesson_id,
+                user_id=uid,
+                assigned_by=assigned_by,
+            ))
+
+    session.flush()
+    return get_lesson_editors(session, lesson_id)
+
+
+def delete_lesson_editors(session: Session, lesson_id: int) -> int:
+    """Delete all editor assignments for a lesson. Returns count deleted."""
+    editors = get_lesson_editors(session, lesson_id)
+    for e in editors:
+        session.delete(e)
+    return len(editors)
 
 
 # LessonSource CRUD

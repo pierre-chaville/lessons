@@ -5,7 +5,7 @@ from sqlmodel import Session
 from typing import List, Dict, Any
 
 import crud
-from auth import require_roles
+from auth import require_roles, _extract_role
 from database import get_session
 from schemas.task import TaskCreate, TaskResponse
 
@@ -25,9 +25,20 @@ VALID_TASK_TYPES = {
 def create_task(
     task: TaskCreate,
     session: Session = Depends(get_session),
-    _: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
+    claims: Dict[str, Any] = Depends(require_roles(["editor", "publisher", "admin"])),
 ):
-    """Create and launch a new background task."""
+    """Create and launch a new background task. Editors must be assigned to the lesson."""
+    role = _extract_role(claims)
+    if role not in ("publisher", "admin"):
+        lesson_id = (task.parameters or {}).get("lesson_id")
+        if lesson_id:
+            user_id = claims.get("sub", "")
+            editors = crud.get_lesson_editors(session, lesson_id)
+            if not any(e.user_id == user_id for e in editors):
+                raise HTTPException(
+                    status_code=403,
+                    detail="You are not assigned as an editor for this lesson",
+                )
     return crud.create_task(
         session=session, task_type=task.task_type, parameters=task.parameters
     )
@@ -36,7 +47,7 @@ def create_task(
 @router.get("", response_model=List[TaskResponse])
 def get_tasks(
     session: Session = Depends(get_session),
-    _: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
+    _: Dict[str, Any] = Depends(require_roles(["editor", "publisher", "admin"])),
 ):
     """Get all tasks."""
     return crud.get_all_tasks(session=session)
@@ -46,7 +57,7 @@ def get_tasks(
 def get_task(
     task_id: int,
     session: Session = Depends(get_session),
-    _: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
+    _: Dict[str, Any] = Depends(require_roles(["editor", "publisher", "admin"])),
 ):
     """Get a specific task by ID."""
     task = crud.get_task(session=session, task_id=task_id)

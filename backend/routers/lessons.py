@@ -6,14 +6,36 @@ from sqlmodel import Session
 from typing import List, Dict, Any, Optional
 
 import crud
-from auth import require_roles
+from auth import require_auth, require_roles, _extract_roles, _extract_role
 from database import get_session
-from schemas.lesson import LessonCreate, LessonUpdate, LessonListResponse, LessonResponse
+from schemas.lesson import (
+    LessonCreate, LessonUpdate, LessonListResponse, LessonResponse,
+    StatusUpdate, ALLOWED_TRANSITIONS, VALID_STATUSES,
+)
 from services import lessons as lesson_service
 from services import pdf as pdf_service
 from hashid_utils import decode_id
 
 router = APIRouter(prefix="/lessons", tags=["Lessons"])
+
+
+def _require_lesson_access(
+    lesson_id: int, claims: Dict[str, Any], session: Session
+) -> None:
+    """Raise 403 if the caller is an editor not assigned to this lesson.
+
+    Publishers and admins are always allowed.
+    """
+    role = _extract_role(claims)
+    if role in ("publisher", "admin"):
+        return
+    user_id = claims.get("sub", "")
+    editors = crud.get_lesson_editors(session, lesson_id)
+    if not any(e.user_id == user_id for e in editors):
+        raise HTTPException(
+            status_code=403,
+            detail="You are not assigned as an editor for this lesson",
+        )
 
 
 @router.get("", response_model=List[LessonListResponse])
@@ -40,10 +62,55 @@ def get_lesson(lesson_hashid: str, session: Session = Depends(get_session)):
 def create_lesson(
     lesson_data: LessonCreate,
     session: Session = Depends(get_session),
-    _: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
+    claims: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
 ):
     """Create a new lesson and finalize its audio object in S3."""
-    return lesson_service.create_lesson_with_audio(lesson_data, session)
+    return lesson_service.create_lesson_with_audio(
+        lesson_data, session, assigned_by=claims.get("sub"),
+    )
+
+
+@router.patch("/{lesson_hashid}/status", response_model=LessonResponse)
+def update_lesson_status(
+    lesson_hashid: str,
+    body: StatusUpdate,
+    session: Session = Depends(get_session),
+    claims: Dict[str, Any] = Depends(require_auth),
+):
+    """Transition lesson workflow status with role-based permission checks."""
+    lesson_id = decode_id(lesson_hashid)
+    lesson = crud.get_lesson(session, lesson_id)
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+
+    _require_lesson_access(lesson_id, claims, session)
+
+    current = lesson.status or "draft"
+    target = body.status
+
+    if target not in VALID_STATUSES:
+        raise HTTPException(status_code=400, detail=f"Invalid status: {target}")
+
+    transitions = ALLOWED_TRANSITIONS.get(current, {})
+    allowed_roles = transitions.get(target)
+    if allowed_roles is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Transition from '{current}' to '{target}' is not allowed",
+        )
+
+    user_roles = _extract_roles(claims)
+    if not any(r in allowed_roles for r in user_roles):
+        raise HTTPException(
+            status_code=403,
+            detail="Your role cannot perform this transition",
+        )
+
+    lesson.status = target
+    session.add(lesson)
+    session.commit()
+    session.refresh(lesson)
+    return lesson_service.build_lesson_response(lesson, session)
 
 
 @router.patch("/{lesson_hashid}", response_model=LessonResponse)
@@ -51,11 +118,14 @@ def update_lesson(
     lesson_hashid: str,
     lesson_data: LessonUpdate,
     session: Session = Depends(get_session),
-    _: Dict[str, Any] = Depends(require_roles(["editor", "publisher", "admin"])),
+    claims: Dict[str, Any] = Depends(require_roles(["editor", "publisher", "admin"])),
 ):
-    """Update an existing lesson."""
+    """Update an existing lesson. Editors must be assigned to the lesson."""
     lesson_id = decode_id(lesson_hashid)
-    return lesson_service.update_lesson_data(lesson_id, lesson_data, session)
+    _require_lesson_access(lesson_id, claims, session)
+    return lesson_service.update_lesson_data(
+        lesson_id, lesson_data, session, assigned_by=claims.get("sub"),
+    )
 
 
 @router.delete("/{lesson_hashid}", status_code=204)

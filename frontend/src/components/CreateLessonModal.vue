@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   XMarkIcon,
@@ -13,6 +13,7 @@ import { lessonsApi } from '@/api/lessons'
 import { coursesApi } from '@/api/courses'
 import { themesApi } from '@/api/themes'
 import { tasksApi } from '@/api/tasks'
+import { usersApi, type ClerkUser } from '@/api/users'
 import { useToast } from '@/composables/useToast'
 import type { Course, Theme } from '@/api/types'
 
@@ -34,6 +35,8 @@ const isUploading = ref(false)
 
 const courses = ref<Course[]>([])
 const themes = ref<Theme[]>([])
+const users = ref<ClerkUser[]>([])
+const editorIds = ref<string[]>([])
 const fileInput = ref<HTMLInputElement | null>(null)
 
 const audioDuration = ref<number | null>(null)
@@ -125,12 +128,29 @@ const toggleTheme = (themeId: number) => {
   }
 }
 
+const toggleEditor = (userId: string) => {
+  const index = editorIds.value.indexOf(userId)
+  if (index === -1) {
+    editorIds.value.push(userId)
+  } else {
+    editorIds.value.splice(index, 1)
+  }
+}
+
+const editorRoleUsers = computed(() =>
+  users.value.filter((u) => u.role && ['editor', 'publisher', 'admin'].includes(u.role))
+)
+
 const fetchCourses = async () => {
   try { courses.value = await coursesApi.list() } catch { /* silent */ }
 }
 
 const fetchThemes = async () => {
   try { themes.value = await themesApi.list() } catch { /* silent */ }
+}
+
+const fetchUsers = async () => {
+  try { users.value = await usersApi.list() } catch { /* silent */ }
 }
 
 const createLesson = async () => {
@@ -148,6 +168,7 @@ const createLesson = async () => {
       course_id: courseId.value,
       duration: audioDuration.value,
       theme_ids: themeIds.value.length > 0 ? themeIds.value : null,
+      editor_ids: editorIds.value.length > 0 ? editorIds.value : null,
     })
     // Automatically create a transcription task for the new lesson
     await tasksApi.create({
@@ -170,6 +191,7 @@ const resetForm = () => {
   date.value = ''
   courseId.value = null
   themeIds.value = []
+  editorIds.value = []
   audioDuration.value = null
   if (fileInput.value) fileInput.value.value = ''
 }
@@ -184,7 +206,7 @@ const close = () => {
 watch(
   () => props.isOpen,
   async (isOpen) => {
-    if (isOpen) await Promise.all([fetchCourses(), fetchThemes()])
+    if (isOpen) await Promise.all([fetchCourses(), fetchThemes(), fetchUsers()])
   },
 )
 </script>
@@ -331,6 +353,29 @@ watch(
                 ]"
               >
                 {{ theme.name }}
+              </button>
+            </div>
+          </div>
+
+          <!-- Editors -->
+          <div v-if="editorRoleUsers.length > 0">
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              {{ t('lessons.editors') }}
+            </label>
+            <div class="flex flex-wrap gap-2">
+              <button
+                v-for="user in editorRoleUsers"
+                :key="user.id"
+                @click="toggleEditor(user.id)"
+                :disabled="isUploading"
+                :class="[
+                  'px-3 py-1.5 rounded-full text-sm font-medium transition-colors disabled:opacity-50',
+                  editorIds.includes(user.id)
+                    ? 'bg-sky-600 text-white'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                ]"
+              >
+                {{ [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email || user.id }}
               </button>
             </div>
           </div>

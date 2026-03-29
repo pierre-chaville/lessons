@@ -11,6 +11,7 @@ from schemas.lesson import (
     LessonUpdate,
     LessonListResponse,
     LessonResponse,
+    LessonEditorResponse,
 )
 from schemas.source import LessonSourceResponse
 from schemas.course import CourseResponse
@@ -44,11 +45,17 @@ def _build_source_resps(db_sources) -> list[LessonSourceResponse]:
     return [LessonSourceResponse.model_validate(s) for s in db_sources]
 
 
+def _build_editor_resps(db_editors) -> list[LessonEditorResponse]:
+    """Convert LessonEditor DB rows to LessonEditorResponse schemas."""
+    return [LessonEditorResponse.model_validate(e) for e in db_editors]
+
+
 def build_lesson_response(lesson: Lesson, session: Session) -> LessonResponse:
-    """Build a full LessonResponse enriched with resolved themes, course, and sources."""
+    """Build a full LessonResponse enriched with resolved themes, course, sources, and editors."""
     theme_ids = lesson.get_themes()
     themes = crud.get_themes_by_ids(session, theme_ids) if theme_ids else []
     db_sources = crud.get_lesson_sources(session, lesson.id)
+    db_editors = crud.get_lesson_editors(session, lesson.id)
     return LessonResponse(
         id=lesson.id,
         hashid=encode_id(lesson.id),
@@ -62,11 +69,13 @@ def build_lesson_response(lesson: Lesson, session: Session) -> LessonResponse:
         edited_transcript=lesson.edited_transcript,
         brief=lesson.brief,
         summary=lesson.summary,
+        status=lesson.status or "draft",
         process_status=lesson.process_status,
         theme_ids=theme_ids,
         themes=_build_theme_resps(themes),
         course=_build_course_resp(lesson.course),
         sources=_build_source_resps(db_sources),
+        editors=_build_editor_resps(db_editors),
         transcript_metadata=lesson.transcript_metadata,
         correction_metadata=lesson.correction_metadata,
         summary_metadata=lesson.summary_metadata,
@@ -78,6 +87,7 @@ def build_lesson_list_item(lesson: Lesson, session: Session) -> LessonListRespon
     """Build a lightweight LessonListResponse enriched with resolved themes and course."""
     theme_ids = lesson.get_themes()
     themes = crud.get_themes_by_ids(session, theme_ids) if theme_ids else []
+    db_editors = crud.get_lesson_editors(session, lesson.id)
     return LessonListResponse(
         id=lesson.id,
         hashid=encode_id(lesson.id),
@@ -85,15 +95,17 @@ def build_lesson_list_item(lesson: Lesson, session: Session) -> LessonListRespon
         date=lesson.date,
         duration=lesson.duration,
         brief=lesson.brief,
+        status=lesson.status or "draft",
         process_status=lesson.process_status,
         filename=lesson.filename,
         themes=_build_theme_resps(themes),
         course=_build_course_resp(lesson.course),
+        editors=_build_editor_resps(db_editors),
     )
 
 
 def create_lesson_with_audio(
-    lesson_data: LessonCreate, session: Session
+    lesson_data: LessonCreate, session: Session, assigned_by: Optional[str] = None,
 ) -> LessonResponse:
     """Validate references, persist lesson, rename audio object in S3, return enriched response."""
     if lesson_data.course_id:
@@ -130,6 +142,10 @@ def create_lesson_with_audio(
     # Store only the base name (without the ID prefix) on the lesson
     lesson.filename = new_filename.split("_", 1)[-1]
     session.add(lesson)
+
+    if lesson_data.editor_ids:
+        crud.set_lesson_editors(session, lesson.id, lesson_data.editor_ids, assigned_by=assigned_by)
+
     session.commit()
     session.refresh(lesson)
 
@@ -137,7 +153,7 @@ def create_lesson_with_audio(
 
 
 def update_lesson_data(
-    lesson_id: int, lesson_data: LessonUpdate, session: Session
+    lesson_id: int, lesson_data: LessonUpdate, session: Session, assigned_by: Optional[str] = None,
 ) -> LessonResponse:
     """Validate references, convert typed objects to dicts, persist update, return enriched response."""
     if lesson_data.course_id:
@@ -193,5 +209,10 @@ def update_lesson_data(
 
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
+
+    if lesson_data.editor_ids is not None:
+        crud.set_lesson_editors(session, lesson.id, lesson_data.editor_ids, assigned_by=assigned_by)
+        session.commit()
+        session.refresh(lesson)
 
     return build_lesson_response(lesson, session)

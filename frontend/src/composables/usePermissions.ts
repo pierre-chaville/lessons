@@ -14,7 +14,7 @@ const PERMISSIONS: Record<Resource, Record<string, Role[]>> = {
   lessons: {
     read:   ['reader', 'editor', 'publisher', 'admin'],
     create: ['publisher', 'admin'],
-    update: ['editor', 'publisher', 'admin'],
+    update: ['editor', 'publisher', 'admin'],  // editors also need per-lesson assignment check
     delete: ['publisher', 'admin'],
   },
   courses: {
@@ -36,8 +36,8 @@ const PERMISSIONS: Record<Resource, Record<string, Role[]>> = {
     delete: ['publisher', 'admin'],
   },
   tasks: {
-    read:   ['publisher', 'admin'],
-    create: ['publisher', 'admin'],
+    read:   ['editor', 'publisher', 'admin'],
+    create: ['editor', 'publisher', 'admin'],  // editors also need per-lesson assignment check
     cancel: ['admin'],
   },
   configuration: {

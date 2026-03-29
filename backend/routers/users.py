@@ -1,6 +1,8 @@
 """Users router — /users endpoints that proxy Clerk Backend API."""
 
 import os
+import time
+import threading
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -13,6 +15,10 @@ from config import load_config
 router = APIRouter(prefix="/users", tags=["Users"])
 
 CLERK_API_BASE = "https://api.clerk.com/v1"
+
+_users_cache: Dict[str, Any] = {"data": None, "fetched_at": 0.0}
+_users_cache_lock = threading.Lock()
+USERS_CACHE_TTL = 300  # 5 minutes
 
 
 def _get_clerk_secret_key() -> str:
@@ -126,19 +132,15 @@ def _publisher_guard_user(claims: Dict[str, Any], user_data: Dict[str, Any]) -> 
             )
 
 
-# ── Routes ─────────────────────────────────────────────────────────────────────
+# ── Cache helpers ──────────────────────────────────────────────────────────────
 
-@router.get("", response_model=List[ClerkUser])
-def list_users(
-    _: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
-):
-    """List all Clerk users."""
+def _fetch_all_clerk_users() -> List[ClerkUser]:
+    """Fetch every user from Clerk, paginating as needed."""
     headers = _clerk_headers()
-    users: List[Dict[str, Any]] = []
+    raw_users: List[Dict[str, Any]] = []
     offset = 0
     limit = 100
 
-    # Paginate through all users
     while True:
         with httpx.Client(timeout=15) as client:
             resp = client.get(
@@ -151,12 +153,43 @@ def list_users(
         batch = resp.json()
         if not batch:
             break
-        users.extend(batch)
+        raw_users.extend(batch)
         if len(batch) < limit:
             break
         offset += limit
 
-    return [_parse_clerk_user(u) for u in users]
+    return [_parse_clerk_user(u) for u in raw_users]
+
+
+def _get_cached_users() -> List[ClerkUser]:
+    """Return cached user list, refreshing from Clerk if stale."""
+    now = time.time()
+    with _users_cache_lock:
+        if _users_cache["data"] is not None and now - _users_cache["fetched_at"] < USERS_CACHE_TTL:
+            return _users_cache["data"]
+
+    users = _fetch_all_clerk_users()
+    with _users_cache_lock:
+        _users_cache["data"] = users
+        _users_cache["fetched_at"] = time.time()
+    return users
+
+
+def _invalidate_users_cache() -> None:
+    """Clear the cached user list so the next request fetches fresh data."""
+    with _users_cache_lock:
+        _users_cache["data"] = None
+        _users_cache["fetched_at"] = 0.0
+
+
+# ── Routes ─────────────────────────────────────────────────────────────────────
+
+@router.get("", response_model=List[ClerkUser])
+def list_users(
+    _: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
+):
+    """List all Clerk users (cached for 5 minutes)."""
+    return _get_cached_users()
 
 
 @router.post("", response_model=ClerkUser, status_code=201)
@@ -182,6 +215,7 @@ def create_user(
         detail = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else resp.text
         raise HTTPException(status_code=resp.status_code, detail=detail)
 
+    _invalidate_users_cache()
     return _parse_clerk_user(resp.json())
 
 
@@ -306,6 +340,7 @@ def update_user_role(
         detail = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else resp.text
         raise HTTPException(status_code=resp.status_code, detail=detail)
 
+    _invalidate_users_cache()
     return _parse_clerk_user(resp.json())
 
 
@@ -331,4 +366,5 @@ def delete_user(
         detail = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else resp.text
         raise HTTPException(status_code=resp.status_code, detail=detail)
 
+    _invalidate_users_cache()
     return None

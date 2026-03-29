@@ -33,6 +33,7 @@ class Lesson(SQLModel, table=True):
     )  # List of edited parts with sources
     brief: Optional[str] = None  # Short 1-3 line summary
     summary: Optional[str] = None
+    status: str = Field(default="draft")  # Workflow status: draft, in_progress, review_requested, revision_requested, validated
     process_status: Optional[str] = None  # Current processing step: transcript, edition, sources_extraction, sources_checking, summary
 
     # Metadata for transcript, correction, summary and edited transcript
