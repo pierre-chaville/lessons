@@ -9,7 +9,7 @@ import type {
 } from './types'
 
 export const lessonsApi = {
-  list: (params?: { course_id?: number }) =>
+  list: (params?: { course_id?: number; course_ids?: string }) =>
     apiClient.get<LessonListItem[]>('/lessons', { params }).then((r) => r.data),
 
   get: (hashid: string) =>

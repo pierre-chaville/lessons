@@ -13,6 +13,7 @@ class Course(SQLModel, table=True):
     name: str
     description: Optional[str] = None
     parent_id: Optional[int] = Field(default=None, foreign_key="course.id", index=True)
+    sort_order: int = Field(default=0)
 
     # Relationships
     lessons: List["Lesson"] = Relationship(back_populates="course")

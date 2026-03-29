@@ -5,41 +5,66 @@ import {
   DocumentTextIcon,
   ChevronRightIcon,
   ChevronDownIcon,
+  ChevronUpIcon,
   PencilIcon,
   TrashIcon,
 } from '@heroicons/vue/24/outline'
 import { usePermissions } from '@/composables/usePermissions'
 import type { CourseTreeNode } from '@/api/types'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   node: CourseTreeNode
   depth: number
   expanded: Set<number>
-}>()
+  selectedId?: number | null
+  showActions?: boolean
+  isFirst?: boolean
+  isLast?: boolean
+}>(), {
+  selectedId: null,
+  showActions: true,
+  isFirst: false,
+  isLast: false,
+})
 
 const emit = defineEmits<{
   (e: 'toggle', id: number): void
   (e: 'edit', node: CourseTreeNode): void
   (e: 'delete', node: CourseTreeNode): void
+  (e: 'select', node: CourseTreeNode): void
+  (e: 'moveUp', node: CourseTreeNode): void
+  (e: 'moveDown', node: CourseTreeNode): void
 }>()
 
 const { can } = usePermissions()
 
 const hasChildren = () => props.node.children.length > 0
 const isExpanded = () => props.expanded.has(props.node.id)
+const isSelected = () => props.selectedId === props.node.id
+
+const handleRowClick = () => {
+  emit('select', props.node)
+}
 </script>
 
 <template>
   <div>
     <div
-      class="group flex items-center gap-2 px-4 py-2 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors cursor-default"
+      :class="[
+        'group flex items-center gap-2 px-4 py-2 transition-colors',
+        isSelected()
+          ? 'bg-indigo-50 dark:bg-indigo-900/30'
+          : 'hover:bg-gray-50 dark:hover:bg-gray-700/50',
+        selectedId !== undefined ? 'cursor-pointer' : 'cursor-default',
+      ]"
       :style="{ paddingLeft: `${depth * 1.5 + 0.75}rem` }"
+      @click="handleRowClick"
     >
       <!-- Expand/Collapse toggle -->
       <button
         v-if="hasChildren()"
         class="flex-shrink-0 p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-        @click="emit('toggle', node.id)"
+        @click.stop="emit('toggle', node.id)"
       >
         <ChevronDownIcon v-if="isExpanded()" class="h-4 w-4 text-gray-400 dark:text-gray-500" />
         <ChevronRightIcon v-else class="h-4 w-4 text-gray-400 dark:text-gray-500" />
@@ -55,26 +80,46 @@ const isExpanded = () => props.expanded.has(props.node.id)
       <span
         :class="[
           'flex-1 text-sm truncate',
-          hasChildren()
-            ? 'font-semibold text-gray-900 dark:text-white'
-            : 'font-medium text-gray-700 dark:text-gray-300',
+          isSelected()
+            ? 'font-semibold text-indigo-600 dark:text-indigo-400'
+            : hasChildren()
+              ? 'font-semibold text-gray-900 dark:text-white'
+              : 'font-medium text-gray-700 dark:text-gray-300',
         ]"
       >
         {{ node.name }}
       </span>
 
-      <!-- Edit button -->
+      <!-- Move up/down buttons (Courses page only) -->
+      <template v-if="showActions && can('courses', 'update')">
+        <button
+          :disabled="isFirst"
+          class="flex-shrink-0 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-all disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+          @click.stop="emit('moveUp', node)"
+        >
+          <ChevronUpIcon class="h-3.5 w-3.5" />
+        </button>
+        <button
+          :disabled="isLast"
+          class="flex-shrink-0 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-all disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+          @click.stop="emit('moveDown', node)"
+        >
+          <ChevronDownIcon class="h-3.5 w-3.5" />
+        </button>
+      </template>
+
+      <!-- Edit button (Courses page only) -->
       <button
-        v-if="can('courses', 'update')"
+        v-if="showActions && can('courses', 'update')"
         class="flex-shrink-0 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-all"
         @click.stop="emit('edit', node)"
       >
         <PencilIcon class="h-3.5 w-3.5" />
       </button>
 
-      <!-- Delete button -->
+      <!-- Delete button (Courses page only) -->
       <button
-        v-if="can('courses', 'delete')"
+        v-if="showActions && can('courses', 'delete')"
         class="flex-shrink-0 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-red-100 dark:hover:bg-red-900/30 text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-all"
         @click.stop="emit('delete', node)"
       >
@@ -90,14 +135,21 @@ const isExpanded = () => props.expanded.has(props.node.id)
     <!-- Recursively render children -->
     <template v-if="hasChildren() && isExpanded()">
       <CourseTreeItem
-        v-for="child in node.children"
+        v-for="(child, idx) in node.children"
         :key="child.id"
         :node="child"
         :depth="depth + 1"
         :expanded="expanded"
+        :selected-id="selectedId"
+        :show-actions="showActions"
+        :is-first="idx === 0"
+        :is-last="idx === node.children.length - 1"
         @toggle="(id) => emit('toggle', id)"
         @edit="(n) => emit('edit', n)"
         @delete="(n) => emit('delete', n)"
+        @select="(n) => emit('select', n)"
+        @move-up="(n) => emit('moveUp', n)"
+        @move-down="(n) => emit('moveDown', n)"
       />
     </template>
   </div>

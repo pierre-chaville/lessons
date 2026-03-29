@@ -40,11 +40,15 @@ def _require_lesson_access(
 
 @router.get("", response_model=List[LessonListResponse])
 def get_lessons(
-    course_id: Optional[int] = Query(None, description="Filter by course ID"),
+    course_id: Optional[int] = Query(None, description="Filter by single course ID"),
+    course_ids: Optional[str] = Query(None, description="Comma-separated course IDs"),
     session: Session = Depends(get_session),
 ):
-    """Get all lessons (lightweight response), optionally filtered by course."""
-    lessons = crud.get_all_lessons(session, course_id=course_id)
+    """Get all lessons (lightweight response), optionally filtered by course(s)."""
+    parsed_ids = None
+    if course_ids:
+        parsed_ids = [int(x) for x in course_ids.split(",") if x.strip().isdigit()]
+    lessons = crud.get_all_lessons(session, course_id=course_id, course_ids=parsed_ids)
     return [lesson_service.build_lesson_list_item(lesson, session) for lesson in lessons]
 
 

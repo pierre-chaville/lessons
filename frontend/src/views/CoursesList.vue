@@ -153,6 +153,15 @@ const deleteCourse = async () => {
   }
 }
 
+const moveCourse = async (node: CourseTreeNode, direction: 'up' | 'down') => {
+  try {
+    await coursesApi.reorder(node.hashid, direction)
+    await fetchData()
+  } catch {
+    toast.error(t('courses.updateFailed'))
+  }
+}
+
 const availableParents = computed(() => {
   const excludeId = editingCourse.value?.id
   return courses.value.filter((c) => c.id !== excludeId)
@@ -364,14 +373,18 @@ defineExpose({ openCreateModal })
     <div v-else class="bg-white dark:bg-gray-800 shadow-sm rounded-lg overflow-hidden transition-colors">
       <div class="py-2">
         <CourseTreeItem
-          v-for="node in tree"
+          v-for="(node, idx) in tree"
           :key="node.id"
           :node="node"
           :depth="0"
           :expanded="expanded"
+          :is-first="idx === 0"
+          :is-last="idx === tree.length - 1"
           @toggle="toggleExpand"
           @edit="openEditModal"
           @delete="confirmDelete"
+          @move-up="(n) => moveCourse(n, 'up')"
+          @move-down="(n) => moveCourse(n, 'down')"
         />
       </div>
     </div>

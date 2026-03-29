@@ -55,6 +55,7 @@ export interface Course {
   name: string
   description: string | null
   parent_id: number | null
+  sort_order: number
   lessons?: LessonListItem[]
 }
 
@@ -64,6 +65,7 @@ export interface CourseTreeNode {
   name: string
   description: string | null
   parent_id: number | null
+  sort_order: number
   lesson_count: number
   children: CourseTreeNode[]
 }

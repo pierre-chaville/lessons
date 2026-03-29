@@ -15,4 +15,7 @@ export const coursesApi = {
     apiClient.patch<Course>(`/courses/${hashid}`, data).then((r) => r.data),
 
   delete: (hashid: string) => apiClient.delete(`/courses/${hashid}`),
+
+  reorder: (hashid: string, direction: 'up' | 'down') =>
+    apiClient.patch<Course[]>(`/courses/${hashid}/reorder`, { direction }).then((r) => r.data),
 }

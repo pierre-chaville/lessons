@@ -39,6 +39,12 @@ def _run_migrations():
                     "ALTER TABLE course ADD COLUMN parent_id INTEGER REFERENCES course(id)"
                 ))
             logger.info("Migration: added 'parent_id' column to course table")
+        if "sort_order" not in columns:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    "ALTER TABLE course ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"
+                ))
+            logger.info("Migration: added 'sort_order' column to course table")
 
 
 def create_db_and_tables():

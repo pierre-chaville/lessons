@@ -1,6 +1,6 @@
 """CRUD operations for database models"""
 
-from sqlmodel import Session, select
+from sqlmodel import Session, select, func
 from typing import List, Optional
 from datetime import datetime
 from models import Lesson, LessonEditor, LessonSource, Course, Theme, Task, SefariaCache
@@ -12,9 +12,16 @@ def create_course(
     name: str,
     description: Optional[str] = None,
     parent_id: Optional[int] = None,
+    sort_order: Optional[int] = None,
 ) -> Course:
-    """Create a new course"""
-    course = Course(name=name, description=description, parent_id=parent_id)
+    """Create a new course. Auto-assigns sort_order at end of siblings if not provided."""
+    if sort_order is None:
+        max_order = session.exec(
+            select(func.coalesce(func.max(Course.sort_order), -1))
+            .where(Course.parent_id == parent_id)
+        ).one()
+        sort_order = max_order + 1
+    course = Course(name=name, description=description, parent_id=parent_id, sort_order=sort_order)
     session.add(course)
     session.commit()
     session.refresh(course)
@@ -27,8 +34,8 @@ def get_course(session: Session, course_id: int) -> Optional[Course]:
 
 
 def get_all_courses(session: Session) -> List[Course]:
-    """Get all courses ordered by name"""
-    statement = select(Course).order_by(Course.name)
+    """Get all courses ordered by sort_order, then name"""
+    statement = select(Course).order_by(Course.sort_order, Course.name)
     return list(session.exec(statement).all())
 
 
@@ -38,6 +45,7 @@ def update_course(
     name: Optional[str] = None,
     description: Optional[str] = None,
     parent_id: object = None,
+    sort_order: Optional[int] = None,
 ) -> Optional[Course]:
     """Update a course. Pass parent_id=0 to clear the parent."""
     course = session.get(Course, course_id)
@@ -48,6 +56,8 @@ def update_course(
             course.description = description
         if parent_id is not None:
             course.parent_id = parent_id if parent_id != 0 else None
+        if sort_order is not None:
+            course.sort_order = sort_order
         session.add(course)
         session.commit()
         session.refresh(course)
@@ -157,9 +167,15 @@ def get_lesson(session: Session, lesson_id: int) -> Optional[Lesson]:
     return session.get(Lesson, lesson_id)
 
 
-def get_all_lessons(session: Session, course_id: Optional[int] = None) -> List[Lesson]:
-    """Get all lessons, optionally filtered by course, sorted by date (latest first)"""
-    if course_id:
+def get_all_lessons(
+    session: Session,
+    course_id: Optional[int] = None,
+    course_ids: Optional[List[int]] = None,
+) -> List[Lesson]:
+    """Get all lessons, optionally filtered by course(s), sorted by date (latest first)."""
+    if course_ids:
+        statement = select(Lesson).where(Lesson.course_id.in_(course_ids)).order_by(Lesson.date.desc())
+    elif course_id:
         statement = select(Lesson).where(Lesson.course_id == course_id).order_by(Lesson.date.desc())
     else:
         statement = select(Lesson).order_by(Lesson.date.desc())

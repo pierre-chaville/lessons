@@ -390,7 +390,7 @@ onMounted(() => {
       <!-- Lessons View (handles both list and detail) -->
       <div v-if="currentRoute === '/lessons'">
         <!-- Header for list view only -->
-        <div v-if="!isViewingDetail" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-0">
+        <div v-if="!isViewingDetail" class="mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-0">
           <div class="mb-6 flex justify-between items-center">
             <h2 class="text-xl font-semibold text-gray-900 dark:text-white">
               {{ t('lessons.title') }}
@@ -405,8 +405,8 @@ onMounted(() => {
             </button>
           </div>
         </div>
-        <!-- Single LessonsList instance with conditional padding -->
-        <div :class="!isViewingDetail ? 'max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8' : ''">
+        <!-- LessonsList with two-panel layout -->
+        <div :class="!isViewingDetail ? 'mx-auto px-4 sm:px-6 lg:px-8 pb-8' : ''">
           <LessonsList ref="lessonsListRef" />
         </div>
       </div>

@@ -10,12 +10,14 @@ class CourseCreate(BaseModel):
     name: str
     description: Optional[str] = None
     parent_id: Optional[int] = None
+    sort_order: Optional[int] = None
 
 
 class CourseUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     parent_id: Optional[int] = None
+    sort_order: Optional[int] = None
 
 
 class CourseResponse(BaseModel):
@@ -26,6 +28,7 @@ class CourseResponse(BaseModel):
     name: str
     description: Optional[str] = None
     parent_id: Optional[int] = None
+    sort_order: int = 0
 
     class Config:
         from_attributes = True
@@ -39,6 +42,7 @@ class CourseTreeNode(BaseModel):
     name: str
     description: Optional[str] = None
     parent_id: Optional[int] = None
+    sort_order: int = 0
     lesson_count: int = 0
     children: List[CourseTreeNode] = []
 

@@ -1,15 +1,20 @@
 """Courses router — /courses endpoints."""
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlmodel import Session, select, func
 from typing import Dict, Any, List
 
 import crud
 from auth import require_roles
 from database import get_session
-from models import Lesson
+from models import Lesson, Course
 from schemas.course import CourseCreate, CourseUpdate, CourseResponse, CourseTreeNode
 from hashid_utils import encode_id, decode_id
+
+
+class ReorderRequest(BaseModel):
+    direction: str  # "up" or "down"
 
 router = APIRouter(prefix="/courses", tags=["Courses"])
 
@@ -22,6 +27,7 @@ def _build_course_response(course) -> CourseResponse:
         name=course.name,
         description=course.description,
         parent_id=course.parent_id,
+        sort_order=course.sort_order,
     )
 
 
@@ -52,6 +58,7 @@ def _build_tree(courses, lesson_counts: Dict[int, int]) -> List[CourseTreeNode]:
             name=c.name,
             description=c.description,
             parent_id=c.parent_id,
+            sort_order=c.sort_order,
             lesson_count=lesson_counts.get(c.id, 0),
             children=[],
         )
@@ -62,14 +69,14 @@ def _build_tree(courses, lesson_counts: Dict[int, int]) -> List[CourseTreeNode]:
         else:
             roots.append(node)
     def _sort_children(node: CourseTreeNode):
-        node.children.sort(key=lambda c: c.name)
+        node.children.sort(key=lambda c: (c.sort_order, c.name))
         for child in node.children:
             _sort_children(child)
 
     for root in roots:
         _propagate_counts(root)
         _sort_children(root)
-    roots.sort(key=lambda c: c.name)
+    roots.sort(key=lambda c: (c.sort_order, c.name))
     return roots
 
 
@@ -103,6 +110,58 @@ def get_courses_tree(session: Session = Depends(get_session)):
     return _build_tree(courses, lesson_counts)
 
 
+@router.patch("/{course_hashid}/reorder", response_model=List[CourseResponse])
+def reorder_course(
+    course_hashid: str,
+    body: ReorderRequest,
+    session: Session = Depends(get_session),
+    _: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
+):
+    """Move a course up or down among its siblings."""
+    course_id = decode_id(course_hashid)
+    course = crud.get_course(session, course_id)
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+
+    siblings = list(
+        session.exec(
+            select(Course)
+            .where(Course.parent_id == course.parent_id)
+            .order_by(Course.sort_order, Course.name)
+        ).all()
+    )
+
+    idx = next((i for i, s in enumerate(siblings) if s.id == course_id), None)
+    if idx is None:
+        raise HTTPException(status_code=404, detail="Course not found among siblings")
+
+    if body.direction == "up" and idx > 0:
+        swap = siblings[idx - 1]
+        course.sort_order, swap.sort_order = swap.sort_order, course.sort_order
+        if course.sort_order == swap.sort_order:
+            course.sort_order -= 1
+        session.add(course)
+        session.add(swap)
+        session.commit()
+    elif body.direction == "down" and idx < len(siblings) - 1:
+        swap = siblings[idx + 1]
+        course.sort_order, swap.sort_order = swap.sort_order, course.sort_order
+        if course.sort_order == swap.sort_order:
+            course.sort_order += 1
+        session.add(course)
+        session.add(swap)
+        session.commit()
+
+    updated = list(
+        session.exec(
+            select(Course)
+            .where(Course.parent_id == course.parent_id)
+            .order_by(Course.sort_order, Course.name)
+        ).all()
+    )
+    return [_build_course_response(c) for c in updated]
+
+
 @router.get("/{course_hashid}", response_model=CourseResponse)
 def get_course(course_hashid: str, session: Session = Depends(get_session)):
     """Get a specific course by hashid."""
@@ -129,6 +188,7 @@ def create_course(
         name=course_data.name,
         description=course_data.description,
         parent_id=course_data.parent_id,
+        sort_order=course_data.sort_order,
     )
     return _build_course_response(course)
 
@@ -158,6 +218,7 @@ def update_course(
         name=course_data.name,
         description=course_data.description,
         parent_id=course_data.parent_id,
+        sort_order=course_data.sort_order,
     )
     if not course:
         raise HTTPException(status_code=404, detail="Course not found")
