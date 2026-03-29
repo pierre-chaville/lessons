@@ -152,7 +152,7 @@
     "processingMessage": "This lesson is currently being processed. Editing is disabled."
   },
   "courses": {
-    "title": "Courses",
+    "title": "Course Organization",
     "course": "course",
     "courses": "courses",
     "addNew": "New Course",
@@ -180,7 +180,9 @@
     "updateFailed": "Failed to update course. Please try again.",
     "deleteFailed": "Failed to delete course. Please try again.",
     "fetchFailed": "Failed to load courses. Please try again.",
-    "lessonsCount": "lesson | lessons"
+    "lessonsCount": "lesson | lessons",
+    "parentCourse": "Parent course",
+    "noParent": "None (root level)"
   },
   "themes": {
     "title": "Themes",
@@ -265,7 +267,7 @@
     "menu": "Menu",
     "lessons": "Lessons",
     "search": "Search",
-    "courses": "Courses",
+    "courses": "Course Organization",
     "themes": "Themes",
     "processing": "Processing",
     "users": "Users",

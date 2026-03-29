@@ -54,17 +54,30 @@ export interface Course {
   hashid: string
   name: string
   description: string | null
+  parent_id: number | null
   lessons?: LessonListItem[]
+}
+
+export interface CourseTreeNode {
+  id: number
+  hashid: string
+  name: string
+  description: string | null
+  parent_id: number | null
+  lesson_count: number
+  children: CourseTreeNode[]
 }
 
 export interface CourseCreate {
   name: string
   description?: string | null
+  parent_id?: number | null
 }
 
 export interface CourseUpdate {
   name?: string
   description?: string | null
+  parent_id?: number | null
 }
 
 // ── Theme ─────────────────────────────────────────────────────────────────────

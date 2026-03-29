@@ -20,7 +20,9 @@ engine = create_engine(DATABASE_URL, echo=False)
 def _run_migrations():
     """Add missing columns to existing tables (lightweight auto-migration)."""
     inspector = inspect(engine)
-    if "lesson" in inspector.get_table_names():
+    tables = inspector.get_table_names()
+
+    if "lesson" in tables:
         columns = {col["name"] for col in inspector.get_columns("lesson")}
         if "status" not in columns:
             with engine.begin() as conn:
@@ -28,6 +30,15 @@ def _run_migrations():
                     "ALTER TABLE lesson ADD COLUMN status VARCHAR NOT NULL DEFAULT 'draft'"
                 ))
             logger.info("Migration: added 'status' column to lesson table")
+
+    if "course" in tables:
+        columns = {col["name"] for col in inspector.get_columns("course")}
+        if "parent_id" not in columns:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    "ALTER TABLE course ADD COLUMN parent_id INTEGER REFERENCES course(id)"
+                ))
+            logger.info("Migration: added 'parent_id' column to course table")
 
 
 def create_db_and_tables():

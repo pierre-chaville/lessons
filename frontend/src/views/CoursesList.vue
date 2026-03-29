@@ -1,42 +1,63 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   AcademicCapIcon,
-  PencilIcon,
   TrashIcon,
-  XMarkIcon,
   CheckIcon,
   ExclamationTriangleIcon,
-  BookOpenIcon,
 } from '@heroicons/vue/24/outline'
 import { Dialog, DialogPanel, DialogTitle } from '@headlessui/vue'
 import { coursesApi } from '@/api/courses'
 import { useToast } from '@/composables/useToast'
 import { usePermissions } from '@/composables/usePermissions'
-import type { Course } from '@/api/types'
+import CourseTreeItem from '@/components/CourseTreeItem.vue'
+import type { Course, CourseTreeNode } from '@/api/types'
 
 const { t } = useI18n()
 const toast = useToast()
 const { can } = usePermissions()
 
 const courses = ref<Course[]>([])
+const tree = ref<CourseTreeNode[]>([])
 const loading = ref(true)
 const showCreateModal = ref(false)
 const showEditModal = ref(false)
 const showDeleteConfirm = ref(false)
 
-const formData = ref({ name: '', description: '' })
+const formData = ref({ name: '', description: '', parent_id: null as number | null })
 
 const editingCourse = ref<Course | null>(null)
 const deletingCourse = ref<Course | null>(null)
 const isSaving = ref(false)
 const isDeleting = ref(false)
 
-const fetchCourses = async () => {
+const expanded = ref<Set<number>>(new Set())
+
+const toggleExpand = (id: number) => {
+  if (expanded.value.has(id)) {
+    expanded.value.delete(id)
+  } else {
+    expanded.value.add(id)
+  }
+}
+
+const expandAll = (nodes: CourseTreeNode[]) => {
+  for (const n of nodes) {
+    if (n.children.length > 0) {
+      expanded.value.add(n.id)
+      expandAll(n.children)
+    }
+  }
+}
+
+const fetchData = async () => {
   try {
     loading.value = true
-    courses.value = await coursesApi.list()
+    const [flatList, treeData] = await Promise.all([coursesApi.list(), coursesApi.tree()])
+    courses.value = flatList
+    tree.value = treeData
+    expandAll(treeData)
   } catch {
     toast.error(t('courses.fetchFailed'))
   } finally {
@@ -45,25 +66,25 @@ const fetchCourses = async () => {
 }
 
 const openCreateModal = () => {
-  formData.value = { name: '', description: '' }
+  formData.value = { name: '', description: '', parent_id: null }
   showCreateModal.value = true
 }
 
 const closeCreateModal = () => {
   showCreateModal.value = false
-  formData.value = { name: '', description: '' }
+  formData.value = { name: '', description: '', parent_id: null }
 }
 
-const openEditModal = (course: Course) => {
-  editingCourse.value = course
-  formData.value = { name: course.name, description: course.description ?? '' }
+const openEditModal = (course: CourseTreeNode) => {
+  editingCourse.value = course as unknown as Course
+  formData.value = { name: course.name, description: course.description ?? '', parent_id: course.parent_id ?? null }
   showEditModal.value = true
 }
 
 const closeEditModal = () => {
   showEditModal.value = false
   editingCourse.value = null
-  formData.value = { name: '', description: '' }
+  formData.value = { name: '', description: '', parent_id: null }
 }
 
 const createCourse = async () => {
@@ -76,8 +97,9 @@ const createCourse = async () => {
     await coursesApi.create({
       name: formData.value.name.trim(),
       description: formData.value.description.trim() || null,
+      parent_id: formData.value.parent_id,
     })
-    await fetchCourses()
+    await fetchData()
     closeCreateModal()
   } catch {
     toast.error(t('courses.createFailed'))
@@ -96,8 +118,9 @@ const updateCourse = async () => {
     await coursesApi.update(editingCourse.value.hashid, {
       name: formData.value.name.trim(),
       description: formData.value.description.trim() || null,
+      parent_id: formData.value.parent_id,
     })
-    await fetchCourses()
+    await fetchData()
     closeEditModal()
   } catch {
     toast.error(t('courses.updateFailed'))
@@ -106,8 +129,8 @@ const updateCourse = async () => {
   }
 }
 
-const confirmDelete = (course: Course) => {
-  deletingCourse.value = course
+const confirmDelete = (course: CourseTreeNode) => {
+  deletingCourse.value = course as unknown as Course
   showDeleteConfirm.value = true
 }
 
@@ -121,7 +144,7 @@ const deleteCourse = async () => {
   try {
     isDeleting.value = true
     await coursesApi.delete(deletingCourse.value.hashid)
-    await fetchCourses()
+    await fetchData()
     cancelDelete()
   } catch {
     toast.error(t('courses.deleteFailed'))
@@ -130,25 +153,28 @@ const deleteCourse = async () => {
   }
 }
 
+const availableParents = computed(() => {
+  const excludeId = editingCourse.value?.id
+  return courses.value.filter((c) => c.id !== excludeId)
+})
+
 onMounted(() => {
-  fetchCourses()
+  fetchData()
 })
 
 defineExpose({ openCreateModal })
 </script>
 
 <template>
-    <!-- Create Course Modal -->
+  <!-- Create Course Modal -->
   <Dialog :open="showCreateModal" @close="closeCreateModal" class="relative z-50">
     <div class="fixed inset-0 bg-black/30 backdrop-blur-sm" aria-hidden="true" />
-    
     <div class="fixed inset-0 flex items-center justify-center p-4">
       <DialogPanel class="mx-auto max-w-md w-full bg-white dark:bg-gray-800 rounded-lg shadow-xl">
         <div class="p-6">
           <DialogTitle class="text-lg font-semibold text-gray-900 dark:text-white mb-4">
             {{ t('courses.createCourse') }}
           </DialogTitle>
-          
           <div class="space-y-4">
             <div>
               <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -162,7 +188,6 @@ defineExpose({ openCreateModal })
                 @keyup.enter="createCourse"
               />
             </div>
-            
             <div>
               <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 {{ t('courses.description') }}
@@ -174,8 +199,19 @@ defineExpose({ openCreateModal })
                 class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
               ></textarea>
             </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                {{ t('courses.parentCourse') }}
+              </label>
+              <select
+                v-model="formData.parent_id"
+                class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              >
+                <option :value="null">{{ t('courses.noParent') }}</option>
+                <option v-for="c in courses" :key="c.id" :value="c.id">{{ c.name }}</option>
+              </select>
+            </div>
           </div>
-          
           <div class="flex justify-end gap-3 mt-6">
             <button
               @click="closeCreateModal"
@@ -230,6 +266,18 @@ defineExpose({ openCreateModal })
                 rows="3"
                 class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
               ></textarea>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                {{ t('courses.parentCourse') }}
+              </label>
+              <select
+                v-model="formData.parent_id"
+                class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              >
+                <option :value="null">{{ t('courses.noParent') }}</option>
+                <option v-for="c in availableParents" :key="c.id" :value="c.id">{{ c.name }}</option>
+              </select>
             </div>
           </div>
           <div class="flex justify-end gap-3 mt-6">
@@ -299,73 +347,32 @@ defineExpose({ openCreateModal })
   </Dialog>
 
   <div class="w-full">
-    <!-- Info Section -->
-    <div class="mb-6 bg-white dark:bg-gray-800 shadow-sm rounded-lg p-4 transition-colors w-full">
-      <div class="flex items-center gap-2">
-        <AcademicCapIcon class="h-5 w-5 text-gray-500 dark:text-gray-400" />
-        <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
-          {{ courses.length }} {{ courses.length === 1 ? t('courses.course') : t('courses.courses') }}
-        </span>
-      </div>
-    </div>
-
     <!-- Loading State -->
     <div v-if="loading" class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-8 text-center text-gray-500 dark:text-gray-400 transition-colors">
       {{ t('courses.loading') }}
     </div>
 
     <!-- Empty State -->
-    <div v-else-if="courses.length === 0" class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-8 text-center transition-colors">
+    <div v-else-if="tree.length === 0" class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-8 text-center transition-colors">
       <AcademicCapIcon class="h-12 w-12 text-gray-400 dark:text-gray-500 mx-auto mb-4" />
       <p class="text-gray-500 dark:text-gray-400">
         {{ t('courses.noCourses') }}
       </p>
     </div>
 
-    <!-- Courses Grid -->
-    <div v-else class="w-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-      <div
-        v-for="course in courses"
-        :key="course.hashid"
-        class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-6 hover:shadow-md dark:hover:shadow-gray-900/50 transition-all border border-gray-200 dark:border-gray-700"
-      >
-        <div class="flex flex-col h-full">
-          <div class="flex items-start gap-3 mb-3">
-            <AcademicCapIcon class="h-6 w-6 text-indigo-600 dark:text-indigo-400 flex-shrink-0 mt-1" />
-            <h3 class="text-lg font-semibold text-gray-900 dark:text-white line-clamp-2">
-              {{ course.name }}
-            </h3>
-          </div>
-          <div class="flex-1">
-            <p v-if="course.description" class="text-sm text-gray-600 dark:text-gray-400 mb-3 line-clamp-2">
-              {{ course.description }}
-            </p>
-            <div class="flex items-center gap-2 mb-3">
-              <BookOpenIcon class="h-4 w-4 text-gray-400 dark:text-gray-500" />
-              <span class="text-xs text-gray-500 dark:text-gray-400">
-                {{ course.lessons?.length ?? 0 }} {{ t('courses.lessonsCount', course.lessons?.length ?? 0) }}
-              </span>
-            </div>
-          </div>
-          <div v-if="can('courses', 'update') || can('courses', 'delete')" class="flex gap-2 pt-3 border-t border-gray-200 dark:border-gray-700">
-            <button
-              v-if="can('courses', 'update')"
-              @click="openEditModal(course)"
-              class="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
-            >
-              <PencilIcon class="h-4 w-4" />
-              {{ t('courses.edit') }}
-            </button>
-            <button
-              v-if="can('courses', 'delete')"
-              @click="confirmDelete(course)"
-              class="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-md transition-colors"
-            >
-              <TrashIcon class="h-4 w-4" />
-              {{ t('courses.delete') }}
-            </button>
-          </div>
-        </div>
+    <!-- Tree View -->
+    <div v-else class="bg-white dark:bg-gray-800 shadow-sm rounded-lg overflow-hidden transition-colors">
+      <div class="py-2">
+        <CourseTreeItem
+          v-for="node in tree"
+          :key="node.id"
+          :node="node"
+          :depth="0"
+          :expanded="expanded"
+          @toggle="toggleExpand"
+          @edit="openEditModal"
+          @delete="confirmDelete"
+        />
       </div>
     </div>
   </div>

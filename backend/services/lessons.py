@@ -29,6 +29,7 @@ def _build_course_resp(course) -> CourseResponse | None:
         hashid=encode_id(course.id),
         name=course.name,
         description=course.description,
+        parent_id=course.parent_id,
     )
 
 

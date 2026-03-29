@@ -152,7 +152,7 @@
     "processingMessage": "Cette session est en cours de traitement. La modification est désactivée."
   },
   "courses": {
-    "title": "Cours",
+    "title": "Parcours",
     "course": "cours",
     "courses": "cours",
     "addNew": "Nouveau Cours",
@@ -180,7 +180,9 @@
     "updateFailed": "Échec de la modification du cours. Veuillez réessayer.",
     "deleteFailed": "Échec de la suppression du cours. Veuillez réessayer.",
     "fetchFailed": "Échec du chargement des cours. Veuillez réessayer.",
-    "lessonsCount": "session | sessions"
+    "lessonsCount": "session | sessions",
+    "parentCourse": "Cours parent",
+    "noParent": "Aucun (racine)"
   },
   "themes": {
     "title": "Thèmes",
@@ -265,7 +267,7 @@
     "menu": "Menu",
     "lessons": "Sessions",
     "search": "Rechercher",
-    "courses": "Cours",
+    "courses": "Parcours",
     "themes": "Thèmes",
     "processing": "Traitement",
     "users": "Utilisateurs",

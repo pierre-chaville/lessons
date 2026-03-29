@@ -8,10 +8,13 @@ from models import Lesson, LessonEditor, LessonSource, Course, Theme, Task, Sefa
 
 # Course CRUD
 def create_course(
-    session: Session, name: str, description: Optional[str] = None
+    session: Session,
+    name: str,
+    description: Optional[str] = None,
+    parent_id: Optional[int] = None,
 ) -> Course:
     """Create a new course"""
-    course = Course(name=name, description=description)
+    course = Course(name=name, description=description, parent_id=parent_id)
     session.add(course)
     session.commit()
     session.refresh(course)
@@ -24,8 +27,8 @@ def get_course(session: Session, course_id: int) -> Optional[Course]:
 
 
 def get_all_courses(session: Session) -> List[Course]:
-    """Get all courses"""
-    statement = select(Course)
+    """Get all courses ordered by name"""
+    statement = select(Course).order_by(Course.name)
     return list(session.exec(statement).all())
 
 
@@ -34,14 +37,17 @@ def update_course(
     course_id: int,
     name: Optional[str] = None,
     description: Optional[str] = None,
+    parent_id: object = None,
 ) -> Optional[Course]:
-    """Update a course"""
+    """Update a course. Pass parent_id=0 to clear the parent."""
     course = session.get(Course, course_id)
     if course:
         if name is not None:
             course.name = name
         if description is not None:
             course.description = description
+        if parent_id is not None:
+            course.parent_id = parent_id if parent_id != 0 else None
         session.add(course)
         session.commit()
         session.refresh(course)
@@ -49,9 +55,15 @@ def update_course(
 
 
 def delete_course(session: Session, course_id: int) -> bool:
-    """Delete a course"""
+    """Delete a course (re-parents children to this course's parent)."""
     course = session.get(Course, course_id)
     if course:
+        children = list(
+            session.exec(select(Course).where(Course.parent_id == course_id)).all()
+        )
+        for child in children:
+            child.parent_id = course.parent_id
+            session.add(child)
         session.delete(course)
         session.commit()
         return True

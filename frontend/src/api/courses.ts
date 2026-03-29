@@ -1,8 +1,10 @@
 import { apiClient } from './client'
-import type { Course, CourseCreate, CourseUpdate } from './types'
+import type { Course, CourseCreate, CourseUpdate, CourseTreeNode } from './types'
 
 export const coursesApi = {
   list: () => apiClient.get<Course[]>('/courses').then((r) => r.data),
+
+  tree: () => apiClient.get<CourseTreeNode[]>('/courses/tree').then((r) => r.data),
 
   get: (hashid: string) => apiClient.get<Course>(`/courses/${hashid}`).then((r) => r.data),
 
