@@ -70,4 +70,9 @@ def download_audio_bytes(key: str) -> bytes:
     env = _get_s3_env()
     client = create_s3_client()
     response = client.get_object(Bucket=env["bucket"], Key=key)
-    return response["Body"].read()
+    body = response["Body"]
+    try:
+        return body.read()
+    finally:
+        # Ensure the streaming body is closed to release pooled HTTP resources.
+        body.close()

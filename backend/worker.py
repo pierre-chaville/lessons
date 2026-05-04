@@ -1,5 +1,6 @@
 """Background task worker that processes tasks from the database"""
 
+import gc
 import signal
 import sys
 import threading
@@ -17,6 +18,7 @@ from services import (
     transcribe_lesson,
     verify_lesson_sources,
 )
+from memory_usage import format_memory_mb, get_rss_memory_mb
 import logging
 
 # Configure logging
@@ -54,6 +56,36 @@ def get_pending_task(session: Session) -> Task:
     statement = select(Task).where(Task.status == "pending").order_by(Task.created_at)
     result = session.exec(statement).first()
     return result
+
+
+def fail_stale_running_tasks(session: Session):
+    """Fail tasks left as running from a previous crashed/stopped worker."""
+    statement = select(Task).where(Task.status == "running").order_by(Task.created_at)
+    stale_tasks = list(session.exec(statement).all())
+
+    if not stale_tasks:
+        return
+
+    logger.warning(
+        "Found %s stale running task(s) on startup; marking them as failed",
+        len(stale_tasks),
+    )
+
+    for task in stale_tasks:
+        update_task_status(
+            session,
+            task,
+            "failed",
+            error=(
+                "Task was left in running state after worker restart. "
+                "It likely failed unexpectedly (e.g., process crash/OOM)."
+            ),
+        )
+
+        params = task.parameters or {}
+        lesson_id = params.get("lesson_id")
+        if lesson_id:
+            set_lesson_process_status(session, lesson_id, None)
 
 
 def update_task_status(session: Session, task: Task, status: str, **kwargs):
@@ -332,6 +364,13 @@ def process_task(session: Session, task: Task):
     params = task.parameters or {}
     lesson_id = params.get("lesson_id")
     process_status = TASK_TYPE_TO_PROCESS_STATUS.get(task.task_type)
+    mem_before_task = get_rss_memory_mb()
+    logger.info(
+        "Memory before task %s (%s): %s",
+        task.id,
+        task.task_type,
+        format_memory_mb(mem_before_task),
+    )
 
     try:
         # Update status to running
@@ -367,11 +406,33 @@ def process_task(session: Session, task: Task):
         # Clear process_status on the lesson when done (success or failure)
         if lesson_id:
             set_lesson_process_status(session, lesson_id, None)
+        gc.collect()
+        mem_after_task = get_rss_memory_mb()
+        delta_str = "n/a"
+        if mem_before_task is not None and mem_after_task is not None:
+            delta_str = f"{mem_after_task - mem_before_task:+.2f} MB"
+        logger.info(
+            "Memory after task %s (%s): %s (delta=%s)",
+            task.id,
+            task.task_type,
+            format_memory_mb(mem_after_task),
+            delta_str,
+        )
 
 
 def worker_loop():
     """Main worker loop that polls for tasks"""
     logger.info("Worker started, polling for tasks...")
+
+    try:
+        with Session(engine) as session:
+            fail_stale_running_tasks(session)
+    except Exception as e:
+        logger.error(
+            "Failed to reconcile stale running tasks on startup: %s",
+            str(e),
+            exc_info=True,
+        )
 
     while not should_stop:
         try:
