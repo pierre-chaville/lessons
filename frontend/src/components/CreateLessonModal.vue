@@ -14,10 +14,14 @@ import { coursesApi } from '@/api/courses'
 import { themesApi } from '@/api/themes'
 import { tasksApi } from '@/api/tasks'
 import { usersApi, type ClerkUser } from '@/api/users'
+import { useAuth } from '@/composables/useAuth'
 import { useToast } from '@/composables/useToast'
 import type { Course, Theme } from '@/api/types'
 
-const props = defineProps<{ isOpen: boolean }>()
+const props = defineProps<{
+  isOpen: boolean
+  defaultCourseId?: number | null
+}>()
 const emit = defineEmits<{
   (e: 'close'): void
   (e: 'created'): void
@@ -25,6 +29,8 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const toast = useToast()
+const { user } = useAuth()
+const currentUserId = computed(() => user.value?.id ?? null)
 
 const selectedFile = ref<File | null>(null)
 const title = ref('')
@@ -138,7 +144,31 @@ const toggleEditor = (userId: string) => {
 }
 
 const editorRoleUsers = computed(() =>
-  users.value.filter((u) => u.role && ['editor', 'publisher', 'admin'].includes(u.role))
+  users.value.filter((u) => {
+    const role = (u.role || '').toLowerCase()
+    return ['editor', 'publisher', 'admin'].includes(role) || u.id === currentUserId.value
+  }),
+)
+
+const getDefaultEditorIds = (): string[] => {
+  if (!currentUserId.value) return []
+  const currentUserExists = users.value.some((u) => u.id === currentUserId.value)
+  return currentUserExists ? [currentUserId.value] : []
+}
+
+const ensureDefaultEditorSelected = () => {
+  if (!props.isOpen || editorIds.value.length > 0) return
+  const defaults = getDefaultEditorIds()
+  if (defaults.length > 0) editorIds.value = defaults
+}
+
+const canCreateLesson = computed(
+  () =>
+    !isUploading.value &&
+    !!selectedFile.value &&
+    !!title.value &&
+    courseId.value !== null &&
+    editorIds.value.length > 0,
 )
 
 const fetchCourses = async () => {
@@ -156,6 +186,14 @@ const fetchUsers = async () => {
 const createLesson = async () => {
   if (!selectedFile.value || !title.value) {
     toast.error(t('lessons.fillRequired'))
+    return
+  }
+  if (courseId.value === null) {
+    toast.error(t('lessons.courseRequired'))
+    return
+  }
+  if (editorIds.value.length === 0) {
+    toast.error(t('lessons.editorsRequired'))
     return
   }
   try {
@@ -189,9 +227,9 @@ const resetForm = () => {
   selectedFile.value = null
   title.value = ''
   date.value = ''
-  courseId.value = null
+  courseId.value = props.defaultCourseId ?? null
   themeIds.value = []
-  editorIds.value = []
+  editorIds.value = getDefaultEditorIds()
   audioDuration.value = null
   if (fileInput.value) fileInput.value.value = ''
 }
@@ -206,7 +244,18 @@ const close = () => {
 watch(
   () => props.isOpen,
   async (isOpen) => {
-    if (isOpen) await Promise.all([fetchCourses(), fetchThemes(), fetchUsers()])
+    if (isOpen) {
+      courseId.value = props.defaultCourseId ?? null
+      await Promise.all([fetchCourses(), fetchThemes(), fetchUsers()])
+      ensureDefaultEditorSelected()
+    }
+  },
+)
+
+watch(
+  [() => user.value?.id, editorRoleUsers, () => props.isOpen],
+  () => {
+    ensureDefaultEditorSelected()
   },
 )
 </script>
@@ -320,14 +369,14 @@ watch(
           <!-- Course -->
           <div>
             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              {{ t('lessons.course') }}
+              {{ t('lessons.course') }} *
             </label>
             <select
               v-model="courseId"
               :disabled="isUploading"
               class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:opacity-50"
             >
-              <option :value="null">{{ t('lessons.noCourse') }}</option>
+              <option :value="null" disabled>{{ t('lessons.selectCourse') }}</option>
               <option v-for="course in courses" :key="course.id" :value="course.id">
                 {{ course.name }}
               </option>
@@ -360,7 +409,7 @@ watch(
           <!-- Editors -->
           <div v-if="editorRoleUsers.length > 0">
             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              {{ t('lessons.editors') }}
+              {{ t('lessons.editors') }} *
             </label>
             <div class="flex flex-wrap gap-2">
               <button
@@ -392,7 +441,7 @@ watch(
           </button>
           <button
             @click="createLesson"
-            :disabled="isUploading || !selectedFile || !title"
+            :disabled="!canCreateLesson"
             class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 rounded-md transition-colors"
           >
             <CheckIcon class="h-4 w-4" />

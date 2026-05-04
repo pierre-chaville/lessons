@@ -259,6 +259,7 @@ defineExpose({
   <!-- Create Lesson Modal -->
   <CreateLessonModal
     :is-open="showCreateModal"
+    :default-course-id="selectedCourseNode?.id ?? null"
     @close="closeCreateModal"
     @created="onLessonCreated"
   />
