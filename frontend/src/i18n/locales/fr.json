@@ -229,6 +229,15 @@
     "title": "Tâches de Traitement",
     "task": "tâche",
     "tasks": "tâches",
+    "allLessons": "Toutes les sessions",
+    "filterByLesson": "Filtrer par session",
+    "filterByCreated": "Créée le",
+    "taskId": "ID tâche",
+    "taskType": "Type",
+    "status": "Statut",
+    "lessonId": "ID session",
+    "lessonLabel": "Libellé session",
+    "actions": "Actions",
     "loading": "Chargement des tâches...",
     "noTasks": "Aucune tâche trouvée",
     "delete": "Supprimer",
@@ -255,6 +264,12 @@
       "running": "En cours",
       "completed": "Terminée",
       "failed": "Échouée"
+    },
+    "createdRanges": {
+      "today": "Aujourd'hui",
+      "last7Days": "7 derniers jours",
+      "last30Days": "30 derniers jours",
+      "noLimit": "Sans limite"
     }
   },
   "search": {
@@ -277,7 +292,7 @@
     "search": "Rechercher",
     "courses": "Parcours",
     "themes": "Thèmes",
-    "processing": "Traitement",
+    "processing": "Tâches",
     "users": "Utilisateurs",
     "preferences": "Préférences",
     "expand": "Développer le menu",

@@ -434,13 +434,13 @@ defineExpose({
                 </template>
               </div>
 
-              <div v-if="lesson.course || (lesson.themes && lesson.themes.length > 0)" class="flex items-start gap-2">
+              <div v-if="lesson.course || (lesson.themes && lesson.themes.length > 0)" class="flex items-center gap-2">
                 <div v-if="lesson.course" class="flex-shrink-0">
                   <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
                     {{ lesson.course.name }}
                   </span>
                 </div>
-                <div v-if="lesson.themes && lesson.themes.length > 0" class="flex flex-wrap gap-1 ml-auto">
+                <div v-if="lesson.themes && lesson.themes.length > 0" class="flex flex-wrap items-center gap-1 ml-auto">
                   <span
                     v-for="theme in lesson.themes"
                     :key="theme.id"

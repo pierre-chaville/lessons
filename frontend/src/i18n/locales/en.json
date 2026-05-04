@@ -229,6 +229,15 @@
     "title": "Processing Tasks",
     "task": "task",
     "tasks": "tasks",
+    "allLessons": "All lessons",
+    "filterByLesson": "Filter by lesson",
+    "filterByCreated": "Created date",
+    "taskId": "Task ID",
+    "taskType": "Type",
+    "status": "Status",
+    "lessonId": "Lesson ID",
+    "lessonLabel": "Lesson label",
+    "actions": "Actions",
     "loading": "Loading tasks...",
     "noTasks": "No tasks found",
     "delete": "Delete",
@@ -255,6 +264,12 @@
       "running": "Running",
       "completed": "Completed",
       "failed": "Failed"
+    },
+    "createdRanges": {
+      "today": "Today",
+      "last7Days": "Last 7 days",
+      "last30Days": "Last 30 days",
+      "noLimit": "No limit"
     }
   },
   "search": {

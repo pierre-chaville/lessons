@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   ClockIcon,
@@ -13,17 +13,22 @@ import {
   SparklesIcon,
 } from '@heroicons/vue/24/outline'
 import { Dialog, DialogPanel, DialogTitle, TransitionChild, TransitionRoot } from '@headlessui/vue'
+import { lessonsApi } from '@/api/lessons'
 import { tasksApi } from '@/api/tasks'
 import { useToast } from '@/composables/useToast'
 import { usePermissions } from '@/composables/usePermissions'
-import type { Task, TaskStatus, TaskType } from '@/api/types'
+import type { LessonListItem, Task, TaskStatus, TaskType } from '@/api/types'
 
 const { t } = useI18n()
 const toast = useToast()
 const { can } = usePermissions()
 
 const tasks = ref<Task[]>([])
+const lessons = ref<LessonListItem[]>([])
 const loading = ref(false)
+const loadingLessons = ref(false)
+const selectedLessonId = ref<string>('all')
+const selectedCreatedRange = ref<'today' | 'last7' | 'last30' | 'all'>('today')
 const showDeleteModal = ref(false)
 const taskToDelete = ref<Task | null>(null)
 const isDeleting = ref(false)
@@ -40,6 +45,73 @@ const fetchTasks = async () => {
     loading.value = false
   }
 }
+
+const fetchLessons = async () => {
+  try {
+    loadingLessons.value = true
+    lessons.value = await lessonsApi.list()
+  } catch {
+    lessons.value = []
+  } finally {
+    loadingLessons.value = false
+  }
+}
+
+const sortedLessons = computed(() =>
+  [...lessons.value].sort((a, b) => a.title.localeCompare(b.title)),
+)
+
+const getTaskLessonId = (task: Task): number | null => {
+  const rawLessonId = task.parameters?.lesson_id
+  if (typeof rawLessonId === 'number' && Number.isFinite(rawLessonId)) return rawLessonId
+  if (typeof rawLessonId === 'string') {
+    const parsed = Number(rawLessonId)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return null
+}
+
+const getLessonLabel = (task: Task): string => {
+  const lessonId = getTaskLessonId(task)
+  if (lessonId === null) return '-'
+  const lesson = lessons.value.find((item) => item.id === lessonId)
+  return lesson ? lesson.title : '-'
+}
+
+const getLessonHashid = (task: Task): string | null => {
+  const lessonId = getTaskLessonId(task)
+  if (lessonId === null) return null
+  const lesson = lessons.value.find((item) => item.id === lessonId)
+  return lesson?.hashid ?? null
+}
+
+const matchesCreatedRange = (task: Task): boolean => {
+  if (selectedCreatedRange.value === 'all') return true
+
+  const createdAt = new Date(task.created_at)
+  if (Number.isNaN(createdAt.getTime())) return false
+
+  if (selectedCreatedRange.value === 'today') {
+    const startOfToday = new Date()
+    startOfToday.setHours(0, 0, 0, 0)
+    return createdAt >= startOfToday
+  }
+
+  const now = new Date()
+  const days = selectedCreatedRange.value === 'last7' ? 7 : 30
+  const threshold = new Date(now.getTime() - days * 24 * 60 * 60 * 1000)
+  return createdAt >= threshold
+}
+
+const filteredTasks = computed(() => {
+  return tasks.value.filter((task) => {
+    if (!matchesCreatedRange(task)) return false
+    if (selectedLessonId.value === 'all') return true
+    const lessonId = Number(selectedLessonId.value)
+    if (!Number.isFinite(lessonId)) return true
+    return getTaskLessonId(task) === lessonId
+  })
+})
 
 const openDeleteModal = (task: Task) => {
   taskToDelete.value = task
@@ -110,6 +182,7 @@ const getTaskTypeIcon = (taskType: TaskType) => {
 const canDelete = (task: Task): boolean => task.status !== 'running'
 
 onMounted(() => {
+  fetchLessons()
   fetchTasks()
   refreshInterval = setInterval(fetchTasks, 5000)
 })
@@ -192,8 +265,45 @@ onBeforeUnmount(() => {
       <div class="flex items-center gap-2">
         <ClockIcon class="h-5 w-5 text-gray-500 dark:text-gray-400" />
         <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
-          {{ tasks.length }} {{ tasks.length === 1 ? t('processing.task') : t('processing.tasks') }}
+          {{ filteredTasks.length }} {{ filteredTasks.length === 1 ? t('processing.task') : t('processing.tasks') }}
         </span>
+      </div>
+      <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 max-w-3xl">
+        <div>
+          <label for="lesson-filter" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            {{ t('processing.filterByLesson') }}
+          </label>
+          <select
+            id="lesson-filter"
+            v-model="selectedLessonId"
+            :disabled="loadingLessons"
+            class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          >
+            <option value="all">{{ t('processing.allLessons') }}</option>
+            <option
+              v-for="lesson in sortedLessons"
+              :key="lesson.id"
+              :value="String(lesson.id)"
+            >
+              {{ lesson.id }} - {{ lesson.title }}
+            </option>
+          </select>
+        </div>
+        <div>
+          <label for="created-filter" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            {{ t('processing.filterByCreated') }}
+          </label>
+          <select
+            id="created-filter"
+            v-model="selectedCreatedRange"
+            class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          >
+            <option value="today">{{ t('processing.createdRanges.today') }}</option>
+            <option value="last7">{{ t('processing.createdRanges.last7Days') }}</option>
+            <option value="last30">{{ t('processing.createdRanges.last30Days') }}</option>
+            <option value="all">{{ t('processing.createdRanges.noLimit') }}</option>
+          </select>
+        </div>
       </div>
     </div>
 
@@ -203,88 +313,123 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- Empty State -->
-    <div v-else-if="tasks.length === 0" class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-8 text-center text-gray-500 dark:text-gray-400 transition-colors">
+    <div v-else-if="filteredTasks.length === 0" class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-8 text-center text-gray-500 dark:text-gray-400 transition-colors">
       {{ t('processing.noTasks') }}
     </div>
 
-    <!-- Tasks List -->
-    <div v-else class="space-y-4">
-      <div
-        v-for="task in tasks"
-        :key="task.id"
-        class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-6 transition-all border border-gray-200 dark:border-gray-700"
-      >
-        <div class="flex items-start justify-between">
-          <div class="flex-1">
-            <!-- Header: Task Type and Status -->
-            <div class="flex items-center gap-3 mb-3">
-              <component 
-                :is="getTaskTypeIcon(task.task_type)" 
-                class="h-6 w-6 text-indigo-600 dark:text-indigo-400 flex-shrink-0"
-              />
-              <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
-                {{ t(`processing.taskTypes.${task.task_type}`) }}
-              </h3>
-              <span 
-                :class="[
-                  'inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium',
-                  getStatusColor(task.status)
-                ]"
-              >
-                <component :is="getStatusIcon(task.status)" class="h-4 w-4" />
-                {{ t(`processing.statuses.${task.status}`) }}
-              </span>
-            </div>
-
-            <!-- Task Details -->
-            <div class="grid grid-cols-2 gap-4 text-sm text-gray-600 dark:text-gray-400">
-              <div>
-                <span class="font-medium">{{ t('processing.created') }}:</span>
-                {{ formatDate(task.created_at) }}
-              </div>
-              <div v-if="task.start_date">
-                <span class="font-medium">{{ t('processing.started') }}:</span>
-                {{ formatDate(task.start_date) }}
-              </div>
-              <div v-if="task.end_date">
-                <span class="font-medium">{{ t('processing.completed') }}:</span>
-                {{ formatDate(task.end_date) }}
-              </div>
-              <div v-if="task.duration">
-                <span class="font-medium">{{ t('processing.duration') }}:</span>
-                {{ formatDuration(task.duration) }}
-              </div>
-            </div>
-
-            <!-- Error Message -->
-            <div v-if="task.error" class="mt-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md">
-              <p class="text-sm text-red-800 dark:text-red-300">
-                <span class="font-medium">{{ t('processing.error') }}:</span> {{ task.error }}
-              </p>
-            </div>
-
-            <!-- Parameters (if any) -->
-            <div v-if="task.parameters && Object.keys(task.parameters).length > 0" class="mt-3">
-              <details class="text-sm">
-                <summary class="cursor-pointer text-gray-700 dark:text-gray-300 font-medium">
-                  {{ t('processing.parameters') }}
-                </summary>
-                <pre class="mt-2 p-2 bg-gray-50 dark:bg-gray-900 rounded text-xs overflow-x-auto">{{ JSON.stringify(task.parameters, null, 2) }}</pre>
-              </details>
-            </div>
-          </div>
-
-          <!-- Delete Button (admin only) -->
-          <button
-            v-if="can('tasks', 'cancel') && canDelete(task)"
-            @click="openDeleteModal(task)"
-            class="ml-4 p-2 text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
-            :title="t('processing.delete')"
-          >
-            <TrashIcon class="h-5 w-5" />
-          </button>
-          <div v-else class="ml-4 w-9"></div>
-        </div>
+    <!-- Tasks Table -->
+    <div v-else class="bg-white dark:bg-gray-800 shadow-sm rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+          <thead class="bg-gray-50 dark:bg-gray-900/50">
+            <tr>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                {{ t('processing.taskId') }}
+              </th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                {{ t('processing.taskType') }}
+              </th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                {{ t('processing.status') }}
+              </th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                {{ t('processing.lessonId') }}
+              </th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                {{ t('processing.lessonLabel') }}
+              </th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                {{ t('processing.created') }}
+              </th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                {{ t('processing.started') }}
+              </th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                {{ t('processing.completed') }}
+              </th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                {{ t('processing.duration') }}
+              </th>
+              <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                {{ t('processing.actions') }}
+              </th>
+            </tr>
+          </thead>
+          <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+            <template v-for="task in filteredTasks" :key="task.id">
+              <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
+                <td class="px-4 py-3 text-sm text-gray-900 dark:text-white font-medium">
+                  {{ task.id }}
+                </td>
+                <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
+                  <div class="flex items-center gap-2">
+                    <component
+                      :is="getTaskTypeIcon(task.task_type)"
+                      class="h-4 w-4 text-indigo-600 dark:text-indigo-400 flex-shrink-0"
+                    />
+                    <span>{{ t(`processing.taskTypes.${task.task_type}`) }}</span>
+                  </div>
+                </td>
+                <td class="px-4 py-3 text-sm">
+                  <span
+                    :class="[
+                      'inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium',
+                      getStatusColor(task.status),
+                    ]"
+                  >
+                    <component :is="getStatusIcon(task.status)" class="h-4 w-4" />
+                    {{ t(`processing.statuses.${task.status}`) }}
+                  </span>
+                </td>
+                <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
+                  {{ getTaskLessonId(task) ?? '-' }}
+                </td>
+                <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 max-w-xs">
+                  <a
+                    v-if="getLessonHashid(task)"
+                    :href="`/lessons/${getLessonHashid(task)}`"
+                    class="truncate block text-indigo-600 dark:text-indigo-400 hover:underline"
+                    :title="getLessonLabel(task)"
+                  >
+                    {{ getLessonLabel(task) }}
+                  </a>
+                  <span v-else class="truncate block" :title="getLessonLabel(task)">
+                    {{ getLessonLabel(task) }}
+                  </span>
+                </td>
+                <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                  {{ formatDate(task.created_at) }}
+                </td>
+                <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                  {{ formatDate(task.start_date) }}
+                </td>
+                <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                  {{ formatDate(task.end_date) }}
+                </td>
+                <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                  {{ formatDuration(task.duration) }}
+                </td>
+                <td class="px-4 py-3 text-right">
+                  <button
+                    v-if="can('tasks', 'cancel') && canDelete(task)"
+                    @click="openDeleteModal(task)"
+                    class="p-2 text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                    :title="t('processing.delete')"
+                  >
+                    <TrashIcon class="h-5 w-5" />
+                  </button>
+                  <span v-else class="text-gray-400 dark:text-gray-500">-</span>
+                </td>
+              </tr>
+              <tr v-if="task.status === 'failed' && task.error" class="bg-red-50/60 dark:bg-red-900/10">
+                <td colspan="10" class="px-4 py-3 text-sm text-red-800 dark:text-red-300">
+                  <span class="font-medium">{{ t('processing.error') }}:</span>
+                  <span class="ml-2 break-words">{{ task.error }}</span>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
       </div>
     </div>
   </div>
