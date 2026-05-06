@@ -37,6 +37,7 @@ import { useToast } from '@/composables/useToast'
 import { usePermissions } from '@/composables/usePermissions'
 import { useAuth } from '@/composables/useAuth'
 import VersionHistory from '@/components/VersionHistory.vue'
+import MilkdownEditor from '@/components/MilkdownEditor.vue'
 import type {
   LessonDetail as LessonDetailType,
   LessonSource,
@@ -612,6 +613,11 @@ const cancelEditSummary = () => {
   isEditingSummary.value = false;
   editedSummary.value = '';
 };
+
+const closeSummaryEditorModal = () => {
+  if (isSavingSummary.value) return
+  cancelEditSummary()
+}
 
 const saveSummary = async () => {
   if (isSavingSummary.value) return
@@ -2021,36 +2027,7 @@ const saveParagraph = async () => {
         <div class="p-6">
           <!-- Summary View -->
           <div v-if="activeView === 'summary'">
-            <!-- Edit Mode -->
-            <div v-if="isEditingSummary" class="space-y-4">
-              <textarea
-                v-model="editedSummary"
-                class="w-full h-96 px-4 py-3 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none font-mono"
-                placeholder="Enter summary in markdown format..."
-              ></textarea>
-              <div class="flex gap-3">
-                <button
-                  @click="saveSummary"
-                  :disabled="isSavingSummary"
-                  class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 rounded-md transition-colors"
-                >
-                  <CheckIcon class="h-4 w-4" />
-                  {{ isSavingSummary ? t('lessons.saving') : t('lessons.save') }}
-                </button>
-                <button
-                  @click="cancelEditSummary"
-                  :disabled="isSavingSummary"
-                  class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 rounded-md transition-colors"
-                >
-                  <XMarkIcon class="h-4 w-4" />
-                  {{ t('lessons.cancel') }}
-                </button>
-              </div>
-            </div>
-            
-            <!-- View Mode -->
             <div 
-              v-else
               class="prose prose-indigo dark:prose-invert max-w-none"
               v-html="renderMarkdown(lesson.summary)"
             ></div>
@@ -2970,6 +2947,60 @@ const saveParagraph = async () => {
                 class="px-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg transition-colors"
               >
                 {{ t('lessons.close') }}
+              </button>
+            </div>
+          </div>
+        </DialogPanel>
+      </div>
+    </Dialog>
+
+    <!-- Summary Editor Modal -->
+    <Dialog
+      :open="isEditingSummary"
+      @close="closeSummaryEditorModal"
+      class="relative z-50"
+    >
+      <div class="fixed inset-0 bg-black/40" aria-hidden="true" />
+      <div class="fixed inset-0 flex items-center justify-center p-4">
+        <DialogPanel class="w-full max-w-7xl h-[90vh] bg-white dark:bg-gray-800 rounded-xl shadow-2xl overflow-hidden flex flex-col">
+          <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+            <DialogTitle class="text-lg font-semibold text-gray-900 dark:text-white">
+              {{ t('lessons.edit') }} - {{ t('lessons.summary') }}
+            </DialogTitle>
+            <button
+              @click="closeSummaryEditorModal"
+              :disabled="isSavingSummary"
+              class="inline-flex items-center justify-center p-2 rounded-md text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 disabled:opacity-50"
+            >
+              <XMarkIcon class="h-5 w-5" />
+            </button>
+          </div>
+
+          <div class="flex-1 overflow-y-auto p-6">
+            <MilkdownEditor
+              v-model="editedSummary"
+              placeholder="Enter summary in markdown format..."
+              :disabled="isSavingSummary"
+            />
+          </div>
+
+          <div class="sticky bottom-0 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-6 py-4">
+            <div class="flex items-center justify-end gap-3">
+              <button
+                @click="cancelEditSummary"
+                :disabled="isSavingSummary"
+                class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 rounded-md transition-colors"
+              >
+                <XMarkIcon class="h-4 w-4" />
+                {{ t('lessons.cancel') }}
+              </button>
+              <button
+                @click="saveSummary"
+                :disabled="isSavingSummary"
+                class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 rounded-md transition-colors"
+              >
+                <CheckIcon class="h-4 w-4" />
+                {{ isSavingSummary ? t('lessons.saving') : t('lessons.save') }}
               </button>
             </div>
           </div>
