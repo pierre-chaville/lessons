@@ -1,9 +1,11 @@
 import os
 import logging
+import threading
 
 from dotenv import load_dotenv
 from sqlmodel import SQLModel, Session, create_engine
 from sqlalchemy import text, inspect
+from sqlalchemy.exc import SQLAlchemyError
 
 load_dotenv(override=True)
 
@@ -15,6 +17,127 @@ if not DATABASE_URL:
 
 # Create engine
 engine = create_engine(DATABASE_URL, echo=False)
+_migration_lock = threading.Lock()
+_migrations_completed = False
+
+
+def _create_versioning_tables() -> None:
+    """Create content version and audit tables + indexes."""
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS content_version (
+                id UUID PRIMARY KEY,
+                lesson_id INTEGER NOT NULL REFERENCES lesson(id) ON DELETE CASCADE,
+                content_type VARCHAR NOT NULL,
+                content JSONB NOT NULL,
+                version_number INTEGER NOT NULL,
+                version_source VARCHAR NOT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT now(),
+                last_edited_at TIMESTAMP NULL,
+                edit_count INTEGER NOT NULL DEFAULT 1,
+                is_sealed BOOLEAN NOT NULL DEFAULT false,
+                sealed_at TIMESTAMP NULL,
+                sealed_reason VARCHAR NULL,
+                created_by_id VARCHAR NULL,
+                change_summary VARCHAR NULL,
+                parent_version_id UUID NULL REFERENCES content_version(id),
+                restored_from_id UUID NULL REFERENCES content_version(id),
+                is_current BOOLEAN NOT NULL DEFAULT false
+            )
+        """))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id BIGSERIAL PRIMARY KEY,
+                occurred_at TIMESTAMP NOT NULL DEFAULT now(),
+                actor_id VARCHAR NULL,
+                actor_role VARCHAR NOT NULL,
+                entity_type VARCHAR NOT NULL,
+                entity_id VARCHAR NOT NULL,
+                action VARCHAR NOT NULL,
+                payload JSONB NOT NULL DEFAULT '{}'::jsonb
+            )
+        """))
+        conn.execute(text("""
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_content_version_number
+            ON content_version (lesson_id, content_type, version_number)
+        """))
+        conn.execute(text("""
+            CREATE UNIQUE INDEX IF NOT EXISTS ix_one_current_per_type
+            ON content_version (lesson_id, content_type)
+            WHERE is_current = true
+        """))
+        conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_content_version_lesson_type
+            ON content_version (lesson_id, content_type)
+        """))
+        conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_content_version_created_at
+            ON content_version (created_at)
+        """))
+        conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_audit_entity_timeline
+            ON audit_log (entity_type, entity_id, occurred_at DESC)
+        """))
+        conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_audit_occurred_at
+            ON audit_log (occurred_at)
+        """))
+        conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_audit_actor_id
+            ON audit_log (actor_id)
+        """))
+        conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_audit_action
+            ON audit_log (action)
+        """))
+
+
+def _backfill_content_versions() -> int:
+    """Backfill initial v1 rows from existing lesson cached content."""
+    inserted_rows = 0
+    with engine.begin() as conn:
+        for field_name, content_type in (
+            ("title", "title"),
+            ("corrected_transcript", "corrected_transcript"),
+            ("edited_transcript", "edited_transcript"),
+            ("brief", "brief"),
+            ("summary", "summary"),
+        ):
+            result = conn.execute(text(f"""
+                INSERT INTO content_version (
+                    id, lesson_id, content_type, content, version_number, version_source,
+                    created_at, last_edited_at, edit_count, is_sealed, sealed_at, sealed_reason,
+                    created_by_id, change_summary, parent_version_id, restored_from_id, is_current
+                )
+                SELECT
+                    gen_random_uuid(),
+                    l.id,
+                    :content_type,
+                    to_jsonb(l.{field_name}),
+                    1,
+                    'pipeline',
+                    COALESCE(l.date, now()),
+                    NULL,
+                    1,
+                    true,
+                    now(),
+                    'backfill',
+                    NULL,
+                    'Initial version (backfilled at migration)',
+                    NULL,
+                    NULL,
+                    true
+                FROM lesson l
+                WHERE l.{field_name} IS NOT NULL
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM content_version cv
+                      WHERE cv.lesson_id = l.id
+                        AND cv.content_type = :content_type
+                  )
+            """), {"content_type": content_type})
+            inserted_rows += max(0, result.rowcount or 0)
+    return inserted_rows
 
 
 def _run_migrations():
@@ -46,11 +169,32 @@ def _run_migrations():
                 ))
             logger.info("Migration: added 'sort_order' column to course table")
 
+    if "lesson" in tables:
+        try:
+            had_content_version = "content_version" in tables
+            had_audit_log = "audit_log" in tables
+            _create_versioning_tables()
+            backfilled_count = _backfill_content_versions()
+            if (not had_content_version) or (not had_audit_log) or backfilled_count > 0:
+                logger.info(
+                    "Migration: ensured versioning/audit schema; backfilled %s content versions",
+                    backfilled_count,
+                )
+        except SQLAlchemyError as exc:
+            logger.warning("Versioning migration step failed/skipped: %s", exc)
+
 
 def create_db_and_tables():
     """Create database tables"""
+    global _migrations_completed
     SQLModel.metadata.create_all(engine)
-    _run_migrations()
+    if _migrations_completed:
+        return
+    with _migration_lock:
+        if _migrations_completed:
+            return
+        _run_migrations()
+        _migrations_completed = True
 
 
 def get_session():

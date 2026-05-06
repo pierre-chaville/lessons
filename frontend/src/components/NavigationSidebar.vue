@@ -8,6 +8,7 @@ import {
   TagIcon,
   DocumentTextIcon,
   UsersIcon,
+  ClipboardDocumentListIcon,
   Cog6ToothIcon,
   ChevronLeftIcon,
   ChevronRightIcon
@@ -15,7 +16,7 @@ import {
 import { usePermissions } from '@/composables/usePermissions';
 
 const { t } = useI18n();
-const { can } = usePermissions();
+const { can, role } = usePermissions();
 
 const emit = defineEmits<{ (e: 'navigate', route: string): void }>();
 
@@ -30,6 +31,7 @@ const allNavigationItems = [
   { key: 'themes',      label: 'nav.themes',       icon: TagIcon,              route: '/themes',      always: true },
   { key: 'processing',  label: 'nav.processing',   icon: DocumentTextIcon,     route: '/processing',  always: false },
   { key: 'users',       label: 'nav.users',        icon: UsersIcon,            route: '/users',       always: false },
+  { key: 'audit',       label: 'nav.audit',        icon: ClipboardDocumentListIcon, route: '/admin/audit-log', always: false },
   { key: 'preferences', label: 'nav.preferences',  icon: Cog6ToothIcon,        route: '/preferences', always: false },
 ];
 
@@ -37,6 +39,7 @@ const navigationItems = computed(() =>
   allNavigationItems.filter((item) => {
     if (item.key === 'processing')  return can('tasks', 'read');
     if (item.key === 'users')       return can('users', 'manage');
+    if (item.key === 'audit')       return role.value === 'admin';
     if (item.key === 'preferences') return can('configuration', 'read');
     return true;
   })

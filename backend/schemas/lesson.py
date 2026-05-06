@@ -1,13 +1,30 @@
-"""Pydantic schemas for lesson transcript segments, paragraphs, and API request/response models."""
+"""Pydantic schemas for lessons and versioning APIs."""
+
+from enum import Enum
 
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
+from uuid import UUID
 from datetime import datetime
 
 from schemas.source import Source, LessonSourceResponse
 from schemas.theme import ThemeResponse
 from schemas.course import CourseResponse
 from hashid_utils import encode_id
+
+
+class ContentType(str, Enum):
+    TITLE = "title"
+    CORRECTED_TRANSCRIPT = "corrected_transcript"
+    EDITED_TRANSCRIPT = "edited_transcript"
+    BRIEF = "brief"
+    SUMMARY = "summary"
+
+
+class VersionSource(str, Enum):
+    HUMAN = "human"
+    PIPELINE = "pipeline"
+    RESTORE = "restore"
 
 
 class Segment(BaseModel):
@@ -79,6 +96,53 @@ ALLOWED_TRANSITIONS: Dict[str, Dict[str, list]] = {
 class StatusUpdate(BaseModel):
     """Schema for changing lesson workflow status"""
     status: str
+    reason: Optional[str] = None
+
+
+class RestoreVersionRequest(BaseModel):
+    reason: Optional[str] = None
+
+
+class CheckpointRequest(BaseModel):
+    content_type: ContentType
+    reason: Optional[str] = None
+
+
+class VersionResponse(BaseModel):
+    id: UUID
+    lesson_id: int
+    content_type: ContentType
+    version_number: int
+    version_source: VersionSource
+    created_at: datetime
+    last_edited_at: Optional[datetime]
+    edit_count: int
+    is_sealed: bool
+    sealed_at: Optional[datetime]
+    sealed_reason: Optional[str]
+    created_by_id: Optional[str]
+    change_summary: Optional[str]
+    parent_version_id: Optional[UUID]
+    restored_from_id: Optional[UUID]
+    is_current: bool
+    content: Optional[Any] = None
+
+    class Config:
+        from_attributes = True
+
+
+class AuditLogResponse(BaseModel):
+    id: int
+    occurred_at: datetime
+    actor_id: Optional[str]
+    actor_role: str
+    entity_type: str
+    entity_id: str
+    action: str
+    payload: Dict[str, Any]
+
+    class Config:
+        from_attributes = True
 
 
 class LessonEditorResponse(BaseModel):

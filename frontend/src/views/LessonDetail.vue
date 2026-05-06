@@ -22,6 +22,7 @@ import {
   MagnifyingGlassIcon,
   ChartBarIcon,
   StopIcon,
+  ClockIcon as HistoryIcon,
 } from '@heroicons/vue/24/outline'
 import { SpeakerWaveIcon } from '@heroicons/vue/24/solid'
 import { Dialog, DialogPanel, DialogTitle } from '@headlessui/vue'
@@ -35,7 +36,16 @@ import { usersApi, type ClerkUser } from '@/api/users'
 import { useToast } from '@/composables/useToast'
 import { usePermissions } from '@/composables/usePermissions'
 import { useAuth } from '@/composables/useAuth'
-import type { LessonDetail as LessonDetailType, LessonSource, LessonStatus, Course, Theme } from '@/api/types'
+import VersionHistory from '@/components/VersionHistory.vue'
+import type {
+  LessonDetail as LessonDetailType,
+  LessonSource,
+  LessonStatus,
+  Course,
+  Theme,
+  ContentType,
+  AuditLogRow,
+} from '@/api/types'
 
 const props = defineProps<{
   lesson: LessonDetailType
@@ -115,6 +125,11 @@ const sefariaDisplayMode = ref<'he' | 'en' | 'both'>('both')
 
 // Source stats modal state
 const showSourceStatsModal = ref(false)
+const showHistoryDrawer = ref(false)
+const selectedHistoryContentType = ref<ContentType>('summary')
+const workflowAuditLog = ref<AuditLogRow[]>([])
+const workflowAuditLoading = ref(false)
+const workflowExpandedPayload = ref<Set<number>>(new Set())
 
 // Transcript expander state (for edited view)
 const expandedTranscriptIndex = ref<number | null>(null)
@@ -535,6 +550,9 @@ const availableViews = computed(() => {
   if (props.lesson.transcript || props.lesson.corrected_transcript) {
     views.push({ key: 'transcript', label: t('lessons.transcript') });
   }
+  if (canEditLesson.value) {
+    views.push({ key: 'workflow', label: t('lessons.workflowHistory') })
+  }
   return views;
 });
 
@@ -577,6 +595,12 @@ const unifiedTranscript = computed(() => {
 if (availableViews.value.length > 0) {
   activeView.value = availableViews.value[0].key;
 }
+
+watch(activeView, (value) => {
+  if (value === 'workflow') {
+    loadWorkflowAudit()
+  }
+})
 
 // Edit summary functions
 const startEditSummary = () => {
@@ -798,9 +822,65 @@ const getUserName = (userId: string) => {
   const u = users.value.find((u) => u.id === userId)
   if (u) {
     const name = [u.first_name, u.last_name].filter(Boolean).join(' ')
-    return name || u.email || userId
+    return name || u.username || u.email || userId
   }
   return userId
+}
+
+const openHistory = (contentType: ContentType) => {
+  selectedHistoryContentType.value = contentType
+  showHistoryDrawer.value = true
+}
+
+const contentTypeLabel = (contentType: ContentType): string => {
+  const map: Record<ContentType, string> = {
+    title: t('history.contentTypeTitle'),
+    corrected_transcript: t('history.contentTypeCorrectedTranscript'),
+    edited_transcript: t('history.contentTypeEditedTranscript'),
+    brief: t('history.contentTypeBrief'),
+    summary: t('history.contentTypeSummary'),
+  }
+  return map[contentType] ?? contentType
+}
+
+const loadWorkflowAudit = async () => {
+  workflowAuditLoading.value = true
+  try {
+    if (!users.value.length) await fetchUsers()
+    const rows = await lessonsApi.getLessonAuditLog(props.lesson.hashid, { limit: 100 })
+    // Show the full lesson timeline returned by backend.
+    // (status transitions, creation/deletion, content version events, restores, etc.)
+    workflowAuditLog.value = rows
+  } catch {
+    workflowAuditLog.value = []
+  } finally {
+    workflowAuditLoading.value = false
+  }
+}
+
+const workflowActorName = (actorId: string | null) => {
+  if (!actorId) return t('audit.system')
+  return getUserName(actorId)
+}
+
+const workflowActorRole = (role: string | null) => {
+  if (!role) return t('audit.system')
+  if (role === 'pipeline') return t('history.pipeline')
+  return role
+}
+
+const workflowActionLabel = (action: string) => {
+  const key = `audit.actions.${action.replace(/\./g, '_')}`
+  const translated = t(key)
+  return translated === key ? action : translated
+}
+
+const toggleWorkflowPayload = (id: number) => {
+  if (workflowExpandedPayload.value.has(id)) {
+    workflowExpandedPayload.value.delete(id)
+  } else {
+    workflowExpandedPayload.value.add(id)
+  }
 }
 
 const startEditLesson = async () => {
@@ -1050,21 +1130,20 @@ const saveSegment = async () => {
   try {
     isSavingSegment.value = true
     const hasCorrected = !!(props.lesson.corrected_transcript?.length)
-    const transcriptToUpdate = hasCorrected ? 'corrected_transcript' : 'transcript'
-    const segments = hasCorrected
-      ? [...(props.lesson.corrected_transcript ?? [])]
-      : [...(props.lesson.transcript ?? [])]
+    if (!hasCorrected) {
+      toast.error('Please run correction first. Raw transcript is not versioned/audited.')
+      return
+    }
+    const segments = [...(props.lesson.corrected_transcript ?? [])]
     if (editingSegmentIndex.value < segments.length) {
       segments[editingSegmentIndex.value] = {
         ...segments[editingSegmentIndex.value],
         text: editedSegmentText.value,
       }
-      await lessonsApi.update(props.lesson.hashid, { [transcriptToUpdate]: segments })
-      if (hasCorrected) {
-        props.lesson.corrected_transcript = segments
-      } else {
-        props.lesson.transcript = segments
-      }
+      const updated = await lessonsApi.update(props.lesson.hashid, {
+        corrected_transcript: segments,
+      })
+      Object.assign(props.lesson, updated)
       editingSegmentIndex.value = null
       editedSegmentText.value = ''
     }
@@ -1097,8 +1176,10 @@ const saveParagraph = async () => {
         ...paragraphs[editingParagraphIndex.value],
         text: editedParagraphText.value,
       }
-      await lessonsApi.update(props.lesson.hashid, { edited_transcript: paragraphs })
-      props.lesson.edited_transcript = paragraphs
+      const updated = await lessonsApi.update(props.lesson.hashid, {
+        edited_transcript: paragraphs,
+      })
+      Object.assign(props.lesson, updated)
       editingParagraphIndex.value = null
       editedParagraphText.value = ''
     }
@@ -1481,14 +1562,26 @@ const saveParagraph = async () => {
           <div class="flex items-start gap-4 flex-1">
             <DocumentTextIcon class="h-8 w-8 text-indigo-600 dark:text-indigo-400 flex-shrink-0 mt-1" />
             <div class="flex-1">
-              <h1 class="text-3xl font-bold text-gray-900 dark:text-white mb-4">
-                {{ lesson.title }}
-              </h1>
+              <div class="mb-4 flex items-start justify-between gap-3">
+                <h1 class="text-3xl font-bold text-gray-900 dark:text-white">
+                  {{ lesson.title }}
+                </h1>
+              </div>
               
               <!-- Brief Summary -->
-              <p v-if="lesson.brief" class="text-sm text-gray-600 dark:text-gray-400 mb-4 leading-relaxed">
-                {{ lesson.brief }}
-              </p>
+              <div v-if="lesson.brief" class="mb-4 flex items-start justify-between gap-3">
+                <p class="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
+                  {{ lesson.brief }}
+                </p>
+                <button
+                  v-if="canEditLesson"
+                  @click="openHistory('brief')"
+                  class="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+                >
+                  <HistoryIcon class="mr-1 inline h-3.5 w-3.5" />
+                  {{ t('history.historyButton') }}
+                </button>
+              </div>
             
             <!-- Metadata Grid -->
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
@@ -1867,6 +1960,30 @@ const saveParagraph = async () => {
                 <PencilIcon class="h-4 w-4" />
                 {{ t('lessons.edit') }}
               </button>
+              <button
+                v-if="canEditLesson && activeView === 'summary'"
+                @click="openHistory('summary')"
+                class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors print:hidden"
+              >
+                <HistoryIcon class="h-4 w-4" />
+                {{ t('history.historyButton') }}
+              </button>
+              <button
+                v-if="canEditLesson && activeView === 'transcript'"
+                @click="openHistory('corrected_transcript')"
+                class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors print:hidden"
+              >
+                <HistoryIcon class="h-4 w-4" />
+                {{ t('history.historyButton') }}
+              </button>
+              <button
+                v-if="canEditLesson && activeView === 'edited'"
+                @click="openHistory('edited_transcript')"
+                class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors print:hidden"
+              >
+                <HistoryIcon class="h-4 w-4" />
+                {{ t('history.historyButton') }}
+              </button>
               
               <!-- Audio Player Controls (show for transcript view) -->
               <div 
@@ -1937,6 +2054,61 @@ const saveParagraph = async () => {
               class="prose prose-indigo dark:prose-invert max-w-none"
               v-html="renderMarkdown(lesson.summary)"
             ></div>
+          </div>
+
+          <!-- Workflow History View -->
+          <div v-else-if="activeView === 'workflow'">
+            <div v-if="workflowAuditLoading" class="text-sm text-gray-500 dark:text-gray-400">
+              {{ t('history.loadingWorkflowHistory') }}
+            </div>
+            <div v-else-if="workflowAuditLog.length === 0" class="text-sm text-gray-500 dark:text-gray-400">
+              {{ t('history.noWorkflowEvents') }}
+            </div>
+            <div v-else class="overflow-x-auto">
+              <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                <thead class="bg-gray-50 dark:bg-gray-900">
+                  <tr>
+                    <th class="px-3 py-2 text-left text-xs text-gray-500 dark:text-gray-400">
+                      {{ t('audit.timestamp') }}
+                    </th>
+                    <th class="px-3 py-2 text-left text-xs text-gray-500 dark:text-gray-400">
+                      {{ t('audit.actor') }}
+                    </th>
+                    <th class="px-3 py-2 text-left text-xs text-gray-500 dark:text-gray-400">
+                      {{ t('audit.action') }}
+                    </th>
+                    <th class="px-3 py-2 text-left text-xs text-gray-500 dark:text-gray-400">
+                      {{ t('audit.payload') }}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
+                  <tr v-for="row in workflowAuditLog" :key="row.id">
+                    <td class="px-3 py-2 text-xs text-gray-700 dark:text-gray-300">
+                      {{ new Date(row.occurred_at).toLocaleString() }}
+                    </td>
+                    <td class="px-3 py-2 text-xs text-gray-700 dark:text-gray-300">
+                      {{ workflowActorName(row.actor_id) }} ({{ workflowActorRole(row.actor_role) }})
+                    </td>
+                    <td class="px-3 py-2 text-xs text-gray-700 dark:text-gray-300">
+                      {{ workflowActionLabel(row.action) }}
+                    </td>
+                    <td class="px-3 py-2 text-xs">
+                      <button
+                        @click="toggleWorkflowPayload(row.id)"
+                        class="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+                      >
+                        {{ workflowExpandedPayload.has(row.id) ? t('audit.hideJson') : t('audit.showJson') }}
+                      </button>
+                      <pre
+                        v-if="workflowExpandedPayload.has(row.id)"
+                        class="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-gray-50 p-2 text-xs text-gray-800 dark:bg-gray-900 dark:text-gray-200"
+                      >{{ JSON.stringify(row.payload, null, 2) }}</pre>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
           
           <!-- Unified Transcript View with Diffs -->
@@ -2045,7 +2217,7 @@ const saveParagraph = async () => {
                       
                       <!-- Edit Button -->
                       <button
-                        v-if="canEditLesson && !isProcessing"
+                        v-if="canEditLesson && !isProcessing && lesson.corrected_transcript && lesson.corrected_transcript.length > 0"
                         @click="startEditSegment(segment.index, segment.correctedText)"
                         class="flex-shrink-0 p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors print:hidden"
                         :title="t('lessons.editSegment')"
@@ -2462,6 +2634,36 @@ const saveParagraph = async () => {
         </p>
       </div>
     </div>
+
+    <!-- Version History Drawer -->
+    <Dialog
+      :open="showHistoryDrawer"
+      @close="showHistoryDrawer = false"
+      class="relative z-50"
+    >
+      <div class="fixed inset-0 bg-black/30" aria-hidden="true" />
+      <div class="fixed inset-0 flex justify-end">
+        <DialogPanel class="h-full w-full max-w-3xl overflow-auto bg-white p-4 shadow-xl dark:bg-gray-800">
+          <div class="mb-4 flex items-center justify-between">
+            <DialogTitle class="text-lg font-semibold text-gray-900 dark:text-white">
+              {{ t('history.drawerTitle', { contentType: contentTypeLabel(selectedHistoryContentType) }) }}
+            </DialogTitle>
+            <button
+              @click="showHistoryDrawer = false"
+              class="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+            >
+              {{ t('lessons.close') }}
+            </button>
+          </div>
+          <VersionHistory
+            :lesson-id="lesson.id"
+            :lesson-hashid="lesson.hashid"
+            :content-type="selectedHistoryContentType"
+            @restored="refreshLesson"
+          />
+        </DialogPanel>
+      </div>
+    </Dialog>
 
     <!-- Source Modal -->
     <Dialog

@@ -8,9 +8,12 @@ from typing import Any, Dict, List, Optional
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlmodel import Session
 
 from auth import require_roles, _extract_role
 from config import load_config
+from database import engine
+from services.audit import log_event
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
@@ -70,6 +73,7 @@ class InvitationResponse(BaseModel):
 
 class ClerkUser(BaseModel):
     id: str
+    username: Optional[str] = None
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     email: Optional[str] = None
@@ -95,6 +99,7 @@ def _parse_clerk_user(user: Dict[str, Any]) -> ClerkUser:
 
     return ClerkUser(
         id=user["id"],
+        username=user.get("username"),
         first_name=user.get("first_name"),
         last_name=user.get("last_name"),
         email=primary_email,
@@ -331,6 +336,12 @@ def update_user_role(
         if user_resp.status_code == 200:
             _publisher_guard_user(claims, user_resp.json())
 
+    old_role = None
+    with httpx.Client(timeout=15) as client:
+        existing_resp = client.get(f"{CLERK_API_BASE}/users/{user_id}", headers=headers)
+    if existing_resp.status_code == 200:
+        old_role = ((existing_resp.json().get("public_metadata") or {}).get("role"))
+
     payload = {"public_metadata": {"role": data.role}}
 
     with httpx.Client(timeout=15) as client:
@@ -341,6 +352,16 @@ def update_user_role(
         raise HTTPException(status_code=resp.status_code, detail=detail)
 
     _invalidate_users_cache()
+    with Session(engine) as session:
+        log_event(
+            session=session,
+            actor={"sub": claims.get("sub"), "role": _extract_role(claims)},
+            entity_type="user_role",
+            entity_id=str(user_id),
+            action="user.role_changed",
+            payload={"from": old_role, "to": data.role},
+        )
+        session.commit()
     return _parse_clerk_user(resp.json())
 
 

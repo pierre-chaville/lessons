@@ -20,6 +20,7 @@ import CoursesList from './views/CoursesList.vue';
 import ThemesList from './views/ThemesList.vue';
 import ProcessingTasks from './views/ProcessingTasks.vue';
 import UsersManagement from './views/UsersManagement.vue';
+import AuditLogViewer from './views/AuditLogViewer.vue';
 import Preferences from './views/Preferences.vue';
 
 const { locale, t } = useI18n();
@@ -43,7 +44,7 @@ const getInitialRoute = () => {
   const path = raw.length > 1 && raw.endsWith('/') ? raw.slice(0, -1) : raw;
 
   // Known routes
-  const routes = ['/search', '/courses', '/themes', '/processing', '/users', '/preferences'];
+  const routes = ['/search', '/courses', '/themes', '/processing', '/users', '/admin/audit-log', '/preferences'];
   const match = routes.find(r => path === r);
   if (match) return match;
 
@@ -98,6 +99,8 @@ const pageTitle = computed(() => {
       return t('nav.processing');
     case '/users':
       return t('users.title');
+    case '/admin/audit-log':
+      return t('nav.audit');
     case '/preferences':
       return t('nav.preferences');
     default:
@@ -375,8 +378,15 @@ onMounted(() => {
         <Preferences />
       </div>
 
+      <!-- Global Audit View -->
+      <div v-else-if="currentRoute === '/admin/audit-log'">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <AuditLogViewer />
+        </div>
+      </div>
+
       <!-- Placeholder for other views -->
-      <main v-else-if="!isViewingDetail && currentRoute !== '/lessons' && currentRoute !== '/search' && currentRoute !== '/courses' && currentRoute !== '/themes' && currentRoute !== '/processing' && currentRoute !== '/users' && currentRoute !== '/preferences'" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main v-else-if="!isViewingDetail && currentRoute !== '/lessons' && currentRoute !== '/search' && currentRoute !== '/courses' && currentRoute !== '/themes' && currentRoute !== '/processing' && currentRoute !== '/users' && currentRoute !== '/admin/audit-log' && currentRoute !== '/preferences'" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-8 text-center transition-colors">
           <h2 class="text-2xl font-bold text-gray-900 dark:text-white mb-4">
             {{ pageTitle }}

@@ -16,6 +16,8 @@ from models import Lesson
 from schemas import Segment, EditedParagraph, Source, Metadata
 from config import load_config
 from .llm_utils import get_llm_model
+from models.versioning import ContentType, VersionSource
+from services.versioning import update_content
 import logging
 
 logger = logging.getLogger(__name__)
@@ -511,8 +513,7 @@ async def edit_transcript_async(
                 )
             )
 
-        # Update lesson with edited transcript (convert to dicts for JSON storage)
-        lesson.edited_transcript = [part.model_dump() for part in edited_parts]
+        edited_data = [part.model_dump() for part in edited_parts]
 
         # Save edition metadata
         edition_provider = edition_config.get("provider", config.get("provider"))
@@ -524,8 +525,18 @@ async def edit_transcript_async(
         )
         lesson.set_edited_metadata(metadata)
 
-        # Commit changes
+        # Commit metadata then persist versioned content.
         session.add(lesson)
+        session.commit()
+        update_content(
+            session=session,
+            lesson_id=lesson_id,
+            content_type=ContentType.EDITED_TRANSCRIPT,
+            new_content=edited_data,
+            actor=None,
+            source=VersionSource.PIPELINE,
+            change_summary="Pipeline edition rerun",
+        )
         session.commit()
 
         logger.info(

@@ -205,8 +205,8 @@ def update_lesson(
     """Update a lesson"""
     lesson = session.get(Lesson, lesson_id)
     if lesson:
-        if title is not None:
-            lesson.title = title
+        # title/corrected_transcript/edited_transcript/brief/summary are versioned.
+        # They must be changed via services.versioning.update_content.
         if filename is not None:
             lesson.filename = filename
         if course_id is not None:
@@ -217,14 +217,6 @@ def update_lesson(
             lesson.duration = duration
         if transcript is not None:
             lesson.transcript = transcript
-        if corrected_transcript is not None:
-            lesson.corrected_transcript = corrected_transcript
-        if edited_transcript is not None:
-            lesson.edited_transcript = edited_transcript
-        if brief is not None:
-            lesson.brief = brief
-        if summary is not None:
-            lesson.summary = summary
         if process_status is not None:
             lesson.process_status = process_status
         if theme_ids is not None:

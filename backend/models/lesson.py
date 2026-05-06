@@ -17,7 +17,7 @@ class Lesson(SQLModel, table=True):
     __tablename__ = "lesson"
     __table_args__ = {"extend_existing": True}
     id: Optional[int] = Field(default=None, primary_key=True)
-    title: str
+    title: str  # Editable field stored directly on lesson (not versioned).
     date: datetime = Field(default_factory=datetime.now)
     course_id: Optional[int] = Field(default=None, foreign_key="course.id")
     filename: str  # Audio filename
@@ -27,12 +27,12 @@ class Lesson(SQLModel, table=True):
     )  # List of segments
     corrected_transcript: Optional[List[Segment]] = Field(
         default=None, sa_column=Column(JSON)
-    )  # List of segments
+    )  # Mirrored from current ContentVersion. Do not write directly. Use services.versioning.update_content.
     edited_transcript: Optional[List[EditedParagraph]] = Field(
         default=None, sa_column=Column(JSON)
-    )  # List of edited parts with sources
-    brief: Optional[str] = None  # Short 1-3 line summary
-    summary: Optional[str] = None
+    )  # Mirrored from current ContentVersion. Do not write directly. Use services.versioning.update_content.
+    brief: Optional[str] = None  # Mirrored from current ContentVersion. Do not write directly. Use services.versioning.update_content.
+    summary: Optional[str] = None  # Mirrored from current ContentVersion. Do not write directly. Use services.versioning.update_content.
     status: str = Field(default="draft")  # Workflow status: draft, in_progress, review_requested, revision_requested, validated
     process_status: Optional[str] = None  # Current processing step: transcript, edition, sources_extraction, sources_checking, summary
 

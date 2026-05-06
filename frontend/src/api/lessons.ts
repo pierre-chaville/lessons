@@ -6,6 +6,10 @@ import type {
   LessonUpdate,
   LessonStatus,
   AudioUrlResponse,
+  ContentType,
+  LessonVersion,
+  VersionDiffResponse,
+  AuditLogRow,
 } from './types'
 
 export const lessonsApi = {
@@ -25,6 +29,42 @@ export const lessonsApi = {
 
   updateStatus: (hashid: string, status: LessonStatus) =>
     apiClient.patch<LessonDetail>(`/lessons/${hashid}/status`, { status }).then((r) => r.data),
+
+  listVersions: (
+    hashid: string,
+    params: { content_type: ContentType; limit?: number; before?: number },
+  ) =>
+    apiClient
+      .get<LessonVersion[]>(`/lessons/${hashid}/versions`, { params })
+      .then((r) => r.data),
+
+  getVersion: (hashid: string, versionId: string) =>
+    apiClient
+      .get<LessonVersion>(`/lessons/${hashid}/versions/${versionId}`)
+      .then((r) => r.data),
+
+  getVersionDiff: (hashid: string, versionAId: string, versionBId: string) =>
+    apiClient
+      .get<VersionDiffResponse>(`/lessons/${hashid}/versions/${versionAId}/diff/${versionBId}`)
+      .then((r) => r.data),
+
+  restoreVersion: (hashid: string, versionId: string, reason: string) =>
+    apiClient
+      .post<LessonVersion>(`/lessons/${hashid}/versions/${versionId}/restore`, { reason })
+      .then((r) => r.data),
+
+  checkpointVersion: (hashid: string, contentType: ContentType, reason: string) =>
+    apiClient
+      .post<LessonVersion>(`/lessons/${hashid}/versions/checkpoint`, {
+        content_type: contentType,
+        reason,
+      })
+      .then((r) => r.data),
+
+  getLessonAuditLog: (hashid: string, params?: { limit?: number; before_id?: number }) =>
+    apiClient
+      .get<AuditLogRow[]>(`/lessons/${hashid}/audit-log`, { params })
+      .then((r) => r.data),
 
   getAudioUrl: (hashid: string) =>
     apiClient.get<AudioUrlResponse>(`/lessons/${hashid}/audio-url`).then((r) => r.data),

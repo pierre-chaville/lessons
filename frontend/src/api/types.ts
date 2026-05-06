@@ -186,6 +186,58 @@ export interface AudioUrlResponse {
   url: string
 }
 
+// ── Versioning / Audit ───────────────────────────────────────────────────────
+
+export type ContentType =
+  | 'title'
+  | 'corrected_transcript'
+  | 'edited_transcript'
+  | 'brief'
+  | 'summary'
+
+export type VersionSource = 'human' | 'pipeline' | 'restore'
+
+export interface LessonVersion {
+  id: string
+  lesson_id: number
+  content_type: ContentType
+  version_number: number
+  version_source: VersionSource
+  created_at: string
+  last_edited_at: string | null
+  edit_count: number
+  is_sealed: boolean
+  sealed_at: string | null
+  sealed_reason: string | null
+  created_by_id: string | null
+  change_summary: string | null
+  parent_version_id: string | null
+  restored_from_id: string | null
+  is_current: boolean
+  content?: unknown
+}
+
+export interface StructuredSegmentDiff {
+  segment_index: number
+  status: 'unchanged' | 'added' | 'removed' | 'modified'
+  text_diff: string
+}
+
+export type VersionDiffResponse =
+  | { type: 'text'; diff: string }
+  | { type: 'structured'; segments: StructuredSegmentDiff[] }
+
+export interface AuditLogRow {
+  id: number
+  occurred_at: string
+  actor_id: string | null
+  actor_role: string
+  entity_type: string
+  entity_id: string
+  action: string
+  payload: Record<string, unknown>
+}
+
 // ── Upload ────────────────────────────────────────────────────────────────────
 
 /** Response from POST /upload/audio */

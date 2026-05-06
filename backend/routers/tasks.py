@@ -8,6 +8,7 @@ import crud
 from auth import require_roles, _extract_role
 from database import get_session
 from schemas.task import TaskCreate, TaskResponse
+from services.audit import log_event
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"])
 
@@ -39,9 +40,21 @@ def create_task(
                     status_code=403,
                     detail="You are not assigned as an editor for this lesson",
                 )
-    return crud.create_task(
+    created = crud.create_task(
         session=session, task_type=task.task_type, parameters=task.parameters
     )
+    lesson_id = (task.parameters or {}).get("lesson_id")
+    if lesson_id and task.task_type in VALID_TASK_TYPES:
+        log_event(
+            session=session,
+            actor={"sub": claims.get("sub"), "role": _extract_role(claims)},
+            entity_type="lesson",
+            entity_id=str(lesson_id),
+            action="pipeline.rerun_requested",
+            payload={"task_type": task.task_type, "task_id": created.id},
+        )
+        session.commit()
+    return created
 
 
 @router.get("", response_model=List[TaskResponse])

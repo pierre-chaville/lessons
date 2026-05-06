@@ -2,6 +2,7 @@ import { apiClient } from './client'
 
 export interface ClerkUser {
   id: string
+  username: string | null
   first_name: string | null
   last_name: string | null
   email: string | null

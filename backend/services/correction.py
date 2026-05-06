@@ -14,6 +14,8 @@ from models import Lesson
 from schemas import Segment, Metadata
 from config import load_config
 from .llm_utils import get_llm_model
+from models.versioning import ContentType, VersionSource
+from services.versioning import update_content
 import logging
 
 logger = logging.getLogger(__name__)
@@ -308,8 +310,7 @@ async def correct_transcript_async(
                     )
                 corrected_segments.append(corrected_segment)
         
-        # Update lesson with corrected transcript (convert to dicts for JSON storage)
-        lesson.corrected_transcript = [seg.model_dump() for seg in corrected_segments]
+        corrected_data = [seg.model_dump() for seg in corrected_segments]
         
         # Save correction metadata
         correction_provider = correction_config.get("provider", config.get("provider"))
@@ -321,8 +322,18 @@ async def correct_transcript_async(
         )
         lesson.set_correction_metadata(metadata)
         
-        # Commit changes
+        # Commit metadata and versioned content in the same job.
         session.add(lesson)
+        session.commit()
+        update_content(
+            session=session,
+            lesson_id=lesson_id,
+            content_type=ContentType.CORRECTED_TRANSCRIPT,
+            new_content=corrected_data,
+            actor=None,
+            source=VersionSource.PIPELINE,
+            change_summary="Pipeline correction rerun",
+        )
         session.commit()
         
         logger.info(f"Successfully corrected lesson {lesson_id} transcript")

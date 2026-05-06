@@ -16,6 +16,8 @@ from schemas import TranscriptMetadata
 from database import engine
 from memory_usage import format_memory_mb, get_rss_memory_mb
 from storage import download_audio_bytes, get_audio_object_key, s3_enabled
+from models.versioning import ContentType, VersionSource
+from services.versioning import update_content
 import logging
 
 logger = logging.getLogger(__name__)
@@ -181,9 +183,8 @@ def transcribe_lesson(
             format_memory_mb(mem_after_transcription),
         )
 
-        # Update lesson with transcript and corrected_transcript
+        # Update lesson with transcript (raw immutable pipeline output).
         lesson.transcript = segments_data
-        lesson.corrected_transcript = segments_data
 
         # Calculate and set duration from segments
         if segments_data:
@@ -198,6 +199,16 @@ def transcribe_lesson(
         lesson.set_transcript_metadata(transcript_metadata)
 
         session.add(lesson)
+        session.commit()
+        update_content(
+            session=session,
+            lesson_id=lesson_id,
+            content_type=ContentType.CORRECTED_TRANSCRIPT,
+            new_content=segments_data,
+            actor=None,
+            source=VersionSource.PIPELINE,
+            change_summary="Deepgram transcription refresh",
+        )
         session.commit()
         mem_after_commit = get_rss_memory_mb()
         logger.info(

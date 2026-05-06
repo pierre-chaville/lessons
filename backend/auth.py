@@ -10,7 +10,7 @@ from jose import jwt
 
 from config import load_config
 
-ALLOWED_ROLES = {"admin", "reader", "editor", "publisher"}
+ALLOWED_ROLES = {"admin", "reader", "viewer", "editor", "publisher"}
 JWKS_CACHE_TTL_SECONDS = 600
 
 _jwks_cache: Dict[str, Any] = {"data": None, "fetched_at": 0.0}

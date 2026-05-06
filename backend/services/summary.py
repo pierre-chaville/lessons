@@ -14,6 +14,8 @@ from models import Lesson
 from schemas import Metadata
 from config import load_config
 from .llm_utils import get_llm_model
+from models.versioning import ContentType, VersionSource
+from services.versioning import update_content
 import logging
 
 logger = logging.getLogger(__name__)
@@ -203,8 +205,7 @@ async def generate_summary_async(
             input_label="Edited Text",
         )
 
-        # Update lesson with summary
-        lesson.summary = summary.strip()
+        summary_text = summary.strip()
 
         # Generate brief abstract from summary using the second prompt
         brief_config = summary_config.get("brief", {})
@@ -228,8 +229,7 @@ async def generate_summary_async(
             input_label="Summary",
         )
 
-        # Update lesson with brief
-        lesson.brief = brief.strip()
+        brief_text = brief.strip()
 
         # Save summary metadata (including prompt type names)
         prompt_info = summary_prompt
@@ -248,8 +248,27 @@ async def generate_summary_async(
         )
         lesson.set_summary_metadata(metadata)
 
-        # Commit changes
+        # Commit metadata then persist versioned brief/summary snapshots.
         session.add(lesson)
+        session.commit()
+        update_content(
+            session=session,
+            lesson_id=lesson_id,
+            content_type=ContentType.SUMMARY,
+            new_content=summary_text,
+            actor=None,
+            source=VersionSource.PIPELINE,
+            change_summary="Pipeline summary rerun",
+        )
+        update_content(
+            session=session,
+            lesson_id=lesson_id,
+            content_type=ContentType.BRIEF,
+            new_content=brief_text,
+            actor=None,
+            source=VersionSource.PIPELINE,
+            change_summary="Pipeline brief rerun",
+        )
         session.commit()
 
         logger.info(

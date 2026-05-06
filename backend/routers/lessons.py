@@ -1,5 +1,7 @@
 """Lessons router — /lessons endpoints including PDF and audio URL."""
 
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlmodel import Session
@@ -11,9 +13,19 @@ from database import get_session
 from schemas.lesson import (
     LessonCreate, LessonUpdate, LessonListResponse, LessonResponse,
     StatusUpdate, ALLOWED_TRANSITIONS, VALID_STATUSES,
+    VersionResponse, RestoreVersionRequest, CheckpointRequest, AuditLogResponse,
 )
 from services import lessons as lesson_service
 from services import pdf as pdf_service
+from services.audit import get_lesson_audit_log
+from services.versioning import (
+    ContentType,
+    compute_diff,
+    get_version,
+    list_versions,
+    restore_version,
+    seal_current_version,
+)
 from hashid_utils import decode_id
 
 router = APIRouter(prefix="/lessons", tags=["Lessons"])
@@ -36,6 +48,12 @@ def _require_lesson_access(
             status_code=403,
             detail="You are not assigned as an editor for this lesson",
         )
+
+
+def _deny_history_for_viewer(claims: Dict[str, Any]) -> None:
+    role = _extract_role(claims)
+    if role in ("viewer", "reader"):
+        raise HTTPException(status_code=404, detail="Lesson not found")
 
 
 @router.get("", response_model=List[LessonListResponse])
@@ -110,10 +128,13 @@ def update_lesson_status(
             detail="Your role cannot perform this transition",
         )
 
-    lesson.status = target
-    session.add(lesson)
-    session.commit()
-    session.refresh(lesson)
+    lesson = lesson_service.change_status(
+        session=session,
+        lesson=lesson,
+        new_status=target,
+        actor={"sub": claims.get("sub"), "role": _extract_role(claims)},
+        reason=body.reason,
+    )
     return lesson_service.build_lesson_response(lesson, session)
 
 
@@ -136,13 +157,145 @@ def update_lesson(
 def delete_lesson(
     lesson_hashid: str,
     session: Session = Depends(get_session),
-    _: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
+    claims: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
 ):
     """Delete a lesson."""
     lesson_id = decode_id(lesson_hashid)
+    lesson = crud.get_lesson(session, lesson_id)
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
     if not crud.delete_lesson(session, lesson_id):
         raise HTTPException(status_code=404, detail="Lesson not found")
+    from services.audit import log_event
+    log_event(
+        session=session,
+        actor={"sub": claims.get("sub"), "role": _extract_role(claims)},
+        entity_type="lesson",
+        entity_id=str(lesson_id),
+        action="lesson.deleted",
+        payload={"title": lesson.title},
+    )
+    session.commit()
     return None
+
+
+@router.get("/{lesson_hashid}/versions", response_model=List[VersionResponse])
+def get_lesson_versions(
+    lesson_hashid: str,
+    content_type: ContentType = Query(...),
+    limit: int = Query(50, le=100),
+    before: Optional[int] = Query(None),
+    session: Session = Depends(get_session),
+    claims: Dict[str, Any] = Depends(require_roles(["viewer", "reader", "editor", "publisher", "admin"])),
+):
+    lesson_id = decode_id(lesson_hashid)
+    _deny_history_for_viewer(claims)
+    _require_lesson_access(lesson_id, claims, session)
+    versions = list_versions(
+        session=session,
+        lesson_id=lesson_id,
+        content_type=content_type,
+        limit=limit,
+        before=before,
+    )
+    return [VersionResponse.model_validate(v) for v in versions]
+
+
+@router.get("/{lesson_hashid}/versions/{version_id}", response_model=VersionResponse)
+def get_lesson_version(
+    lesson_hashid: str,
+    version_id: UUID,
+    session: Session = Depends(get_session),
+    claims: Dict[str, Any] = Depends(require_roles(["viewer", "reader", "editor", "publisher", "admin"])),
+):
+    lesson_id = decode_id(lesson_hashid)
+    _deny_history_for_viewer(claims)
+    _require_lesson_access(lesson_id, claims, session)
+    version = get_version(session, version_id)
+    if version.lesson_id != lesson_id:
+        raise HTTPException(status_code=404, detail="Version not found")
+    return VersionResponse.model_validate(version)
+
+
+@router.get("/{lesson_hashid}/versions/{version_a}/diff/{version_b}")
+def get_lesson_versions_diff(
+    lesson_hashid: str,
+    version_a: UUID,
+    version_b: UUID,
+    session: Session = Depends(get_session),
+    claims: Dict[str, Any] = Depends(require_roles(["viewer", "reader", "editor", "publisher", "admin"])),
+):
+    lesson_id = decode_id(lesson_hashid)
+    _deny_history_for_viewer(claims)
+    _require_lesson_access(lesson_id, claims, session)
+    a = get_version(session, version_a)
+    b = get_version(session, version_b)
+    if a.lesson_id != lesson_id or b.lesson_id != lesson_id:
+        raise HTTPException(status_code=404, detail="Version not found")
+    return compute_diff(a, b)
+
+
+@router.post("/{lesson_hashid}/versions/{version_id}/restore", response_model=VersionResponse)
+def restore_lesson_version(
+    lesson_hashid: str,
+    version_id: UUID,
+    body: RestoreVersionRequest,
+    session: Session = Depends(get_session),
+    claims: Dict[str, Any] = Depends(require_roles(["editor", "publisher", "admin"])),
+):
+    lesson_id = decode_id(lesson_hashid)
+    _require_lesson_access(lesson_id, claims, session)
+    restored = restore_version(
+        session=session,
+        target_version_id=version_id,
+        actor={"sub": claims.get("sub"), "role": _extract_role(claims)},
+        reason=body.reason,
+    )
+    if restored.lesson_id != lesson_id:
+        raise HTTPException(status_code=404, detail="Version not found")
+    session.commit()
+    session.refresh(restored)
+    return VersionResponse.model_validate(restored)
+
+
+@router.post("/{lesson_hashid}/versions/checkpoint", response_model=VersionResponse)
+def checkpoint_lesson_version(
+    lesson_hashid: str,
+    body: CheckpointRequest,
+    session: Session = Depends(get_session),
+    claims: Dict[str, Any] = Depends(require_roles(["editor", "publisher", "admin"])),
+):
+    lesson_id = decode_id(lesson_hashid)
+    _require_lesson_access(lesson_id, claims, session)
+    version = seal_current_version(
+        session=session,
+        lesson_id=lesson_id,
+        content_type=ContentType(body.content_type.value),
+        reason=body.reason or "manual_checkpoint",
+        actor={"sub": claims.get("sub"), "role": _extract_role(claims)},
+    )
+    if version is None:
+        raise HTTPException(status_code=404, detail="No current version to checkpoint")
+    session.commit()
+    session.refresh(version)
+    return VersionResponse.model_validate(version)
+
+
+@router.get("/{lesson_hashid}/audit-log", response_model=List[AuditLogResponse])
+def get_lesson_timeline(
+    lesson_hashid: str,
+    limit: int = Query(100, le=200),
+    before_id: Optional[int] = Query(None),
+    session: Session = Depends(get_session),
+    claims: Dict[str, Any] = Depends(require_roles(["viewer", "reader", "editor", "publisher", "admin"])),
+):
+    lesson_id = decode_id(lesson_hashid)
+    _deny_history_for_viewer(claims)
+    _require_lesson_access(lesson_id, claims, session)
+    rows = get_lesson_audit_log(session, lesson_id=lesson_id, limit=limit, before_id=before_id)
+    return [AuditLogResponse.model_validate(row) for row in rows]
+
+
 
 
 # ── Audio URL ─────────────────────────────────────────────────────────────────

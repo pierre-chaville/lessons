@@ -7,6 +7,16 @@ from .extract_sources import extract_sources, extract_sources_async
 from .summary import generate_summary, generate_summary_async
 from .transcribe import transcribe_lesson, transcribe_audio
 from .sources import verify_lesson_sources, verify_lesson_sources_async
+from .audit import log_event, get_lesson_audit_log, query_audit_log, AuditLogFilters
+from .versioning import (
+    update_content,
+    seal_current_version,
+    seal_all_current_versions,
+    restore_version,
+    list_versions,
+    get_version,
+    compute_diff,
+)
 
 __all__ = [
     "get_llm_model",
@@ -22,4 +32,15 @@ __all__ = [
     "transcribe_audio",
     "verify_lesson_sources",
     "verify_lesson_sources_async",
+    "log_event",
+    "get_lesson_audit_log",
+    "query_audit_log",
+    "AuditLogFilters",
+    "update_content",
+    "seal_current_version",
+    "seal_all_current_versions",
+    "restore_version",
+    "list_versions",
+    "get_version",
+    "compute_diff",
 ]
