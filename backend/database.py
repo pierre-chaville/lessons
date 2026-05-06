@@ -95,48 +95,64 @@ def _create_versioning_tables() -> None:
 def _backfill_content_versions() -> int:
     """Backfill initial v1 rows from existing lesson cached content."""
     inserted_rows = 0
-    with engine.begin() as conn:
-        for field_name, content_type in (
-            ("title", "title"),
-            ("corrected_transcript", "corrected_transcript"),
-            ("edited_transcript", "edited_transcript"),
-            ("brief", "brief"),
-            ("summary", "summary"),
-        ):
-            result = conn.execute(text(f"""
-                INSERT INTO content_version (
-                    id, lesson_id, content_type, content, version_number, version_source,
-                    created_at, last_edited_at, edit_count, is_sealed, sealed_at, sealed_reason,
-                    created_by_id, change_summary, parent_version_id, restored_from_id, is_current
-                )
-                SELECT
-                    gen_random_uuid(),
-                    l.id,
-                    :content_type,
-                    to_jsonb(l.{field_name}),
-                    1,
-                    'pipeline',
-                    COALESCE(l.date, now()),
-                    NULL,
-                    1,
-                    true,
-                    now(),
-                    'backfill',
-                    NULL,
-                    'Initial version (backfilled at migration)',
-                    NULL,
-                    NULL,
-                    true
-                FROM lesson l
-                WHERE l.{field_name} IS NOT NULL
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM content_version cv
-                      WHERE cv.lesson_id = l.id
-                        AND cv.content_type = :content_type
-                  )
-            """), {"content_type": content_type})
-            inserted_rows += max(0, result.rowcount or 0)
+    for field_name, content_type, content_expr in (
+        # Title is intentionally excluded (not tracked anymore).
+        (
+            "corrected_transcript",
+            "corrected_transcript",
+            "replace(l.corrected_transcript::text, E'\\\\u0000', '')::jsonb",
+        ),
+        (
+            "edited_transcript",
+            "edited_transcript",
+            "replace(l.edited_transcript::text, E'\\\\u0000', '')::jsonb",
+        ),
+        # For text columns, strip escaped null bytes before JSON conversion.
+        ("brief", "brief", "to_jsonb(replace(l.brief, E'\\\\u0000', ''))"),
+        ("summary", "summary", "to_jsonb(replace(l.summary, E'\\\\u0000', ''))"),
+    ):
+        try:
+            with engine.begin() as conn:
+                result = conn.execute(text(f"""
+                    INSERT INTO content_version (
+                        id, lesson_id, content_type, content, version_number, version_source,
+                        created_at, last_edited_at, edit_count, is_sealed, sealed_at, sealed_reason,
+                        created_by_id, change_summary, parent_version_id, restored_from_id, is_current
+                    )
+                    SELECT
+                        gen_random_uuid(),
+                        l.id,
+                        :content_type,
+                        {content_expr},
+                        1,
+                        'pipeline',
+                        COALESCE(l.date, now()),
+                        NULL,
+                        1,
+                        true,
+                        now(),
+                        'backfill',
+                        NULL,
+                        'Initial version (backfilled at migration)',
+                        NULL,
+                        NULL,
+                        true
+                    FROM lesson l
+                    WHERE l.{field_name} IS NOT NULL
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM content_version cv
+                          WHERE cv.lesson_id = l.id
+                            AND cv.content_type = :content_type
+                      )
+                """), {"content_type": content_type})
+                inserted_rows += max(0, result.rowcount or 0)
+        except SQLAlchemyError as exc:
+            logger.warning(
+                "Backfill skipped for content_type=%s due to invalid legacy data: %s",
+                content_type,
+                exc,
+            )
     return inserted_rows
 
 
@@ -187,12 +203,25 @@ def _run_migrations():
 def create_db_and_tables():
     """Create database tables"""
     global _migrations_completed
-    SQLModel.metadata.create_all(engine)
     if _migrations_completed:
         return
     with _migration_lock:
         if _migrations_completed:
             return
+        try:
+            SQLModel.metadata.create_all(engine)
+        except SQLAlchemyError as exc:
+            # In concurrent startup scenarios (e.g. multiple init callers),
+            # PostgreSQL can raise duplicate pg_type rows while creating tables.
+            # If so, continue and run idempotent migrations.
+            message = str(exc)
+            is_concurrent_create_race = (
+                "pg_type_typname_nsp_index" in message
+                or ("already exists" in message and "content_version" in message)
+            )
+            if not is_concurrent_create_race:
+                raise
+            logger.warning("Concurrent table creation detected; continuing: %s", exc)
         _run_migrations()
         _migrations_completed = True
 
