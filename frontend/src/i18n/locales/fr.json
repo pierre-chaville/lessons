@@ -226,6 +226,104 @@
     "themes": "thèmes",
     "lessonsCount": "session | sessions"
   },
+  "booklets": {
+    "title": "Livrets",
+    "addNew": "Nouveau Livret",
+    "loading": "Chargement des livrets...",
+    "noBooklets": "Aucun livret pour le moment. Créez votre premier livret !",
+    "count": "{count} livret(s)",
+    "backToList": "Retour aux livrets",
+    "loadingDetail": "Chargement du livret...",
+    "itemsTitle": "Elements du livret",
+    "lessonsTitle": "Sessions du livret",
+    "noItems": "Aucun element dans ce livret pour le moment.",
+    "noLessons": "Aucune session dans ce livret pour le moment.",
+    "addLessonTitle": "Ajouter une session",
+    "selectLessonPlaceholder": "Sélectionnez une session à ajouter",
+    "loadingPicker": "Chargement de l'arborescence des sessions...",
+    "noAvailableLessons": "Toutes les sessions sont deja dans ce livret.",
+    "allAvailableLessons": "Toutes les sessions disponibles",
+    "addLessonModalTitle": "Ajouter une session a ce livret",
+    "addChapterModalTitle": "Ajouter un separateur de chapitre",
+    "editChapterModalTitle": "Voir ou modifier le chapitre",
+    "alreadySelected": "Deja selectionnee",
+    "chapterBadge": "Chapitre",
+    "untitledChapter": "Chapitre sans titre",
+    "uncategorizedLessons": "Sessions sans parcours",
+    "removeLessonConfirm": "Retirer cette session du livret ?",
+    "removeChapterConfirm": "Retirer ce chapitre du livret ?",
+    "dragHint": "Astuce : glissez-déposez les sessions pour changer l'ordre.",
+    "compositionLocked": "La composition du livret est verrouillée lorsqu'il est prêt ou archivé.",
+    "createTitle": "Créer un Nouveau Livret",
+    "editTitle": "Modifier le Livret",
+    "deleteConfirm": "Supprimer ce livret ? Cette action est irréversible.",
+    "templateDataTitle": "Champs du template",
+    "templateDataEmpty": "Aucun champ de template sélectionné.",
+    "fields": {
+      "title": "Titre",
+      "subtitle": "Sous-titre",
+      "description": "Description",
+      "templateData": "Champs du template"
+    },
+    "placeholders": {
+      "title": "Entrez le titre du livret",
+      "subtitle": "Entrez le sous-titre (optionnel)",
+      "description": "Entrez la description (optionnel)",
+      "templateData": "Sélectionnez les champs à inclure dans le template du livret."
+    },
+    "validation": {
+      "invalidTemplateData": "Les champs du template doivent être un JSON valide et un tableau de chaînes."
+    },
+    "templateFields": {
+      "title": "Titre",
+      "date": "Date",
+      "duration": "Durée",
+      "corrected_transcript": "Transcription corrigée",
+      "edited_transcript": "Version rédigée",
+      "brief": "Résumé bref",
+      "summary": "Résumé",
+      "status": "Statut",
+      "themes": "Thèmes",
+      "course": "Parcours"
+    },
+    "chapterFields": {
+      "title": "Titre du chapitre",
+      "subtitle": "Sous-titre du chapitre",
+      "body": "Texte du chapitre",
+      "startsNewPage": "Commencer sur une nouvelle page"
+    },
+    "chapterPlaceholders": {
+      "title": "Entrez le titre du chapitre",
+      "subtitle": "Entrez le sous-titre (optionnel)",
+      "body": "Entrez le texte du chapitre (optionnel)"
+    },
+    "actions": {
+      "cancel": "Annuler",
+      "create": "Créer",
+      "creating": "Création...",
+      "edit": "Modifier",
+      "delete": "Supprimer",
+      "save": "Enregistrer",
+      "saving": "Enregistrement...",
+      "markReady": "Passer en prêt",
+      "markDraft": "Passer en brouillon",
+      "archive": "Archiver"
+      ,
+      "addLesson": "Ajouter la session",
+      "removeLesson": "Retirer",
+      "addChapter": "Ajouter un chapitre",
+      "removeChapter": "Retirer le chapitre",
+      "viewEditChapter": "Voir / Modifier",
+      "saveChapter": "Enregistrer le chapitre",
+      "downloadPdf": "Télécharger PDF",
+      "downloadingPdf": "Téléchargement PDF..."
+    },
+    "status": {
+      "draft": "Brouillon",
+      "ready": "Prêt",
+      "archived": "Archivé"
+    }
+  },
   "theme": {
     "light": "Passer en mode clair",
     "dark": "Passer en mode sombre"
@@ -297,6 +395,7 @@
     "search": "Rechercher",
     "courses": "Parcours",
     "themes": "Thèmes",
+    "booklets": "Livrets",
     "processing": "Tâches",
     "users": "Utilisateurs",
     "audit": "Journal d'audit",

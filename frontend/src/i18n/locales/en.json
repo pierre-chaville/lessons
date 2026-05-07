@@ -226,6 +226,104 @@
     "themes": "themes",
     "lessonsCount": "lesson | lessons"
   },
+  "booklets": {
+    "title": "Booklets",
+    "addNew": "New Booklet",
+    "loading": "Loading booklets...",
+    "noBooklets": "No booklets yet. Create your first booklet!",
+    "count": "{count} booklet(s)",
+    "backToList": "Back to booklets",
+    "loadingDetail": "Loading booklet...",
+    "itemsTitle": "Items in booklet",
+    "lessonsTitle": "Lessons in booklet",
+    "noItems": "No items in this booklet yet.",
+    "noLessons": "No lessons in this booklet yet.",
+    "addLessonTitle": "Add lesson",
+    "selectLessonPlaceholder": "Select a lesson to add",
+    "loadingPicker": "Loading lesson tree...",
+    "noAvailableLessons": "All lessons are already in this booklet.",
+    "allAvailableLessons": "All available lessons",
+    "addLessonModalTitle": "Add a lesson to this booklet",
+    "addChapterModalTitle": "Add a chapter separator",
+    "editChapterModalTitle": "View or edit chapter",
+    "alreadySelected": "Already selected",
+    "chapterBadge": "Chapter",
+    "untitledChapter": "Untitled chapter",
+    "uncategorizedLessons": "Uncategorized lessons",
+    "removeLessonConfirm": "Remove this lesson from booklet?",
+    "removeChapterConfirm": "Remove this chapter from booklet?",
+    "dragHint": "Tip: drag and drop lessons to reorder.",
+    "compositionLocked": "Booklet composition is locked when status is ready or archived.",
+    "createTitle": "Create New Booklet",
+    "editTitle": "Edit Booklet",
+    "deleteConfirm": "Delete this booklet? This action cannot be undone.",
+    "templateDataTitle": "Template fields",
+    "templateDataEmpty": "No template fields selected.",
+    "fields": {
+      "title": "Title",
+      "subtitle": "Subtitle",
+      "description": "Description",
+      "templateData": "Template fields"
+    },
+    "placeholders": {
+      "title": "Enter booklet title",
+      "subtitle": "Enter booklet subtitle (optional)",
+      "description": "Enter booklet description (optional)",
+      "templateData": "Select fields to include in booklet template."
+    },
+    "validation": {
+      "invalidTemplateData": "Template fields must be valid JSON and must be an array of strings."
+    },
+    "templateFields": {
+      "title": "Title",
+      "date": "Date",
+      "duration": "Duration",
+      "corrected_transcript": "Corrected transcript",
+      "edited_transcript": "Edited transcript",
+      "brief": "Brief",
+      "summary": "Summary",
+      "status": "Status",
+      "themes": "Themes",
+      "course": "Course"
+    },
+    "chapterFields": {
+      "title": "Chapter title",
+      "subtitle": "Chapter subtitle",
+      "body": "Chapter text",
+      "startsNewPage": "Start on a new page"
+    },
+    "chapterPlaceholders": {
+      "title": "Enter chapter title",
+      "subtitle": "Enter chapter subtitle (optional)",
+      "body": "Enter chapter text (optional)"
+    },
+    "actions": {
+      "cancel": "Cancel",
+      "create": "Create",
+      "creating": "Creating...",
+      "edit": "Edit",
+      "delete": "Delete",
+      "save": "Save",
+      "saving": "Saving...",
+      "markReady": "Mark ready",
+      "markDraft": "Mark draft",
+      "archive": "Archive"
+      ,
+      "addLesson": "Add lesson",
+      "removeLesson": "Remove",
+      "addChapter": "Add chapter",
+      "removeChapter": "Remove chapter",
+      "viewEditChapter": "View / Edit",
+      "saveChapter": "Save chapter",
+      "downloadPdf": "Download PDF",
+      "downloadingPdf": "Downloading PDF..."
+    },
+    "status": {
+      "draft": "Draft",
+      "ready": "Ready",
+      "archived": "Archived"
+    }
+  },
   "theme": {
     "light": "Switch to light mode",
     "dark": "Switch to dark mode"
@@ -297,6 +395,7 @@
     "search": "Search",
     "courses": "Course Organization",
     "themes": "Themes",
+    "booklets": "Booklets",
     "processing": "Processing",
     "users": "Users",
     "audit": "Audit Log",

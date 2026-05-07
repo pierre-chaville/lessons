@@ -26,6 +26,7 @@ const isCollapsed = ref(false);
 
 const allNavigationItems = [
   { key: 'lessons',     label: 'nav.lessons',     icon: BookOpenIcon,         route: '/lessons',     always: true },
+  { key: 'booklets',    label: 'nav.booklets',    icon: BookOpenIcon,         route: '/booklets',    always: false },
   { key: 'search',      label: 'nav.search',       icon: MagnifyingGlassIcon,  route: '/search',      always: true },
   { key: 'courses',     label: 'nav.courses',      icon: AcademicCapIcon,      route: '/courses',     always: true },
   { key: 'themes',      label: 'nav.themes',       icon: TagIcon,              route: '/themes',      always: true },
@@ -38,6 +39,7 @@ const allNavigationItems = [
 const navigationItems = computed(() =>
   allNavigationItems.filter((item) => {
     if (item.key === 'processing')  return can('tasks', 'read');
+    if (item.key === 'booklets')    return can('lessons', 'update');
     if (item.key === 'users')       return can('users', 'manage');
     if (item.key === 'audit')       return role.value === 'admin';
     if (item.key === 'preferences') return can('configuration', 'read');

@@ -10,6 +10,15 @@ from models.task import Task
 from models.sefaria_cache import SefariaCache
 from models.versioning import ContentVersion, ContentType, VersionSource
 from models.audit import AuditLog
+from models.booklet import (
+    Booklet,
+    BookletItem,
+    BookletItemType,
+    BookletGeneration,
+    BookletStatus,
+    GenerationFormat,
+    GenerationStatus,
+)
 
 __all__ = [
     "AppConfig",
@@ -24,4 +33,11 @@ __all__ = [
     "ContentType",
     "VersionSource",
     "AuditLog",
+    "Booklet",
+    "BookletItem",
+    "BookletItemType",
+    "BookletGeneration",
+    "BookletStatus",
+    "GenerationFormat",
+    "GenerationStatus",
 ]

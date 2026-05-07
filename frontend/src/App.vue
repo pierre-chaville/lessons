@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import { SignedIn, SignedOut, SignInButton, SignOutButton, UserButton } from '@clerk/vue';
 import { useI18n } from 'vue-i18n';
 import { Menu, MenuButton, MenuItems, MenuItem } from '@headlessui/vue';
@@ -18,6 +18,8 @@ import LessonsList from './views/LessonsList.vue';
 import SearchLessons from './views/SearchLessons.vue';
 import CoursesList from './views/CoursesList.vue';
 import ThemesList from './views/ThemesList.vue';
+import BookletsList from './views/BookletsList.vue';
+import BookletDetail from './views/BookletDetail.vue';
 import ProcessingTasks from './views/ProcessingTasks.vue';
 import UsersManagement from './views/UsersManagement.vue';
 import AuditLogViewer from './views/AuditLogViewer.vue';
@@ -44,13 +46,19 @@ const getInitialRoute = () => {
   const path = raw.length > 1 && raw.endsWith('/') ? raw.slice(0, -1) : raw;
 
   // Known routes
-  const routes = ['/search', '/courses', '/themes', '/processing', '/users', '/admin/audit-log', '/preferences'];
+  const routes = ['/search', '/courses', '/themes', '/booklets', '/booklets/detail', '/processing', '/users', '/admin/audit-log', '/preferences'];
   const match = routes.find(r => path === r);
   if (match) return match;
 
   // Lessons (list or detail)
   if (path === '/' || path === '/lessons' || path.startsWith('/lessons')) {
     return '/lessons';
+  }
+  if (path.startsWith('/booklets/')) {
+    return '/booklets/detail';
+  }
+  if (path === '/booklets') {
+    return '/booklets';
   }
 
   return '/lessons';
@@ -64,6 +72,8 @@ const lessonsListRef = ref(null);
 const coursesListRef = ref(null);
 const themesListRef = ref(null);
 const usersListRef = ref(null);
+const bookletsListRef = ref(null);
+const selectedBookletId = ref(null);
 
 // Check if we're viewing a lesson detail
 const isViewingDetail = computed(() => {
@@ -95,6 +105,10 @@ const pageTitle = computed(() => {
       return t('courses.title');
     case '/themes':
       return t('themes.title');
+    case '/booklets':
+      return t('booklets.title');
+    case '/booklets/detail':
+      return t('booklets.title');
     case '/processing':
       return t('nav.processing');
     case '/users':
@@ -131,6 +145,30 @@ const toggleDarkMode = () => {
   applyDarkMode(isDarkMode.value);
 };
 
+const parseBookletIdFromPath = () => {
+  const match = window.location.pathname.match(/^\/booklets\/(\d+)$/);
+  if (!match) return null;
+  const id = Number(match[1]);
+  return Number.isFinite(id) ? id : null;
+};
+
+const openBookletDetail = (bookletId) => {
+  selectedBookletId.value = bookletId;
+  currentRoute.value = '/booklets/detail';
+  window.history.pushState({ bookletId }, '', `/booklets/${bookletId}`);
+};
+
+const closeBookletDetail = () => {
+  selectedBookletId.value = null;
+  currentRoute.value = '/booklets';
+  window.history.pushState({}, '', '/booklets');
+};
+
+const handleAppPopState = () => {
+  currentRoute.value = getInitialRoute();
+  selectedBookletId.value = parseBookletIdFromPath();
+};
+
 // Initialize dark mode on mount
 onMounted(() => {
   // Check localStorage first, then system preference
@@ -144,6 +182,13 @@ onMounted(() => {
   
   // Apply the initial state
   applyDarkMode(isDarkMode.value);
+
+  selectedBookletId.value = parseBookletIdFromPath();
+  window.addEventListener('popstate', handleAppPopState);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('popstate', handleAppPopState);
 });
 
 
@@ -328,6 +373,35 @@ onMounted(() => {
         </div>
       </div>
 
+      <!-- Booklets View -->
+      <div v-else-if="currentRoute === '/booklets'">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-0">
+          <div class="mb-6 flex justify-between items-center">
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">
+              {{ t('booklets.title') }}
+            </h2>
+            <button
+              v-if="can('lessons', 'update')"
+              @click="bookletsListRef?.openCreateModal()"
+              class="inline-flex items-center gap-x-2 rounded-md bg-indigo-600 dark:bg-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 dark:hover:bg-indigo-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:focus-visible:outline-indigo-500 transition-colors"
+            >
+              <PlusIcon class="h-5 w-5" />
+              {{ t('booklets.addNew') }}
+            </button>
+          </div>
+        </div>
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8">
+          <BookletsList ref="bookletsListRef" @open-detail="openBookletDetail" />
+        </div>
+      </div>
+
+      <!-- Booklet Detail View -->
+      <div v-else-if="currentRoute === '/booklets/detail'">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <BookletDetail :booklet-id="selectedBookletId" @back="closeBookletDetail" />
+        </div>
+      </div>
+
       <!-- Processing View -->
       <div v-else-if="currentRoute === '/processing'">
         <!-- Header -->
@@ -386,7 +460,7 @@ onMounted(() => {
       </div>
 
       <!-- Placeholder for other views -->
-      <main v-else-if="!isViewingDetail && currentRoute !== '/lessons' && currentRoute !== '/search' && currentRoute !== '/courses' && currentRoute !== '/themes' && currentRoute !== '/processing' && currentRoute !== '/users' && currentRoute !== '/admin/audit-log' && currentRoute !== '/preferences'" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main v-else-if="!isViewingDetail && currentRoute !== '/lessons' && currentRoute !== '/search' && currentRoute !== '/courses' && currentRoute !== '/themes' && currentRoute !== '/booklets' && currentRoute !== '/booklets/detail' && currentRoute !== '/processing' && currentRoute !== '/users' && currentRoute !== '/admin/audit-log' && currentRoute !== '/preferences'" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-8 text-center transition-colors">
           <h2 class="text-2xl font-bold text-gray-900 dark:text-white mb-4">
             {{ pageTitle }}

@@ -276,6 +276,105 @@ export interface TaskCreate {
   parameters?: Record<string, unknown> | null
 }
 
+// ── Booklets ──────────────────────────────────────────────────────────────────
+
+export type BookletStatus = 'draft' | 'ready' | 'archived'
+export type BookletItemType = 'lesson' | 'chapter'
+
+export type BookletTemplateField =
+  | 'title'
+  | 'date'
+  | 'duration'
+  | 'corrected_transcript'
+  | 'edited_transcript'
+  | 'brief'
+  | 'summary'
+  | 'status'
+  | 'themes'
+  | 'course'
+
+export interface Booklet {
+  id: number
+  title: string
+  subtitle: string | null
+  description: string | null
+  status: BookletStatus
+  cover_metadata: Record<string, unknown>
+  template_data: BookletTemplateField[]
+  template: string
+  course_id: number | null
+  created_at: string
+  updated_at: string
+  created_by_id: string | null
+}
+
+export interface BookletItem {
+  id: number
+  booklet_id: number
+  position: number
+  item_type: BookletItemType
+  lesson_id: number | null
+  custom_title: string | null
+  custom_intro: string | null
+  include_brief: boolean
+  chapter_title: string | null
+  chapter_subtitle: string | null
+  chapter_body: string | null
+  chapter_starts_new_page: boolean
+  is_included: boolean
+  added_at: string
+  added_by_id: string | null
+  lesson_title: string | null
+  lesson_status: string | null
+}
+
+export interface BookletLessonItem {
+  id: number
+  booklet_id: number
+  lesson_id: number
+  position: number
+  custom_title: string | null
+  custom_intro: string | null
+  include_brief: boolean
+  is_included: boolean
+  added_at: string
+  added_by_id: string | null
+  lesson_title: string | null
+  lesson_status: string | null
+}
+
+export interface BookletDetail extends Booklet {
+  items: BookletItem[]
+  lessons: BookletLessonItem[]
+}
+
+export interface BookletListResponse {
+  items: Booklet[]
+  total: number
+  offset: number
+  limit: number
+}
+
+export interface BookletCreate {
+  title: string
+  subtitle?: string | null
+  description?: string | null
+  cover_metadata?: Record<string, unknown>
+  template_data?: BookletTemplateField[]
+  template?: string
+  course_id?: number | null
+}
+
+export interface BookletUpdate {
+  title?: string
+  subtitle?: string | null
+  description?: string | null
+  cover_metadata?: Record<string, unknown>
+  template_data?: BookletTemplateField[]
+  template?: string
+  course_id?: number | null
+}
+
 // ── Search ────────────────────────────────────────────────────────────────────
 
 export interface SearchMatchSegment {

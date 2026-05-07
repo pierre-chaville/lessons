@@ -3,7 +3,7 @@
 from sqlmodel import Session, select, func
 from typing import List, Optional
 from datetime import datetime
-from models import Lesson, LessonEditor, LessonSource, Course, Theme, Task, SefariaCache
+from models import Lesson, LessonEditor, LessonSource, Course, Theme, Task, SefariaCache, ContentVersion
 
 
 # Course CRUD
@@ -242,10 +242,20 @@ def delete_lesson(session: Session, lesson_id: int) -> bool:
     if lesson:
         delete_lesson_editors(session, lesson_id)
         delete_lesson_sources(session, lesson_id)
+        delete_content_versions(session, lesson_id)
         session.delete(lesson)
         session.commit()
         return True
     return False
+
+
+def delete_content_versions(session: Session, lesson_id: int) -> int:
+    """Delete all content versions for a lesson. Returns count deleted."""
+    statement = select(ContentVersion).where(ContentVersion.lesson_id == lesson_id)
+    versions = list(session.exec(statement).all())
+    for v in versions:
+        session.delete(v)
+    return len(versions)
 
 
 # LessonEditor CRUD
