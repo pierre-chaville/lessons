@@ -5,6 +5,7 @@ from __future__ import annotations
 from contextlib import nullcontext
 from datetime import datetime, timedelta
 from difflib import unified_diff
+import json
 from typing import Any, Optional
 from uuid import UUID
 
@@ -24,11 +25,15 @@ def _normalize_content(content_type: ContentType, value: Any) -> Any:
         return value
 
     if content_type == ContentType.CORRECTED_TRANSCRIPT:
+        if isinstance(value, str):
+            value = json.loads(value)
         if not isinstance(value, list):
             raise ValueError("corrected_transcript must be a list")
         return [Segment.model_validate(v).model_dump() for v in value]
 
     if content_type == ContentType.EDITED_TRANSCRIPT:
+        if isinstance(value, str):
+            value = json.loads(value)
         if not isinstance(value, list):
             raise ValueError("edited_transcript must be a list")
         return [EditedParagraph.model_validate(v).model_dump() for v in value]
@@ -50,7 +55,13 @@ def _cache_to_lesson(lesson: Lesson, content_type: ContentType, value: Any) -> N
 
 
 def _same_content(content_type: ContentType, old: Any, new: Any) -> bool:
-    return _normalize_content(content_type, old) == _normalize_content(content_type, new)
+    normalized_new = _normalize_content(content_type, new)
+    try:
+        normalized_old = _normalize_content(content_type, old)
+    except ValueError:
+        # Legacy/invalid previous payloads should not block writing fresh content.
+        return False
+    return normalized_old == normalized_new
 
 
 def _actor_id(actor: Any) -> Optional[str]:

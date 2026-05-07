@@ -500,7 +500,6 @@ async def edit_transcript_async(
         all_edited_parts = []
         for group_result in results:
             all_edited_parts.extend(group_result)
-        print(results)
         # Convert to EditedParagraph model objects (without sources - they will be extracted separately)
         edited_parts = []
         for part_tuple in all_edited_parts:
