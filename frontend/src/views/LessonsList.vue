@@ -37,6 +37,14 @@ const STATUS_COLORS: Record<string, string> = {
   validated:          'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
 }
 
+type PipelineStep = 'edition' | 'sources' | 'summary'
+
+const LESSON_CARD_STEPS: Array<{ key: PipelineStep; labelKey: string }> = [
+  { key: 'edition', labelKey: 'lessons.step_edition' },
+  { key: 'sources', labelKey: 'lessons.step_sources' },
+  { key: 'summary', labelKey: 'lessons.step_summary' },
+]
+
 const lessons = ref<LessonListItem[]>([])
 const tree = ref<CourseTreeNode[]>([])
 const users = ref<ClerkUser[]>([])
@@ -191,6 +199,20 @@ const formatDuration = (seconds: number | null | undefined): string => {
   if (hours > 0) return `${hours}h ${minutes}m`
   if (minutes > 0) return `${minutes}m ${secs}s`
   return `${secs}s`
+}
+
+const isStepDone = (lesson: LessonListItem, step: PipelineStep): boolean => {
+  const status = lesson.process_status ?? ''
+  if (step === 'edition') {
+    if (typeof lesson.edition_done === 'boolean') return lesson.edition_done
+    return ['edition', 'sources_extraction', 'sources_checking', 'summary'].includes(status)
+  }
+  if (step === 'sources') {
+    if (typeof lesson.sources_done === 'boolean') return lesson.sources_done
+    return ['sources_extraction', 'sources_checking', 'summary'].includes(status)
+  }
+  if (typeof lesson.summary_done === 'boolean') return lesson.summary_done
+  return status === 'summary' || lesson.status === 'validated' || !!lesson.brief
 }
 
 const fetchLessonByHashid = async (hashid: string) => {
@@ -433,6 +455,16 @@ defineExpose({
                     {{ getUserName(editor.user_id) }}
                   </span>
                 </template>
+              </div>
+
+              <div class="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                <span
+                  v-for="step in LESSON_CARD_STEPS"
+                  :key="step.key"
+                  :class="isStepDone(lesson, step.key) ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-400 dark:text-gray-500'"
+                >
+                  {{ isStepDone(lesson, step.key) ? '✓' : '○' }} {{ t(step.labelKey) }}
+                </span>
               </div>
 
               <div v-if="lesson.course || (lesson.themes && lesson.themes.length > 0)" class="flex items-center gap-2">

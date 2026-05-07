@@ -166,6 +166,9 @@ class LessonListResponse(BaseModel):
     brief: Optional[str]
     status: str = "draft"
     process_status: Optional[str] = None
+    edition_done: bool = False
+    sources_done: bool = False
+    summary_done: bool = False
     filename: str
     themes: List[ThemeResponse] = []
     course: Optional[CourseResponse] = None

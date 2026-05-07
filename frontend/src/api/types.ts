@@ -118,6 +118,9 @@ export interface LessonListItem {
   brief: string | null
   status: LessonStatus
   process_status: string | null
+  edition_done?: boolean
+  sources_done?: boolean
+  summary_done?: boolean
   filename: string
   themes: Theme[]
   course: Course | null

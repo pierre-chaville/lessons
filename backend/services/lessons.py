@@ -92,6 +92,23 @@ def build_lesson_list_item(lesson: Lesson, session: Session) -> LessonListRespon
     theme_ids = lesson.get_themes()
     themes = crud.get_themes_by_ids(session, theme_ids) if theme_ids else []
     db_editors = crud.get_lesson_editors(session, lesson.id)
+    db_sources = crud.get_lesson_sources(session, lesson.id)
+
+    process_status = (lesson.process_status or "").strip()
+    edition_done = bool(
+        (lesson.edited_transcript and len(lesson.edited_transcript) > 0)
+        or process_status in {"edition", "sources_extraction", "sources_checking", "summary"}
+    )
+    sources_done = bool(
+        db_sources
+        or process_status in {"sources_extraction", "sources_checking", "summary"}
+    )
+    summary_done = bool(
+        (isinstance(lesson.summary, str) and lesson.summary.strip())
+        or (isinstance(lesson.brief, str) and lesson.brief.strip())
+        or process_status == "summary"
+    )
+
     return LessonListResponse(
         id=lesson.id,
         hashid=encode_id(lesson.id),
@@ -101,6 +118,9 @@ def build_lesson_list_item(lesson: Lesson, session: Session) -> LessonListRespon
         brief=lesson.brief,
         status=lesson.status or "draft",
         process_status=lesson.process_status,
+        edition_done=edition_done,
+        sources_done=sources_done,
+        summary_done=summary_done,
         filename=lesson.filename,
         themes=_build_theme_resps(themes),
         course=_build_course_resp(lesson.course),

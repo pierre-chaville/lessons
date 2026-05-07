@@ -748,7 +748,7 @@ watch(() => props.bookletId, loadDetail)
             class="px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
             @click="closeAddModal"
           >
-            {{ t('booklets.actions.cancel') }}
+            {{ t('lessons.close') }}
           </button>
         </div>
 
