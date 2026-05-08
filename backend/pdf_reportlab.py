@@ -22,59 +22,100 @@ import re
 from html import unescape
 
 
+_fonts_registered = False
+_pdf_font_names = {
+    "regular": "Helvetica",
+    "bold": "Helvetica-Bold",
+    "italic": "Helvetica-Oblique",
+    "bold_italic": "Helvetica-BoldOblique",
+}
+
+
+def _register_first_available_font(font_name: str, candidate_paths: list[str]) -> bool:
+    for font_path in candidate_paths:
+        if not os.path.exists(font_path):
+            continue
+        try:
+            pdfmetrics.registerFont(TTFont(font_name, font_path))
+            return True
+        except Exception:
+            continue
+    return False
+
+
 def _register_unicode_fonts():
     """Register Unicode-compatible fonts for Hebrew and other RTL languages."""
     global _fonts_registered
+    global _pdf_font_names
     _fonts_registered = False
     
     try:
-        # Try to register Arial font (common on Windows)
-        arial_paths = [
-            ("Arial", "C:/Windows/Fonts/arial.ttf"),
-            ("Arial", "C:/Windows/Fonts/ARIAL.TTF"),
-            ("Arial", "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"),
-            ("Arial", "/System/Library/Fonts/Helvetica.ttc"),
+        regular_candidates = [
+            "C:/Windows/Fonts/arial.ttf",
+            "C:/Windows/Fonts/ARIAL.TTF",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         ]
-        
-        # Try to register Arial Bold
-        arial_bold_paths = [
-            ("Arial-Bold", "C:/Windows/Fonts/arialbd.ttf"),
-            ("Arial-Bold", "C:/Windows/Fonts/ARIALBD.TTF"),
-            ("Arial-Bold", "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"),
+
+        bold_candidates = [
+            "C:/Windows/Fonts/arialbd.ttf",
+            "C:/Windows/Fonts/ARIALBD.TTF",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         ]
-        
-        # Register regular Arial
-        for font_name, font_path in arial_paths:
-            if os.path.exists(font_path):
-                try:
-                    pdfmetrics.registerFont(TTFont("Arial", font_path))
-                    _fonts_registered = True
-                    break
-                except Exception as e:
-                    continue
-        
-        # Register Arial Bold if regular was registered
-        if _fonts_registered:
-            for font_name, font_path in arial_bold_paths:
-                if os.path.exists(font_path):
-                    try:
-                        pdfmetrics.registerFont(TTFont("Arial-Bold", font_path))
-                        break
-                    except Exception as e:
-                        continue
-            # If bold font not found, use regular Arial for bold (fallback)
-            if "Arial-Bold" not in pdfmetrics.getRegisteredFontNames():
-                try:
-                    # Use regular Arial as fallback for bold
-                    pdfmetrics.registerFont(TTFont("Arial-Bold", arial_paths[0][1]))
-                except Exception:
-                    pass
+
+        italic_candidates = [
+            "C:/Windows/Fonts/ariali.ttf",
+            "C:/Windows/Fonts/ARIALI.TTF",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Italic.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Oblique.ttf",
+        ]
+
+        bold_italic_candidates = [
+            "C:/Windows/Fonts/arialbi.ttf",
+            "C:/Windows/Fonts/ARIALBI.TTF",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-BoldItalic.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-BoldOblique.ttf",
+        ]
+
+        regular_ok = _register_first_available_font("Arial", regular_candidates)
+        if not regular_ok:
+            return
+
+        _fonts_registered = True
+        _pdf_font_names = {
+            "regular": "Arial",
+            "bold": "Arial-Bold",
+            "italic": "Arial-Italic",
+            "bold_italic": "Arial-BoldItalic",
+        }
+
+        if not _register_first_available_font("Arial-Bold", bold_candidates):
+            _register_first_available_font("Arial-Bold", regular_candidates)
+        if not _register_first_available_font("Arial-Italic", italic_candidates):
+            _register_first_available_font("Arial-Italic", regular_candidates)
+        if not _register_first_available_font("Arial-BoldItalic", bold_italic_candidates):
+            _register_first_available_font("Arial-BoldItalic", bold_candidates)
+
+        # Ensure inline <b>/<i> tags keep using Unicode-capable family.
+        pdfmetrics.registerFontFamily(
+            "Arial",
+            normal="Arial",
+            bold="Arial-Bold",
+            italic="Arial-Italic",
+            boldItalic="Arial-BoldItalic",
+        )
     except Exception:
         pass
 
 
 # Register fonts on import
 _register_unicode_fonts()
+
+
+def get_pdf_font_names() -> dict[str, str]:
+    """Return the active PDF font names (Unicode-capable when available)."""
+    return dict(_pdf_font_names)
 
 
 def _apply_inline_formatting(text: str) -> str:
@@ -144,7 +185,8 @@ class NumberedCanvas(canvas.Canvas):
     def draw_footer(self):
         """Draw footer with page number and document info"""
         self.saveState()
-        self.setFont("Helvetica", 9)
+        footer_font = get_pdf_font_names()["regular"]
+        self.setFont(footer_font, 9)
         self.setFillColor(HexColor("#666666"))
         
         # Footer text
@@ -493,7 +535,8 @@ def generate_lesson_transcript_pdf(
         def on_page(self, canvas, doc):
             """Called on each page - add footer"""
             canvas.saveState()
-            canvas.setFont("Helvetica", 9)
+            footer_font = get_pdf_font_names()["regular"]
+            canvas.setFont(footer_font, 9)
             canvas.setFillColor(HexColor("#666666"))
             
             # Footer text

@@ -33,6 +33,7 @@ from models import (
     Theme,
 )
 from services.audit import log_event
+from pdf_reportlab import get_pdf_font_names
 
 ALLOWED_TEMPLATE_FIELDS = {
     "title",
@@ -272,11 +273,15 @@ def generate_booklet_pdf(session: Session, booklet_id: int) -> tuple[bytes, str]
         themes = {theme.id: theme for theme in theme_rows}
 
     styles = getSampleStyleSheet()
+    pdf_fonts = get_pdf_font_names()
+    regular_font = pdf_fonts["regular"]
+    bold_font = pdf_fonts["bold"]
     pdf_language = _booklet_pdf_language()
     localized_labels = PDF_FIELD_LABELS.get(pdf_language, PDF_FIELD_LABELS["en"])
     title_style = ParagraphStyle(
         "BookletTitle",
         parent=styles["Heading1"],
+        fontName=bold_font,
         fontSize=24,
         leading=28,
         textColor=colors.HexColor("#4f46e5"),
@@ -285,6 +290,7 @@ def generate_booklet_pdf(session: Session, booklet_id: int) -> tuple[bytes, str]
     subtitle_style = ParagraphStyle(
         "BookletSubtitle",
         parent=styles["Heading2"],
+        fontName=bold_font,
         fontSize=16,
         leading=20,
         textColor=colors.HexColor("#374151"),
@@ -293,6 +299,7 @@ def generate_booklet_pdf(session: Session, booklet_id: int) -> tuple[bytes, str]
     heading_style = ParagraphStyle(
         "ItemHeading",
         parent=styles["Heading2"],
+        fontName=bold_font,
         fontSize=18,
         leading=22,
         textColor=colors.HexColor("#111827"),
@@ -301,6 +308,7 @@ def generate_booklet_pdf(session: Session, booklet_id: int) -> tuple[bytes, str]
     label_style = ParagraphStyle(
         "FieldLabel",
         parent=styles["Normal"],
+        fontName=bold_font,
         fontSize=11,
         leading=14,
         textColor=colors.HexColor("#111827"),
@@ -309,6 +317,7 @@ def generate_booklet_pdf(session: Session, booklet_id: int) -> tuple[bytes, str]
     value_style = ParagraphStyle(
         "FieldValue",
         parent=styles["Normal"],
+        fontName=regular_font,
         fontSize=10,
         leading=14,
         textColor=colors.HexColor("#374151"),
@@ -427,6 +436,143 @@ def generate_booklet_pdf(session: Session, booklet_id: int) -> tuple[bytes, str]
     pdf_bytes = buffer.getvalue()
     buffer.close()
     return pdf_bytes, f"{_safe_filename(booklet.title)}.pdf"
+
+
+def generate_booklet_markdown(session: Session, booklet_id: int) -> tuple[bytes, str]:
+    """Generate a markdown rendition of a booklet."""
+    booklet = _get_booklet(session, booklet_id)
+    items = _sorted_booklet_items(session, booklet_id)
+    lesson_ids = [row.lesson_id for row in items if row.lesson_id is not None]
+    lessons = {}
+    if lesson_ids:
+        lesson_rows = list(session.exec(select(Lesson).where(Lesson.id.in_(lesson_ids))).all())
+        lessons = {lesson.id: lesson for lesson in lesson_rows}
+    course_ids = {lesson.course_id for lesson in lessons.values() if lesson.course_id is not None}
+    courses = {}
+    if course_ids:
+        course_rows = list(session.exec(select(Course).where(Course.id.in_(course_ids))).all())
+        courses = {course.id: course for course in course_rows}
+    theme_ids = {theme_id for lesson in lessons.values() for theme_id in lesson.get_themes()}
+    themes = {}
+    if theme_ids:
+        theme_rows = list(session.exec(select(Theme).where(Theme.id.in_(theme_ids))).all())
+        themes = {theme.id: theme for theme in theme_rows}
+
+    pdf_language = _booklet_pdf_language()
+    localized_labels = PDF_FIELD_LABELS.get(pdf_language, PDF_FIELD_LABELS["en"])
+    selected_fields = booklet.template_data or []
+    ordered_fields = [
+        field
+        for field in (
+            "title",
+            "date",
+            "duration",
+            "course",
+            "themes",
+            "status",
+            "brief",
+            "summary",
+            "edited_transcript",
+            "corrected_transcript",
+        )
+        if field in selected_fields
+    ]
+
+    lines: List[str] = []
+    lines.append(f"# {booklet.title}")
+    if booklet.subtitle:
+        lines.append("")
+        lines.append(f"## {booklet.subtitle}")
+    if booklet.description:
+        lines.append("")
+        lines.append(str(booklet.description).strip())
+    lines.append("")
+    lines.append(f"**Status:** {_enum_value(booklet.status)}")
+
+    for idx, item in enumerate(items):
+        if idx > 0:
+            lines.append("")
+            lines.append("---")
+            lines.append("")
+        else:
+            lines.append("")
+
+        if item.item_type == BookletItemType.CHAPTER:
+            chapter_title = item.chapter_title or "Chapter"
+            lines.append(f"## {chapter_title}")
+            if item.chapter_subtitle:
+                lines.append("")
+                lines.append(f"### {item.chapter_subtitle}")
+            if item.chapter_body:
+                lines.append("")
+                lines.append(str(item.chapter_body).strip())
+            lines.append("")
+            lines.append(
+                f"**Starts new page:** {'Yes' if item.chapter_starts_new_page else 'No'}"
+            )
+            continue
+
+        if item.lesson_id is None:
+            lines.append("Lesson item without lesson reference")
+            continue
+
+        lesson = lessons.get(item.lesson_id)
+        if lesson is None:
+            lines.append(f"Lesson #{item.lesson_id} not found")
+            continue
+
+        lesson_title = item.custom_title or lesson.title
+        lines.append(f"## {lesson_title}")
+        if item.custom_intro:
+            lines.append("")
+            lines.append(str(item.custom_intro).strip())
+
+        date_selected = "date" in ordered_fields
+        duration_selected = "duration" in ordered_fields
+        if date_selected or duration_selected:
+            date_value = lesson.date.isoformat() if lesson.date else "-"
+            duration_value = _format_duration(lesson.duration) if duration_selected else "-"
+            lines.append("")
+            if date_selected and duration_selected:
+                lines.append(f"{date_value} / {duration_value}")
+            elif date_selected:
+                lines.append(date_value)
+            else:
+                lines.append(duration_value)
+
+        for field in ordered_fields:
+            if field in {"date", "duration"}:
+                continue
+            if field == "title":
+                value = lesson.title or "-"
+            elif field == "corrected_transcript":
+                value = _stringify_transcript_like(lesson.corrected_transcript)
+            elif field == "edited_transcript":
+                value = _stringify_transcript_like(lesson.edited_transcript)
+            elif field == "brief":
+                value = lesson.brief or "-"
+            elif field == "summary":
+                value = lesson.summary or "-"
+            elif field == "status":
+                value = lesson.status or "-"
+            elif field == "themes":
+                lesson_theme_ids = lesson.get_themes()
+                names = [themes[tid].name for tid in lesson_theme_ids if tid in themes]
+                value = ", ".join(names) if names else "-"
+            elif field == "course":
+                course = courses.get(lesson.course_id) if lesson.course_id is not None else None
+                value = course.name if course else "-"
+            else:
+                continue
+
+            label = localized_labels.get(field, TEMPLATE_FIELD_LABELS.get(field, field))
+            lines.append("")
+            lines.append(f"### {label}")
+            lines.append("")
+            lines.append(str(value).strip() or "-")
+
+    markdown = "\n".join(lines).strip() + "\n"
+    return markdown.encode("utf-8"), f"{_safe_filename(booklet.title)}.md"
 
 
 def create_booklet(session: Session, data: Dict[str, Any], actor: Any) -> Booklet:

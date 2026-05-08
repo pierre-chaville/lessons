@@ -315,8 +315,14 @@
       "removeChapter": "Retirer le chapitre",
       "viewEditChapter": "Voir / Modifier",
       "saveChapter": "Enregistrer le chapitre",
+      "download": "Télécharger",
+      "downloadFormatLabel": "Format de téléchargement",
+      "formatPdf": "PDF",
+      "formatMarkdown": "Markdown",
       "downloadPdf": "Télécharger PDF",
-      "downloadingPdf": "Téléchargement PDF..."
+      "downloadingPdf": "Téléchargement PDF...",
+      "downloadMarkdown": "Télécharger Markdown",
+      "downloadingMarkdown": "Téléchargement Markdown..."
     },
     "status": {
       "draft": "Brouillon",

@@ -49,6 +49,8 @@ const { role } = usePermissions()
 const loading = ref(false)
 const mutating = ref(false)
 const downloadingPdf = ref(false)
+const downloadingMarkdown = ref(false)
+const selectedDownloadFormat = ref<'pdf' | 'markdown'>('pdf')
 const detail = ref<BookletDetail | null>(null)
 const allLessons = ref<LessonListItem[]>([])
 const courseTree = ref<CourseTreeNode[]>([])
@@ -310,6 +312,33 @@ const downloadBookletPdf = async () => {
   }
 }
 
+const downloadBookletMarkdown = async () => {
+  if (!props.bookletId || !detail.value) return
+  try {
+    downloadingMarkdown.value = true
+    const blob = await bookletsApi.downloadMarkdown(props.bookletId)
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    const safeTitle = (detail.value.title || 'booklet').replace(/[^\w\- ]+/g, '').trim() || 'booklet'
+    link.download = `${safeTitle}.md`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.URL.revokeObjectURL(url)
+  } finally {
+    downloadingMarkdown.value = false
+  }
+}
+
+const downloadSelectedBooklet = async () => {
+  if (selectedDownloadFormat.value === 'markdown') {
+    await downloadBookletMarkdown()
+    return
+  }
+  await downloadBookletPdf()
+}
+
 const formatDate = (dateString: string | null | undefined): string => {
   if (!dateString) return ''
   const date = new Date(dateString)
@@ -460,58 +489,102 @@ watch(() => props.bookletId, loadDetail)
               {{ detail.subtitle }}
             </p>
           </div>
-          <div class="flex flex-wrap justify-end gap-2">
-            <button
-              class="flex-shrink-0 inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
-              :disabled="mutating || !isDraft"
-              @click="openEditBookletModal"
-            >
-              <PencilIcon class="h-4 w-4" />
-              {{ t('booklets.actions.edit') }}
-            </button>
-            <button
-              v-if="isDraft"
-              class="flex-shrink-0 inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/30 disabled:opacity-50 disabled:cursor-not-allowed"
-              :disabled="mutating"
-              @click="changeBookletStatus('ready')"
-            >
-              <CheckCircleIcon class="h-4 w-4" />
-              {{ t('booklets.actions.markReady') }}
-            </button>
-            <button
-              v-if="isReady"
-              class="flex-shrink-0 inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 dark:hover:bg-amber-900/30 disabled:opacity-50 disabled:cursor-not-allowed"
-              :disabled="mutating"
-              @click="changeBookletStatus('draft')"
-            >
-              <ArrowUturnLeftIcon class="h-4 w-4" />
-              {{ t('booklets.actions.markDraft') }}
-            </button>
-            <button
-              v-if="isAdmin && !isArchived"
-              class="flex-shrink-0 inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
-              :disabled="mutating"
-              @click="changeBookletStatus('archived')"
-            >
-              <ArchiveBoxIcon class="h-4 w-4" />
-              {{ t('booklets.actions.archive') }}
-            </button>
-            <button
-              class="flex-shrink-0 inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 disabled:opacity-50 disabled:cursor-not-allowed"
-              :disabled="mutating || downloadingPdf"
-              @click="deleteBooklet"
-            >
-              <TrashIcon class="h-4 w-4" />
-              {{ t('booklets.actions.delete') }}
-            </button>
-            <button
-              class="flex-shrink-0 inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors text-white bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
-              :disabled="mutating || downloadingPdf"
-              @click="downloadBookletPdf"
-            >
-              <DocumentTextIcon class="h-4 w-4" />
-              {{ downloadingPdf ? t('booklets.actions.downloadingPdf') : t('booklets.actions.downloadPdf') }}
-            </button>
+          <div class="flex flex-col items-end gap-2">
+            <div class="flex flex-wrap justify-end gap-2">
+              <button
+                class="flex-shrink-0 inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                :disabled="mutating || !isDraft"
+                @click="openEditBookletModal"
+              >
+                <PencilIcon class="h-4 w-4" />
+                {{ t('booklets.actions.edit') }}
+              </button>
+              <button
+                v-if="isDraft"
+                class="flex-shrink-0 inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                :disabled="mutating"
+                @click="changeBookletStatus('ready')"
+              >
+                <CheckCircleIcon class="h-4 w-4" />
+                {{ t('booklets.actions.markReady') }}
+              </button>
+              <button
+                v-if="isReady"
+                class="flex-shrink-0 inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 dark:hover:bg-amber-900/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                :disabled="mutating"
+                @click="changeBookletStatus('draft')"
+              >
+                <ArrowUturnLeftIcon class="h-4 w-4" />
+                {{ t('booklets.actions.markDraft') }}
+              </button>
+              <button
+                v-if="isAdmin && !isArchived"
+                class="flex-shrink-0 inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                :disabled="mutating"
+                @click="changeBookletStatus('archived')"
+              >
+                <ArchiveBoxIcon class="h-4 w-4" />
+                {{ t('booklets.actions.archive') }}
+              </button>
+              <button
+                class="flex-shrink-0 inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                :disabled="mutating || downloadingPdf || downloadingMarkdown"
+                @click="deleteBooklet"
+              >
+                <TrashIcon class="h-4 w-4" />
+                {{ t('booklets.actions.delete') }}
+              </button>
+            </div>
+            <div class="flex-shrink-0 flex items-center gap-2 mt-1 sm:mt-0">
+              <div
+                class="inline-flex rounded-md border border-gray-300 dark:border-gray-600 overflow-hidden"
+                role="group"
+                :aria-label="t('booklets.actions.downloadFormatLabel')"
+              >
+                <button
+                  type="button"
+                  class="px-3 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  :class="
+                    selectedDownloadFormat === 'pdf'
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600'
+                  "
+                  :disabled="mutating || downloadingPdf || downloadingMarkdown"
+                  :aria-pressed="selectedDownloadFormat === 'pdf'"
+                  @click="selectedDownloadFormat = 'pdf'"
+                >
+                  {{ t('booklets.actions.formatPdf') }}
+                </button>
+                <button
+                  type="button"
+                  class="px-3 py-2 text-sm font-medium transition-colors border-l border-gray-300 dark:border-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                  :class="
+                    selectedDownloadFormat === 'markdown'
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600'
+                  "
+                  :disabled="mutating || downloadingPdf || downloadingMarkdown"
+                  :aria-pressed="selectedDownloadFormat === 'markdown'"
+                  @click="selectedDownloadFormat = 'markdown'"
+                >
+                  {{ t('booklets.actions.formatMarkdown') }}
+                </button>
+              </div>
+              <button
+                class="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors text-white bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                :disabled="mutating || downloadingPdf || downloadingMarkdown"
+                @click="downloadSelectedBooklet"
+              >
+                <DocumentTextIcon class="h-4 w-4" />
+                {{
+                  downloadingPdf
+                    ? t('booklets.actions.downloadingPdf')
+                    : downloadingMarkdown
+                      ? t('booklets.actions.downloadingMarkdown')
+                      : t('booklets.actions.download')
+                }}
+              </button>
+            </div>
           </div>
         </div>
         <p v-if="detail.description" class="text-sm text-gray-600 dark:text-gray-300 mt-3">

@@ -315,8 +315,14 @@
       "removeChapter": "Remove chapter",
       "viewEditChapter": "View / Edit",
       "saveChapter": "Save chapter",
+      "download": "Download",
+      "downloadFormatLabel": "Download format",
+      "formatPdf": "PDF",
+      "formatMarkdown": "Markdown",
       "downloadPdf": "Download PDF",
-      "downloadingPdf": "Downloading PDF..."
+      "downloadingPdf": "Downloading PDF...",
+      "downloadMarkdown": "Download Markdown",
+      "downloadingMarkdown": "Downloading Markdown..."
     },
     "status": {
       "draft": "Draft",

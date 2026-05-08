@@ -382,6 +382,20 @@ def download_booklet_pdf(
     )
 
 
+@router.get("/{booklet_id}/download-markdown")
+def download_booklet_markdown(
+    booklet_id: int,
+    session: Session = Depends(get_session),
+    _: Dict[str, Any] = Depends(require_roles(["editor", "publisher", "admin"])),
+):
+    markdown_bytes, filename = booklet_service.generate_booklet_markdown(session, booklet_id)
+    return Response(
+        content=markdown_bytes,
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/{booklet_id}/generations", response_model=List[BookletGenerationResponse])
 def get_booklet_generations(
     booklet_id: int,
