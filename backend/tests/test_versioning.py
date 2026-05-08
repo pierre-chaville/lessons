@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import json
 
 from sqlmodel import Session, SQLModel, create_engine, select
 
@@ -176,3 +177,45 @@ def test_restore_creates_new_version_from_old() -> None:
         assert restored.version_number == 3
         session.refresh(v2)
         assert v2.sealed_reason == "restored_over"
+
+
+def test_pipeline_update_handles_legacy_string_edited_transcript() -> None:
+    with _session() as session:
+        lesson = _lesson(session)
+        legacy_payload = json.dumps([{"start": 0.0, "end": 1.0, "text": "old", "sources": []}])
+        legacy = ContentVersion(
+            lesson_id=lesson.id,
+            content_type=ContentType.EDITED_TRANSCRIPT.value,
+            content=legacy_payload,
+            version_number=1,
+            version_source=VersionSource.PIPELINE.value,
+            created_at=datetime.utcnow(),
+            last_edited_at=None,
+            edit_count=1,
+            is_sealed=False,
+            created_by_id=None,
+            change_summary="legacy payload",
+            parent_version_id=None,
+            is_current=True,
+        )
+        session.add(legacy)
+        session.commit()
+
+        updated = update_content(
+            session=session,
+            lesson_id=lesson.id,
+            content_type=ContentType.EDITED_TRANSCRIPT,
+            new_content=[{"start": 0.0, "end": 1.0, "text": "new", "sources": []}],
+            actor=None,
+            source=VersionSource.PIPELINE,
+            change_summary="pipeline rerun",
+        )
+        session.commit()
+
+        session.refresh(legacy)
+        assert legacy.is_sealed is True
+        assert legacy.sealed_reason == "pipeline_rerun"
+        assert updated.version_number == 2
+        assert updated.is_current is True
+        assert isinstance(updated.content, list)
+        assert updated.content[0]["text"] == "new"
