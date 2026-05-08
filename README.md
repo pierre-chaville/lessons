@@ -37,14 +37,36 @@ cd ..
 
 ### Development
 
-Run all services concurrently:
+Run services individually:
+
+- Frontend:
 ```bash
+cd frontend
 npm run dev
 ```
 
-Or run individually:
-- Frontend: `cd frontend && npm run dev`
-- Backend: `npm run dev:backend`
+- Backend API (FastAPI only):
+```bash
+cd backend
+python -m uvicorn main:app --host 0.0.0.0 --port 10000 --reload
+```
+
+- Background worker (separate process):
+```bash
+cd backend
+python run_worker.py
+```
+
+The worker is intentionally decoupled from FastAPI so worker memory leaks/crashes do not impact API availability.
+
+### Deployment (Render)
+
+Create two services from the same repository:
+
+- Web service (API): `uvicorn main:app --host 0.0.0.0 --port 10000`
+- Worker service: `python run_worker.py`
+
+Both services should use the same environment variables and connect to the same database.
 
 ### Build
 
@@ -56,9 +78,7 @@ npm run build
 
 ```
 lessons/
-├── frontend/          # Vue 3 frontend source
-├── backend/           # FastAPI backend
-├── dist/             # Built frontend files
-└── dist/             # Built frontend files
+├── frontend/         # Vue 3 frontend source
+└── backend/          # FastAPI API + standalone worker
 ```
 

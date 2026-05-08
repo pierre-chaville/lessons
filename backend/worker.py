@@ -3,7 +3,6 @@
 import gc
 import signal
 import sys
-import threading
 import time
 from datetime import datetime
 from sqlmodel import Session, select
@@ -454,21 +453,6 @@ def worker_loop():
             time.sleep(5)
 
     logger.info("Worker stopped")
-
-
-def start_worker_thread() -> threading.Thread:
-    """Start the worker loop in a background daemon thread.
-
-    Called by main.py on application startup so the worker shares the same
-    process as the FastAPI server.  Returns the thread so the caller can join
-    it during shutdown.
-    """
-    global should_stop
-    should_stop = False
-    thread = threading.Thread(target=worker_loop, daemon=True, name="task-worker")
-    thread.start()
-    logger.info("Worker thread started (embedded in API process)")
-    return thread
 
 
 def main():

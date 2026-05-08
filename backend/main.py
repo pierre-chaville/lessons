@@ -1,8 +1,6 @@
 """FastAPI application — app setup, middleware, and router registration."""
 
 import os
-import threading
-from contextlib import asynccontextmanager
 from typing import Dict, Any
 
 from fastapi import FastAPI, Depends
@@ -12,29 +10,12 @@ from fastapi.security import HTTPBearer
 
 from auth import require_auth
 from routers import courses, themes, lessons, upload, tasks, config, search, users, sefaria_cache, webhooks, audit, booklets
-import worker as worker_module
 
 bearer_scheme = HTTPBearer()
-
-_worker_thread: threading.Thread | None = None
-
-
-@asynccontextmanager
-async def lifespan(_: FastAPI):
-    """Start the background task worker on startup; stop it on shutdown."""
-    global _worker_thread
-    _worker_thread = worker_module.start_worker_thread()
-    yield
-    # Signal the worker to stop and give it up to 30 s to finish the current task.
-    worker_module.should_stop = True
-    if _worker_thread is not None:
-        _worker_thread.join(timeout=30)
-
 
 app = FastAPI(
     title="Lessons Manager API",
     version="1.0.0",
-    lifespan=lifespan,
     dependencies=[Depends(require_auth)],
     openapi_tags=[
         {
