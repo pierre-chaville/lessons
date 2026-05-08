@@ -219,3 +219,24 @@ def test_pipeline_update_handles_legacy_string_edited_transcript() -> None:
         assert updated.is_current is True
         assert isinstance(updated.content, list)
         assert updated.content[0]["text"] == "new"
+
+
+def test_update_content_strips_nul_bytes_from_edited_transcript() -> None:
+    with _session() as session:
+        lesson = _lesson(session)
+        updated = update_content(
+            session=session,
+            lesson_id=lesson.id,
+            content_type=ContentType.EDITED_TRANSCRIPT,
+            new_content=[
+                {"start": 0.0, "end": 1.0, "text": "abc\x00def", "sources": []}
+            ],
+            actor=None,
+            source=VersionSource.PIPELINE,
+            change_summary="sanitize nul bytes",
+        )
+        session.commit()
+
+        assert updated.content[0]["text"] == "abcdef"
+        session.refresh(lesson)
+        assert lesson.edited_transcript[0]["text"] == "abcdef"

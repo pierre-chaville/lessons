@@ -6,6 +6,7 @@ from contextlib import nullcontext
 from datetime import datetime, timedelta
 from difflib import unified_diff
 import json
+import logging
 from typing import Any, Optional
 from uuid import UUID
 
@@ -17,26 +18,79 @@ from models.versioning import ContentType, ContentVersion, VersionSource
 from schemas.lesson import EditedParagraph, Segment
 from services.audit import log_event
 
+logger = logging.getLogger(__name__)
+
+
+def _strip_nul_bytes(value: Any) -> tuple[Any, int]:
+    """Recursively remove NUL characters and return removal count."""
+    if isinstance(value, str):
+        count = value.count("\x00")
+        if count == 0:
+            return value, 0
+        return value.replace("\x00", ""), count
+    if isinstance(value, list):
+        cleaned_items = []
+        total = 0
+        for item in value:
+            cleaned_item, count = _strip_nul_bytes(item)
+            cleaned_items.append(cleaned_item)
+            total += count
+        return cleaned_items, total
+    if isinstance(value, dict):
+        cleaned_dict = {}
+        total = 0
+        for key, item in value.items():
+            cleaned_item, count = _strip_nul_bytes(item)
+            cleaned_dict[key] = cleaned_item
+            total += count
+        return cleaned_dict, total
+    return value, 0
+
 
 def _normalize_content(content_type: ContentType, value: Any) -> Any:
     if content_type in (ContentType.TITLE, ContentType.BRIEF, ContentType.SUMMARY):
         if not isinstance(value, str):
             raise ValueError(f"{content_type.value} must be a string")
-        return value
+        cleaned, removed = _strip_nul_bytes(value)
+        if removed:
+            logger.warning(
+                "Removed %s NUL character(s) from %s before persistence",
+                removed,
+                content_type.value,
+            )
+        return cleaned
 
     if content_type == ContentType.CORRECTED_TRANSCRIPT:
         if isinstance(value, str):
             value = json.loads(value)
         if not isinstance(value, list):
             raise ValueError("corrected_transcript must be a list")
-        return [Segment.model_validate(v).model_dump() for v in value]
+        cleaned, removed = _strip_nul_bytes(
+            [Segment.model_validate(v).model_dump() for v in value]
+        )
+        if removed:
+            logger.warning(
+                "Removed %s NUL character(s) from %s before persistence",
+                removed,
+                content_type.value,
+            )
+        return cleaned
 
     if content_type == ContentType.EDITED_TRANSCRIPT:
         if isinstance(value, str):
             value = json.loads(value)
         if not isinstance(value, list):
             raise ValueError("edited_transcript must be a list")
-        return [EditedParagraph.model_validate(v).model_dump() for v in value]
+        cleaned, removed = _strip_nul_bytes(
+            [EditedParagraph.model_validate(v).model_dump() for v in value]
+        )
+        if removed:
+            logger.warning(
+                "Removed %s NUL character(s) from %s before persistence",
+                removed,
+                content_type.value,
+            )
+        return cleaned
 
     raise ValueError(f"Unsupported content type: {content_type}")
 
