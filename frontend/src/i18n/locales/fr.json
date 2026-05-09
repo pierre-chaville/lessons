@@ -358,6 +358,9 @@
     "started": "Démarrée",
     "completed": "Terminée",
     "duration": "Durée",
+    "inputTokens": "Tokens Entrée",
+    "outputTokens": "Tokens Sortie",
+    "estimatedCost": "Coût Estimé (USD)",
     "error": "Erreur",
     "parameters": "Paramètres",
     "taskTypes": {
@@ -561,6 +564,7 @@
     "extractionPrompts": "Prompts d'Extraction de Sources",
     "sourcesPrompts": "Prompts de Vérification de Sources",
     "summaryPrompts": "Prompts de Résumé",
+    "modelPresets": "Presets de Modèle",
     "selectModelPreset": "Sélectionner un preset de modèle",
     "addPrompt": "Ajouter un Prompt",
     "promptName": "Nom du prompt (ex: Défaut, Détaillé, Bref)",
@@ -579,7 +583,7 @@
     "noSourceTypes": "Aucun type de source défini. Cliquez sur 'Ajouter un Type' pour en ajouter un.",
     "extractionPromptDesc": "Instructions pour le LLM lors de l'extraction de sources depuis la version rédigée",
     "summaryPromptDesc": "Chaque prompt de résumé a son propre preset de modèle et sa longueur maximale",
-    "briefPromptDesc": "Instructions pour le LLM lors de la génération de résumés brefs",
+    "briefPromptDesc": "Instructions du prompt pour le résumé bref (le modèle est choisi via un preset)",
     "maxLength": "Longueur Max (mots)",
     "maxLengthDesc": "Longueur cible du résumé en mots (backend: max tokens = 2 x cette valeur)"
   },
@@ -608,6 +612,8 @@
       "provider": "Fournisseur",
       "modelId": "ID du Modèle",
       "temperature": "Température",
+      "costInputPerMTokens": "Coût Entrée / 1M Tokens",
+      "costOutputPerMTokens": "Coût Sortie / 1M Tokens",
       "thinkingMode": "Mode de Réflexion"
     },
     "placeholders": {

@@ -18,6 +18,8 @@ class ModelPreset(SQLModel, table=True):
     provider: str = Field(sa_column=Column(String, nullable=False, index=True))
     model_id: str = Field(sa_column=Column(String, nullable=False))
     temperature: float = Field(default=0.7)
+    cost_input_per_m_tokens: float = Field(default=0.0)
+    cost_output_per_m_tokens: float = Field(default=0.0)
     thinking_mode: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
     created_at: datetime = Field(
         default_factory=datetime.utcnow,

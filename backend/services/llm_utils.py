@@ -1,7 +1,9 @@
 """Utility functions for LLM operations using LangChain"""
 from typing import Union, Optional, Dict, Any
+from threading import Lock
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
+from langchain_core.callbacks import BaseCallbackHandler
 import sys
 from pathlib import Path
 import os
@@ -13,6 +15,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import load_config
 
 logger = logging.getLogger(__name__)
+_token_usage_lock = Lock()
+_token_usage: Dict[str, int] = {
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0,
+    "model_usage": {},
+}
 
 
 def _default_model_for_provider(provider: str) -> str:
@@ -22,6 +32,191 @@ def _default_model_for_provider(provider: str) -> str:
     if provider_lc == "openrouter":
         return "openai/gpt-4.1-mini"
     return "gpt-4.1"
+
+
+def reset_token_usage_tracker() -> None:
+    """Reset token usage tracker for the current context."""
+    with _token_usage_lock:
+        _token_usage["input_tokens"] = 0
+        _token_usage["output_tokens"] = 0
+        _token_usage["completion_tokens"] = 0
+        _token_usage["total_tokens"] = 0
+        _token_usage["model_usage"] = {}
+
+
+def get_token_usage_tracker() -> Dict[str, Any]:
+    """Get aggregated token usage for the current context."""
+    with _token_usage_lock:
+        return {
+            "input_tokens": int(_token_usage.get("input_tokens", 0)),
+            "output_tokens": int(_token_usage.get("output_tokens", 0)),
+            "completion_tokens": int(_token_usage.get("completion_tokens", 0)),
+            "total_tokens": int(_token_usage.get("total_tokens", 0)),
+            "model_usage": {
+                k: {
+                    "provider": v.get("provider"),
+                    "model": v.get("model"),
+                    "input_tokens": int(v.get("input_tokens", 0)),
+                    "output_tokens": int(v.get("output_tokens", 0)),
+                    "completion_tokens": int(v.get("completion_tokens", 0)),
+                    "total_tokens": int(v.get("total_tokens", 0)),
+                }
+                for k, v in (_token_usage.get("model_usage", {}) or {}).items()
+            },
+        }
+
+
+def _accumulate_token_usage(
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    total_tokens: int = 0,
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
+) -> None:
+    with _token_usage_lock:
+        input_int = max(0, int(input_tokens or 0))
+        output_int = max(0, int(output_tokens or 0))
+        total_int = max(0, int(total_tokens or 0))
+
+        _token_usage["input_tokens"] += input_int
+        _token_usage["output_tokens"] += output_int
+        # Keep completion_tokens as alias of output_tokens for compatibility.
+        _token_usage["completion_tokens"] += output_int
+        _token_usage["total_tokens"] += total_int
+
+        if provider and model:
+            key = f"{provider.strip().lower()}::{model.strip()}"
+            model_usage = _token_usage.setdefault("model_usage", {})
+            if key not in model_usage:
+                model_usage[key] = {
+                    "provider": provider.strip(),
+                    "model": model.strip(),
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0,
+                }
+            model_usage[key]["input_tokens"] += input_int
+            model_usage[key]["output_tokens"] += output_int
+            model_usage[key]["completion_tokens"] += output_int
+            model_usage[key]["total_tokens"] += total_int
+
+
+def _extract_usage_from_llm_result(response: Any) -> Dict[str, int]:
+    """Best-effort extraction of token usage from a LangChain LLM result."""
+    input_tokens = 0
+    output_tokens = 0
+    total_tokens = 0
+
+    def _assign_from_usage(usage: Dict[str, Any]) -> bool:
+        nonlocal input_tokens, output_tokens, total_tokens
+        if not usage:
+            return False
+        input_tokens = int(
+            usage.get("prompt_tokens")
+            or usage.get("input_tokens")
+            or 0
+        )
+        output_tokens = int(
+            usage.get("completion_tokens")
+            or usage.get("output_tokens")
+            or 0
+        )
+        total_tokens = int(usage.get("total_tokens") or 0)
+        if total_tokens == 0:
+            total_tokens = input_tokens + output_tokens
+        return (input_tokens + output_tokens + total_tokens) > 0
+
+    try:
+        llm_output = getattr(response, "llm_output", None) or {}
+        token_usage = llm_output.get("token_usage") or llm_output.get("usage") or {}
+        if _assign_from_usage(token_usage):
+            return {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "total_tokens": total_tokens,
+            }
+    except Exception:
+        pass
+
+    try:
+        generations = getattr(response, "generations", None) or []
+        for batch in generations:
+            for generation in batch:
+                message = getattr(generation, "message", None)
+                usage_metadata = getattr(message, "usage_metadata", None) or {}
+                if _assign_from_usage(usage_metadata):
+                    return {
+                        "input_tokens": input_tokens,
+                        "output_tokens": output_tokens,
+                        "total_tokens": total_tokens,
+                    }
+    except Exception:
+        pass
+
+    return {
+        "input_tokens": int(input_tokens or 0),
+        "output_tokens": int(output_tokens or 0),
+        "total_tokens": int(total_tokens or 0),
+    }
+
+
+def register_token_usage_from_response(response: Any) -> None:
+    """Best-effort usage extraction from direct LLM message responses."""
+    if response is None:
+        return
+
+    input_tokens = 0
+    output_tokens = 0
+    total_tokens = 0
+
+    try:
+        usage_metadata = getattr(response, "usage_metadata", None) or {}
+        input_tokens += usage_metadata.get("input_tokens", 0) or 0
+        output_tokens += usage_metadata.get("output_tokens", 0) or 0
+        total_tokens += usage_metadata.get("total_tokens", 0) or 0
+    except Exception:
+        pass
+
+    try:
+        response_metadata = getattr(response, "response_metadata", None) or {}
+        token_usage = response_metadata.get("token_usage", {}) or {}
+        input_tokens += token_usage.get("prompt_tokens", 0) or token_usage.get(
+            "input_tokens", 0
+        ) or 0
+        output_tokens += token_usage.get("completion_tokens", 0) or token_usage.get(
+            "output_tokens", 0
+        ) or 0
+        total_tokens += token_usage.get("total_tokens", 0) or 0
+    except Exception:
+        pass
+
+    if total_tokens == 0:
+        total_tokens = input_tokens + output_tokens
+
+    _accumulate_token_usage(
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        total_tokens=total_tokens,
+    )
+
+
+class TokenUsageCallbackHandler(BaseCallbackHandler):
+    """Callback handler that aggregates token usage per task context."""
+
+    def __init__(self, provider: Optional[str] = None, model: Optional[str] = None):
+        self.provider = provider
+        self.model = model
+
+    def on_llm_end(self, response, **kwargs) -> None:
+        usage = _extract_usage_from_llm_result(response)
+        _accumulate_token_usage(
+            input_tokens=usage.get("input_tokens", 0),
+            output_tokens=usage.get("output_tokens", 0),
+            total_tokens=usage.get("total_tokens", 0),
+            provider=self.provider,
+            model=self.model,
+        )
 
 def _load_api_key_from_env_file(key_name: str) -> str:
     candidates = [
@@ -135,6 +330,7 @@ def get_llm_model(
             "api_key": api_key,
             "model": model,
             "temperature": temperature,
+            "callbacks": [TokenUsageCallbackHandler(provider=selected_provider, model=model)],
         }
         if max_tokens is not None:
             params["max_tokens"] = max_tokens
@@ -155,6 +351,12 @@ def get_llm_model(
             "base_url": "https://openrouter.ai/api/v1",
             "model": model or "openai/gpt-4o-mini",
             "temperature": temperature,
+            "callbacks": [
+                TokenUsageCallbackHandler(
+                    provider=selected_provider,
+                    model=(model or "openai/gpt-4o-mini"),
+                )
+            ],
         }
         if max_tokens is not None:
             params["max_tokens"] = max_tokens
@@ -173,6 +375,7 @@ def get_llm_model(
             "api_key": api_key,
             "model": model,
             "temperature": temperature,
+            "callbacks": [TokenUsageCallbackHandler(provider=selected_provider, model=model)],
         }
         if max_tokens is not None:
             params["max_tokens"] = max_tokens

@@ -429,6 +429,12 @@ export interface SummaryConfig {
   prompts: SummaryPromptConfig[]
 }
 
+export interface BriefConfig {
+  model_preset_id: number | null
+  max_tokens: number
+  prompt: string
+}
+
 export interface SummaryPromptConfig {
   name: string
   text: string
@@ -448,7 +454,7 @@ export interface AppConfig {
   sources: LLMConfig
   source_types: Record<string, string>
   summary: SummaryConfig
-  brief: LLMConfig
+  brief: BriefConfig
   transcribe: TranscribeConfig
 }
 
@@ -458,6 +464,8 @@ export interface ModelPreset {
   provider: string
   model_id: string
   temperature: number
+  cost_input_per_m_tokens: number
+  cost_output_per_m_tokens: number
   thinking_mode: Record<string, unknown>
   created_at: string
   updated_at: string
@@ -468,6 +476,8 @@ export interface ModelPresetCreate {
   provider: string
   model_id: string
   temperature: number
+  cost_input_per_m_tokens: number
+  cost_output_per_m_tokens: number
   thinking_mode: Record<string, unknown>
 }
 
@@ -476,5 +486,7 @@ export interface ModelPresetUpdate {
   provider?: string
   model_id?: string
   temperature?: number
+  cost_input_per_m_tokens?: number
+  cost_output_per_m_tokens?: number
   thinking_mode?: Record<string, unknown>
 }

@@ -33,6 +33,8 @@ const formData = ref({
   provider: '',
   model_id: '',
   temperature: 0.7,
+  cost_input_per_m_tokens: 0,
+  cost_output_per_m_tokens: 0,
   thinking_mode_text: '{}',
 })
 
@@ -64,6 +66,8 @@ const openCreateModal = () => {
     provider: 'openrouter',
     model_id: '',
     temperature: 0.7,
+    cost_input_per_m_tokens: 0,
+    cost_output_per_m_tokens: 0,
     thinking_mode_text: '{}',
   }
   showEditModal.value = true
@@ -76,6 +80,8 @@ const openEditModal = (preset: ModelPreset) => {
     provider: preset.provider,
     model_id: preset.model_id,
     temperature: preset.temperature,
+    cost_input_per_m_tokens: preset.cost_input_per_m_tokens ?? 0,
+    cost_output_per_m_tokens: preset.cost_output_per_m_tokens ?? 0,
     thinking_mode_text: JSON.stringify(preset.thinking_mode ?? {}, null, 2),
   }
   showEditModal.value = true
@@ -108,6 +114,8 @@ const submitForm = async () => {
         provider: formData.value.provider.trim(),
         model_id: formData.value.model_id.trim(),
         temperature: formData.value.temperature,
+        cost_input_per_m_tokens: formData.value.cost_input_per_m_tokens,
+        cost_output_per_m_tokens: formData.value.cost_output_per_m_tokens,
         thinking_mode: thinkingMode,
       })
       toast.success(t('modelPresets.updateSuccess'))
@@ -117,6 +125,8 @@ const submitForm = async () => {
         provider: formData.value.provider.trim(),
         model_id: formData.value.model_id.trim(),
         temperature: formData.value.temperature,
+        cost_input_per_m_tokens: formData.value.cost_input_per_m_tokens,
+        cost_output_per_m_tokens: formData.value.cost_output_per_m_tokens,
         thinking_mode: thinkingMode,
       })
       toast.success(t('modelPresets.createSuccess'))
@@ -203,6 +213,32 @@ defineExpose({ openCreateModal })
                   min="0"
                   max="2"
                   step="0.1"
+                  class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                />
+              </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  {{ t('modelPresets.fields.costInputPerMTokens') }}
+                </label>
+                <input
+                  v-model.number="formData.cost_input_per_m_tokens"
+                  type="number"
+                  min="0"
+                  step="0.000001"
+                  class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  {{ t('modelPresets.fields.costOutputPerMTokens') }}
+                </label>
+                <input
+                  v-model.number="formData.cost_output_per_m_tokens"
+                  type="number"
+                  min="0"
+                  step="0.000001"
                   class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                 />
               </div>
@@ -332,6 +368,8 @@ defineExpose({ openCreateModal })
             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ t('modelPresets.fields.provider') }}</th>
             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ t('modelPresets.fields.modelId') }}</th>
             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ t('modelPresets.fields.temperature') }}</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ t('modelPresets.fields.costInputPerMTokens') }}</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ t('modelPresets.fields.costOutputPerMTokens') }}</th>
             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ t('modelPresets.fields.thinkingMode') }}</th>
             <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ t('modelPresets.actions.label') }}</th>
           </tr>
@@ -342,6 +380,8 @@ defineExpose({ openCreateModal })
             <td class="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{{ preset.provider }}</td>
             <td class="px-6 py-4 text-sm text-gray-700 dark:text-gray-300 font-mono">{{ preset.model_id }}</td>
             <td class="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{{ preset.temperature }}</td>
+            <td class="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{{ preset.cost_input_per_m_tokens }}</td>
+            <td class="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{{ preset.cost_output_per_m_tokens }}</td>
             <td class="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">
               <pre class="text-xs whitespace-pre-wrap break-words max-w-md">{{ JSON.stringify(preset.thinking_mode ?? {}, null, 2) }}</pre>
             </td>

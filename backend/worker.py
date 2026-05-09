@@ -7,7 +7,7 @@ import time
 from datetime import datetime
 from sqlmodel import Session, select
 from database import engine
-from models import Task
+from models import ModelPreset, Task
 from models.lesson import Lesson
 from services import (
     correct_transcript,
@@ -17,6 +17,7 @@ from services import (
     transcribe_lesson,
     verify_lesson_sources,
 )
+from services.llm_utils import get_token_usage_tracker, reset_token_usage_tracker
 from memory_usage import format_memory_mb, get_rss_memory_mb
 import logging
 
@@ -38,6 +39,92 @@ TASK_TYPE_TO_PROCESS_STATUS = {
     "sources": "sources_checking",
     "summary": "summary",
 }
+LLM_TASK_TYPES = {"correction", "edition", "summary", "extraction", "sources"}
+
+
+def _build_pricing_map(session: Session) -> dict[tuple[str, str], ModelPreset]:
+    presets = list(session.exec(select(ModelPreset)).all())
+    pricing_map: dict[tuple[str, str], ModelPreset] = {}
+    for preset in presets:
+        provider_key = (preset.provider or "").strip().lower()
+        model_key = (preset.model_id or "").strip()
+        if provider_key and model_key:
+            pricing_map[(provider_key, model_key)] = preset
+    return pricing_map
+
+
+def _calculate_estimated_cost(
+    session: Session,
+    token_usage: dict | None,
+) -> dict:
+    token_usage = token_usage or {}
+    model_usage = token_usage.get("model_usage")
+    if not isinstance(model_usage, dict) or not model_usage:
+        return {
+            "estimated_cost_usd": 0.0,
+            "estimated_cost_breakdown": [],
+            "unpriced_models": [],
+        }
+
+    pricing_map = _build_pricing_map(session)
+    total_cost = 0.0
+    breakdown = []
+    unpriced_models = []
+
+    for usage in model_usage.values():
+        if not isinstance(usage, dict):
+            continue
+
+        provider = (usage.get("provider") or "").strip()
+        model = (usage.get("model") or "").strip()
+        input_tokens = int(usage.get("input_tokens") or 0)
+        output_tokens = int(usage.get("output_tokens") or 0)
+        completion_tokens = int(usage.get("completion_tokens") or output_tokens)
+        total_tokens = int(usage.get("total_tokens") or (input_tokens + output_tokens))
+
+        if not provider or not model:
+            continue
+
+        preset = pricing_map.get((provider.lower(), model))
+        if not preset:
+            unpriced_models.append({"provider": provider, "model": model})
+            continue
+
+        input_cost = (input_tokens / 1_000_000) * float(preset.cost_input_per_m_tokens or 0.0)
+        output_cost = (output_tokens / 1_000_000) * float(preset.cost_output_per_m_tokens or 0.0)
+        model_cost = input_cost + output_cost
+        total_cost += model_cost
+
+        breakdown.append(
+            {
+                "provider": provider,
+                "model": model,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens,
+                "cost_input_per_m_tokens": float(preset.cost_input_per_m_tokens or 0.0),
+                "cost_output_per_m_tokens": float(preset.cost_output_per_m_tokens or 0.0),
+                "estimated_cost_usd": round(model_cost, 8),
+            }
+        )
+
+    return {
+        "estimated_cost_usd": round(total_cost, 8),
+        "estimated_cost_breakdown": breakdown,
+        "unpriced_models": unpriced_models,
+    }
+
+
+def _build_llm_result(session: Session, payload: dict, token_usage: dict | None) -> dict:
+    usage = token_usage or {}
+    pricing = _calculate_estimated_cost(session, usage)
+    payload["token_usage"] = usage
+    payload["estimated_cost_usd"] = pricing["estimated_cost_usd"]
+    payload["estimated_cost_breakdown"] = pricing["estimated_cost_breakdown"]
+    if pricing["unpriced_models"]:
+        payload["unpriced_models"] = pricing["unpriced_models"]
+    return payload
 
 
 def set_lesson_process_status(session: Session, lesson_id: int, status: str | None):
@@ -158,6 +245,7 @@ def process_correction_task(session: Session, task: Task):
         if not lesson_id:
             raise ValueError("lesson_id is required in task parameters")
 
+        reset_token_usage_tracker()
         # Run correction
         success = correct_transcript(
             lesson_id=lesson_id,
@@ -168,19 +256,30 @@ def process_correction_task(session: Session, task: Task):
         )
 
         if success:
+            token_usage = get_token_usage_tracker()
             update_task_status(
                 session,
                 task,
                 "completed",
-                result={
-                    "message": "Correction completed successfully",
-                    "lesson_id": lesson_id,
-                    "segments_per_group": segments_per_group,
-                    "max_concurrency": max_concurrency,
-                },
+                result=_build_llm_result(
+                    session,
+                    {
+                        "message": "Correction completed successfully",
+                        "lesson_id": lesson_id,
+                        "segments_per_group": segments_per_group,
+                        "max_concurrency": max_concurrency,
+                    },
+                    token_usage,
+                ),
             )
         else:
-            update_task_status(session, task, "failed", error="Correction failed")
+            update_task_status(
+                session,
+                task,
+                "failed",
+                error="Correction failed",
+                result=_build_llm_result(session, {}, get_token_usage_tracker()),
+            )
 
     except Exception as e:
         logger.error(f"Error in correction task: {e}", exc_info=True)
@@ -204,6 +303,7 @@ def process_edition_task(session: Session, task: Task):
         if not lesson_id:
             raise ValueError("lesson_id is required in task parameters")
 
+        reset_token_usage_tracker()
         # Run edition (rewrite text without sources)
         logger.info(f"Editing transcript for lesson {lesson_id}")
         success = edit_transcript(
@@ -215,19 +315,29 @@ def process_edition_task(session: Session, task: Task):
         )
 
         if not success:
-            update_task_status(session, task, "failed", error="Edition failed")
+            update_task_status(
+                session,
+                task,
+                "failed",
+                error="Edition failed",
+                result=_build_llm_result(session, {}, get_token_usage_tracker()),
+            )
             return
 
         update_task_status(
             session,
             task,
             "completed",
-            result={
-                "message": "Edition completed successfully",
-                "lesson_id": lesson_id,
-                "words_per_group": words_per_group,
-                "max_concurrency": max_concurrency,
-            },
+            result=_build_llm_result(
+                session,
+                {
+                    "message": "Edition completed successfully",
+                    "lesson_id": lesson_id,
+                    "words_per_group": words_per_group,
+                    "max_concurrency": max_concurrency,
+                },
+                get_token_usage_tracker(),
+            ),
         )
 
     except Exception as e:
@@ -248,6 +358,7 @@ def process_summary_task(session: Session, task: Task):
         if not lesson_id:
             raise ValueError("lesson_id is required in task parameters")
 
+        reset_token_usage_tracker()
         # Generate summary
         success = generate_summary(
             lesson_id=lesson_id,
@@ -260,15 +371,23 @@ def process_summary_task(session: Session, task: Task):
                 session,
                 task,
                 "completed",
-                result={
-                    "message": "Summary generated successfully",
-                    "lesson_id": lesson_id,
-                    "prompt_type": prompt_type,
-                },
+                result=_build_llm_result(
+                    session,
+                    {
+                        "message": "Summary generated successfully",
+                        "lesson_id": lesson_id,
+                        "prompt_type": prompt_type,
+                    },
+                    get_token_usage_tracker(),
+                ),
             )
         else:
             update_task_status(
-                session, task, "failed", error="Summary generation failed"
+                session,
+                task,
+                "failed",
+                error="Summary generation failed",
+                result=_build_llm_result(session, {}, get_token_usage_tracker()),
             )
 
     except Exception as e:
@@ -289,6 +408,7 @@ def process_extraction_task(session: Session, task: Task):
         if not lesson_id:
             raise ValueError("lesson_id is required in task parameters")
 
+        reset_token_usage_tracker()
         success = extract_sources(
             lesson_id=lesson_id,
             max_concurrency=max_concurrency,
@@ -301,15 +421,23 @@ def process_extraction_task(session: Session, task: Task):
                 session,
                 task,
                 "completed",
-                result={
-                    "message": "Source extraction completed successfully",
-                    "lesson_id": lesson_id,
-                    "max_concurrency": max_concurrency,
-                },
+                result=_build_llm_result(
+                    session,
+                    {
+                        "message": "Source extraction completed successfully",
+                        "lesson_id": lesson_id,
+                        "max_concurrency": max_concurrency,
+                    },
+                    get_token_usage_tracker(),
+                ),
             )
         else:
             update_task_status(
-                session, task, "failed", error="Source extraction failed"
+                session,
+                task,
+                "failed",
+                error="Source extraction failed",
+                result=_build_llm_result(session, {}, get_token_usage_tracker()),
             )
 
     except Exception as e:
@@ -330,6 +458,7 @@ def process_sources_task(session: Session, task: Task):
         if not lesson_id:
             raise ValueError("lesson_id is required in task parameters")
 
+        reset_token_usage_tracker()
         # Verify sources
         success = verify_lesson_sources(
             lesson_id=lesson_id,
@@ -342,14 +471,22 @@ def process_sources_task(session: Session, task: Task):
                 session,
                 task,
                 "completed",
-                result={
-                    "message": "Source verification completed successfully",
-                    "lesson_id": lesson_id,
-                },
+                result=_build_llm_result(
+                    session,
+                    {
+                        "message": "Source verification completed successfully",
+                        "lesson_id": lesson_id,
+                    },
+                    get_token_usage_tracker(),
+                ),
             )
         else:
             update_task_status(
-                session, task, "failed", error="Source verification failed"
+                session,
+                task,
+                "failed",
+                error="Source verification failed",
+                result=_build_llm_result(session, {}, get_token_usage_tracker()),
             )
 
     except Exception as e:
@@ -400,7 +537,12 @@ def process_task(session: Session, task: Task):
 
     except Exception as e:
         logger.error(f"Error processing task {task.id}: {str(e)}", exc_info=True)
-        update_task_status(session, task, "failed", error=str(e))
+        extra_kwargs = {}
+        if task.task_type in LLM_TASK_TYPES:
+            extra_kwargs["result"] = _build_llm_result(
+                session, {}, get_token_usage_tracker()
+            )
+        update_task_status(session, task, "failed", error=str(e), **extra_kwargs)
     finally:
         # Clear process_status on the lesson when done (success or failure)
         if lesson_id:

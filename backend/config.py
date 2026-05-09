@@ -14,6 +14,7 @@ CONFIG_FILE = Path(__file__).parent / "data/config.yaml"
 CONFIG_RECORD_ID = 1
 MIN_SUMMARY_PROMPT_MAX_LENGTH = 50
 DEFAULT_SUMMARY_PROMPT_MAX_LENGTH = 300
+DEFAULT_BRIEF_MAX_TOKENS = 1000
 
 # Default configuration
 DEFAULT_CONFIG = {
@@ -52,11 +53,9 @@ DEFAULT_CONFIG = {
         ],
     },
     "brief": {
-        "provider": "OpenAI",
-        "model": "gpt-4o",
+        "model_preset_id": None,
         "prompt": "Please provide a brief 1-3 line summary of the following lesson transcript.",
-        "temperature": 0.5,
-        "max_tokens": 1000,
+        "max_tokens": DEFAULT_BRIEF_MAX_TOKENS,
     },
     "extraction": {
         "provider": "OpenAI",
@@ -199,6 +198,47 @@ def _normalize_summary_prompt_limits(config: Dict[str, Any]) -> Dict[str, Any]:
     return normalized
 
 
+def _normalize_brief_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize brief config to model_preset_id/max_tokens/prompt shape."""
+    if not config:
+        return {}
+
+    normalized = dict(config)
+    brief = normalized.get("brief")
+    if not isinstance(brief, dict):
+        normalized["brief"] = dict(DEFAULT_CONFIG["brief"])
+        return normalized
+
+    brief_copy = dict(brief)
+    prompt = brief_copy.get("prompt")
+    if not isinstance(prompt, str):
+        prompt = DEFAULT_CONFIG["brief"]["prompt"]
+    brief_copy["prompt"] = prompt
+
+    raw_model_preset_id = brief_copy.get("model_preset_id")
+    if raw_model_preset_id in (None, ""):
+        brief_copy["model_preset_id"] = None
+    else:
+        try:
+            brief_copy["model_preset_id"] = int(raw_model_preset_id)
+        except (TypeError, ValueError):
+            brief_copy["model_preset_id"] = None
+
+    raw_max_tokens = brief_copy.get("max_tokens", DEFAULT_BRIEF_MAX_TOKENS)
+    try:
+        max_tokens = int(raw_max_tokens)
+    except (TypeError, ValueError):
+        max_tokens = DEFAULT_BRIEF_MAX_TOKENS
+    brief_copy["max_tokens"] = max(1, max_tokens)
+
+    # Remove legacy LLMConfig fields from brief.
+    for key in ("provider", "model", "temperature"):
+        brief_copy.pop(key, None)
+
+    normalized["brief"] = brief_copy
+    return normalized
+
+
 def _get_db_config(session: Session) -> Dict[str, Any]:
     record = session.get(AppConfig, CONFIG_RECORD_ID)
     if record and isinstance(record.data, dict):
@@ -232,6 +272,7 @@ def load_config() -> Dict[str, Any]:
                 file_config = _migrate_summary_prompt_model_presets(file_config)
                 merged = merge_dicts(DEFAULT_CONFIG.copy(), file_config)
                 merged = _normalize_summary_prompt_limits(merged)
+                merged = _normalize_brief_config(merged)
                 merged = _sanitize_config(merged)
                 _save_db_config(session, merged)
                 return merged
@@ -240,6 +281,7 @@ def load_config() -> Dict[str, Any]:
             db_config = _migrate_summary_prompt_model_presets(db_config)
             merged = merge_dicts(DEFAULT_CONFIG.copy(), db_config)
             merged = _normalize_summary_prompt_limits(merged)
+            merged = _normalize_brief_config(merged)
             cleaned = _sanitize_config(merged)
             if cleaned != db_config or "api_key" in db_config:
                 _save_db_config(session, cleaned)
@@ -255,6 +297,7 @@ def save_config(config: Dict[str, Any]) -> bool:
         create_db_and_tables()
         with Session(engine) as session:
             normalized = _normalize_summary_prompt_limits(config)
+            normalized = _normalize_brief_config(normalized)
             cleaned = _sanitize_config(normalized)
             _save_db_config(session, cleaned)
         return True
@@ -280,6 +323,7 @@ def update_config(updates: Dict[str, Any]) -> Dict[str, Any]:
     updates = _sanitize_config(updates or {})
     config = merge_dicts(config, updates)
     config = _normalize_summary_prompt_limits(config)
+    config = _normalize_brief_config(config)
     save_config(config)
     return config
 

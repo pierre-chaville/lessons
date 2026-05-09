@@ -358,6 +358,9 @@
     "started": "Started",
     "completed": "Completed",
     "duration": "Duration",
+    "inputTokens": "Input Tokens",
+    "outputTokens": "Output Tokens",
+    "estimatedCost": "Estimated Cost (USD)",
     "error": "Error",
     "parameters": "Parameters",
     "taskTypes": {
@@ -570,6 +573,7 @@
     "extractionPrompts": "Sources Extraction Prompts",
     "sourcesPrompts": "Sources Verification Prompts",
     "summaryPrompts": "Summary Prompts",
+    "modelPresets": "Model Presets",
     "selectModelPreset": "Select model preset",
     "addPrompt": "Add Prompt",
     "promptName": "Prompt name (e.g., Default, Detailed, Brief)",
@@ -579,7 +583,7 @@
     "editionPromptDesc": "Instructions for the LLM when rewriting transcripts with sources and timing",
     "sourcesPromptDesc": "Instructions for the LLM when identifying and verifying sources using Sefaria.org",
     "summaryPromptDesc": "Each summary prompt has its own model preset and max length",
-    "briefPromptDesc": "Instructions for the LLM when generating brief summaries",
+    "briefPromptDesc": "Instructions for the brief generation prompt (model is selected via model preset)",
     "maxLength": "Max Length (words)",
     "maxLengthDesc": "Target summary length in words (backend uses max tokens = 2 x this value)"
   },
@@ -608,6 +612,8 @@
       "provider": "Provider",
       "modelId": "Model ID",
       "temperature": "Temperature",
+      "costInputPerMTokens": "Input Cost / 1M Tokens",
+      "costOutputPerMTokens": "Output Cost / 1M Tokens",
       "thinkingMode": "Thinking Mode"
     },
     "placeholders": {

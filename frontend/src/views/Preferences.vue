@@ -29,7 +29,7 @@ const config = ref<AppConfig>({
   summary: {
     prompts: [{ name: 'Default', text: '', model_preset_id: null, max_length: 300 }],
   },
-  brief: { provider: 'OpenAI', model: '', prompt: '', temperature: 0.5, max_tokens: 1000 },
+  brief: { model_preset_id: null, max_tokens: 1000, prompt: '' },
   transcribe: { model: 'nova-3', language: 'fr' },
 })
 
@@ -44,17 +44,51 @@ const normalizeConfigShape = () => {
   if (!config.value.transcribe) config.value.transcribe = { model: 'nova-3', language: 'fr' }
   if (!config.value.transcribe.model) config.value.transcribe.model = 'nova-3'
   if (!config.value.transcribe.language) config.value.transcribe.language = 'fr'
-  if (!config.value.brief) {
-    config.value.brief = { provider: 'OpenAI', model: '', prompt: '', temperature: 0.5, max_tokens: 1000 }
-  }
+  if (!config.value.brief) config.value.brief = { model_preset_id: null, max_tokens: 1000, prompt: '' }
   // Backward compatibility: migrate legacy summary.brief to top-level brief.
-  const summaryWithLegacyBrief = config.value.summary as typeof config.value.summary & { brief?: typeof config.value.brief }
+  const summaryWithLegacyBrief = config.value.summary as typeof config.value.summary & {
+    brief?: {
+      model_preset_id?: number | null
+      max_tokens?: number
+      prompt?: string
+      provider?: string
+      model?: string
+      temperature?: number
+    }
+  }
   if (!config.value.brief.prompt && summaryWithLegacyBrief.brief) {
-    config.value.brief = { ...summaryWithLegacyBrief.brief }
+    config.value.brief = {
+      model_preset_id:
+        typeof summaryWithLegacyBrief.brief.model_preset_id === 'number'
+          ? summaryWithLegacyBrief.brief.model_preset_id
+          : null,
+      max_tokens:
+        typeof summaryWithLegacyBrief.brief.max_tokens === 'number'
+          ? summaryWithLegacyBrief.brief.max_tokens
+          : 1000,
+      prompt: summaryWithLegacyBrief.brief.prompt ?? '',
+    }
   }
   if (summaryWithLegacyBrief.brief) {
     delete summaryWithLegacyBrief.brief
   }
+  const briefWithLegacyFields = config.value.brief as typeof config.value.brief & {
+    provider?: string
+    model?: string
+    temperature?: number
+  }
+  if (typeof config.value.brief.model_preset_id !== 'number') {
+    config.value.brief.model_preset_id = null
+  }
+  if (typeof config.value.brief.max_tokens !== 'number') {
+    config.value.brief.max_tokens = 1000
+  }
+  if (typeof config.value.brief.prompt !== 'string') {
+    config.value.brief.prompt = ''
+  }
+  delete briefWithLegacyFields.provider
+  delete briefWithLegacyFields.model
+  delete briefWithLegacyFields.temperature
   const legacySummaryMaxLength =
     typeof (config.value.summary as { max_length?: unknown }).max_length === 'number'
       ? (config.value.summary as { max_length: number }).max_length
@@ -1102,53 +1136,24 @@ const updateSourceType = (oldType: string, newType: string, description: string)
               </h2>
 
               <div class="space-y-6">
-                <!-- Provider -->
+                <!-- Model Preset -->
                 <div>
                   <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {{ t('preferences.provider') }}
+                    {{ t('preferences.modelPresets') }}
                   </label>
                   <select
-                    v-model="config.brief.provider"
+                    v-model="config.brief.model_preset_id"
                     class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
                   >
-                    <option value="OpenAI">OpenAI</option>
-                    <option value="Anthropic">Anthropic</option>
+                    <option :value="null">{{ t('preferences.selectModelPreset') }}</option>
+                    <option
+                      v-for="preset in modelPresets"
+                      :key="preset.id"
+                      :value="preset.id"
+                    >
+                      {{ preset.name }}
+                    </option>
                   </select>
-                </div>
-
-                <!-- Model -->
-                <div>
-                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {{ t('preferences.model') }}
-                  </label>
-                  <input
-                    v-model="config.brief.model"
-                    type="text"
-                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-                    placeholder="gpt-4o"
-                  />
-                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    {{ t('preferences.modelDesc') }}
-                  </p>
-                </div>
-
-                <!-- Temperature -->
-                <div>
-                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {{ t('preferences.temperature') }}: {{ config.brief.temperature }}
-                  </label>
-                  <input
-                    v-model.number="config.brief.temperature"
-                    type="range"
-                    min="0"
-                    max="2"
-                    step="0.1"
-                    class="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer"
-                  />
-                  <div class="flex justify-between text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    <span>{{ t('preferences.precise') }}</span>
-                    <span>{{ t('preferences.creative') }}</span>
-                  </div>
                 </div>
 
                 <!-- Max Tokens -->

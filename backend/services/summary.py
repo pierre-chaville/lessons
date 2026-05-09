@@ -250,12 +250,35 @@ async def generate_summary_async(
             logger.error("No brief prompt configured in config.brief.")
             return False
 
-        brief_llm = get_llm_model(
-            task_name="summary",
-            temperature=brief_config.get("temperature"),
-            model=brief_config.get("model"),
-            max_tokens=brief_config.get("max_tokens"),
-        )
+        try:
+            brief_max_tokens = int(brief_config.get("max_tokens", 1000))
+        except (TypeError, ValueError):
+            brief_max_tokens = 1000
+        brief_max_tokens = max(1, brief_max_tokens)
+
+        brief_model_preset = None
+        brief_model_preset_id = brief_config.get("model_preset_id")
+        if brief_model_preset_id is not None:
+            try:
+                brief_model_preset = session.get(ModelPreset, int(brief_model_preset_id))
+            except (TypeError, ValueError):
+                brief_model_preset = None
+            if not brief_model_preset:
+                logger.warning(
+                    "Brief config references missing model preset id=%s; using fallback config.",
+                    brief_model_preset_id,
+                )
+
+        if brief_model_preset:
+            brief_llm = get_llm_model(
+                provider=brief_model_preset.provider,
+                model=brief_model_preset.model_id,
+                temperature=brief_model_preset.temperature,
+                max_tokens=brief_max_tokens,
+                thinking_mode=brief_model_preset.thinking_mode or None,
+            )
+        else:
+            brief_llm = get_llm_model(task_name="summary", max_tokens=brief_max_tokens)
         brief = await generate_summary_with_retry(
             input_text=summary.strip(),
             llm=brief_llm,

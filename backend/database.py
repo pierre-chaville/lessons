@@ -199,6 +199,28 @@ def _run_migrations():
         except SQLAlchemyError as exc:
             logger.warning("Versioning migration step failed/skipped: %s", exc)
 
+    if "model_preset" in tables:
+        columns = {col["name"] for col in inspector.get_columns("model_preset")}
+        with engine.begin() as conn:
+            if "cost_input_per_m_tokens" not in columns:
+                conn.execute(
+                    text(
+                        "ALTER TABLE model_preset ADD COLUMN cost_input_per_m_tokens DOUBLE PRECISION NOT NULL DEFAULT 0"
+                    )
+                )
+                logger.info(
+                    "Migration: added 'cost_input_per_m_tokens' column to model_preset table"
+                )
+            if "cost_output_per_m_tokens" not in columns:
+                conn.execute(
+                    text(
+                        "ALTER TABLE model_preset ADD COLUMN cost_output_per_m_tokens DOUBLE PRECISION NOT NULL DEFAULT 0"
+                    )
+                )
+                logger.info(
+                    "Migration: added 'cost_output_per_m_tokens' column to model_preset table"
+                )
+
 
 def create_db_and_tables():
     """Create database tables"""

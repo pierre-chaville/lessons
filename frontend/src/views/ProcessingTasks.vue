@@ -152,6 +152,48 @@ const formatDuration = (seconds: number | null | undefined): string => {
   return `${secs}s`
 }
 
+const getTaskResultObject = (task: Task): Record<string, unknown> | null => {
+  if (!task.result || typeof task.result !== 'object') return null
+  return task.result as Record<string, unknown>
+}
+
+const getTokenUsageObject = (task: Task): Record<string, unknown> | null => {
+  const result = getTaskResultObject(task)
+  if (!result) return null
+  const tokenUsage = result.token_usage
+  if (!tokenUsage || typeof tokenUsage !== 'object') return null
+  return tokenUsage as Record<string, unknown>
+}
+
+const getTokenCount = (task: Task, key: 'input_tokens' | 'output_tokens'): number | null => {
+  const tokenUsage = getTokenUsageObject(task)
+  if (!tokenUsage) return null
+  const value = tokenUsage[key]
+  const parsed = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(parsed)) return null
+  return parsed
+}
+
+const formatInteger = (value: number | null): string => {
+  if (value === null) return '-'
+  return value.toLocaleString()
+}
+
+const getEstimatedCost = (task: Task): number | null => {
+  const result = getTaskResultObject(task)
+  if (!result) return null
+  const raw = result.estimated_cost_usd
+  const parsed = typeof raw === 'number' ? raw : Number(raw)
+  if (!Number.isFinite(parsed)) return null
+  return parsed
+}
+
+const formatEstimatedCost = (task: Task): string => {
+  const cost = getEstimatedCost(task)
+  if (cost === null) return '-'
+  return `$${cost.toFixed(6)}`
+}
+
 const getStatusColor = (status: TaskStatus): string => {
   switch (status) {
     case 'completed': return 'text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30'
@@ -339,16 +381,19 @@ onBeforeUnmount(() => {
                 {{ t('processing.lessonLabel') }}
               </th>
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                {{ t('processing.created') }}
-              </th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                 {{ t('processing.started') }}
               </th>
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                {{ t('processing.completed') }}
+                {{ t('processing.duration') }}
               </th>
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                {{ t('processing.duration') }}
+                {{ t('processing.inputTokens') }}
+              </th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                {{ t('processing.outputTokens') }}
+              </th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                {{ t('processing.estimatedCost') }}
               </th>
               <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                 {{ t('processing.actions') }}
@@ -398,16 +443,19 @@ onBeforeUnmount(() => {
                   </span>
                 </td>
                 <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
-                  {{ formatDate(task.created_at) }}
-                </td>
-                <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
                   {{ formatDate(task.start_date) }}
                 </td>
                 <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
-                  {{ formatDate(task.end_date) }}
+                  {{ formatDuration(task.duration) }}
                 </td>
                 <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
-                  {{ formatDuration(task.duration) }}
+                  {{ formatInteger(getTokenCount(task, 'input_tokens')) }}
+                </td>
+                <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                  {{ formatInteger(getTokenCount(task, 'output_tokens')) }}
+                </td>
+                <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                  {{ formatEstimatedCost(task) }}
                 </td>
                 <td class="px-4 py-3 text-right">
                   <button
@@ -422,7 +470,7 @@ onBeforeUnmount(() => {
                 </td>
               </tr>
               <tr v-if="task.status === 'failed' && task.error" class="bg-red-50/60 dark:bg-red-900/10">
-                <td colspan="10" class="px-4 py-3 text-sm text-red-800 dark:text-red-300">
+                <td colspan="11" class="px-4 py-3 text-sm text-red-800 dark:text-red-300">
                   <span class="font-medium">{{ t('processing.error') }}:</span>
                   <span class="ml-2 break-words">{{ task.error }}</span>
                 </td>
