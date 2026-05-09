@@ -15,6 +15,8 @@ import { configApi } from '@/api/config'
 import { modelPresetsApi } from '@/api/modelPresets'
 import { usePermissions } from '@/composables/usePermissions'
 import type { AppConfig, ModelPreset } from '@/api/types'
+import MilkdownEditor from '@/components/MilkdownEditor.vue'
+import { marked } from 'marked'
 import { parse, stringify } from 'yaml'
 
 const { t } = useI18n()
@@ -47,6 +49,18 @@ const saveMessage = ref('')
 const saveError = ref('')
 const importInputRef = ref<HTMLInputElement | null>(null)
 const modelPresets = ref<ModelPreset[]>([])
+type PromptGroupKey = 'correction' | 'edition' | 'extraction' | 'sources' | 'summary'
+type PromptEditorTarget = { kind: 'brief' } | { kind: 'group'; group: PromptGroupKey; index: number }
+
+const isPromptEditorOpen = ref(false)
+const promptEditorTitle = ref('')
+const promptEditorDraft = ref('')
+const promptEditorTarget = ref<PromptEditorTarget | null>(null)
+
+const renderMarkdown = (markdown: string | null | undefined): string => {
+  if (!markdown) return ''
+  return marked(markdown) as string
+}
 
 const normalizeConfigShape = () => {
   if (!config.value.transcribe) config.value.transcribe = { model: 'nova-3', language: 'fr' }
@@ -422,6 +436,45 @@ const updateSourceType = (oldType: string, newType: string, description: string)
   updated[newType] = description
   config.value.source_types = updated
 }
+
+const getPromptList = (group: PromptGroupKey) => config.value[group].prompts
+
+const openPromptEditor = (group: PromptGroupKey, index: number) => {
+  const prompt = getPromptList(group)[index]
+  if (!prompt) return
+  promptEditorDraft.value = prompt.text || ''
+  promptEditorTarget.value = { kind: 'group', group, index }
+  promptEditorTitle.value = prompt.name?.trim()
+    ? `${t('preferences.editPromptWysiwyg')} - ${prompt.name}`
+    : t('preferences.editPromptWysiwyg')
+  isPromptEditorOpen.value = true
+}
+
+const openBriefPromptEditor = () => {
+  promptEditorDraft.value = config.value.brief.prompt || ''
+  promptEditorTarget.value = { kind: 'brief' }
+  promptEditorTitle.value = t('preferences.editPromptWysiwyg')
+  isPromptEditorOpen.value = true
+}
+
+const closePromptEditor = () => {
+  isPromptEditorOpen.value = false
+  promptEditorTarget.value = null
+}
+
+const savePromptEditor = () => {
+  const target = promptEditorTarget.value
+  if (!target) return
+
+  if (target.kind === 'brief') {
+    config.value.brief.prompt = promptEditorDraft.value
+  } else {
+    const prompt = getPromptList(target.group)[target.index]
+    if (prompt) prompt.text = promptEditorDraft.value
+  }
+
+  closePromptEditor()
+}
 </script>
 
 <template>
@@ -670,12 +723,34 @@ const updateSourceType = (oldType: string, newType: string, description: string)
                           {{ t('preferences.remove') }}
                         </button>
                       </div>
-                      <textarea
-                        v-model="prompt.text"
-                        rows="8"
-                        :placeholder="t('preferences.promptText')"
-                        class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
-                      ></textarea>
+                      <div class="space-y-2 mb-3">
+                        <div class="flex justify-end">
+                          <button
+                            type="button"
+                            @click="openPromptEditor('correction', index)"
+                            class="px-3 py-1 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 border border-indigo-300 dark:border-indigo-600 rounded-md hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
+                          >
+                            {{ t('preferences.editPromptWysiwyg') }}
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          @click="openPromptEditor('correction', index)"
+                          class="w-full text-left px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600/60 transition-colors"
+                        >
+                          <div
+                            v-if="prompt.text"
+                            class="prose prose-sm max-w-none dark:prose-invert text-gray-900 dark:text-gray-100"
+                            v-html="renderMarkdown(prompt.text)"
+                          />
+                          <p
+                            v-else
+                            class="text-sm text-gray-500 dark:text-gray-400 italic"
+                          >
+                            {{ t('preferences.emptyPromptClickToEdit') }}
+                          </p>
+                        </button>
+                      </div>
                       <div class="mt-3">
                         <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                           {{ t('preferences.maxTokens') }}
@@ -759,12 +834,34 @@ const updateSourceType = (oldType: string, newType: string, description: string)
                           {{ t('preferences.remove') }}
                         </button>
                       </div>
-                      <textarea
-                        v-model="prompt.text"
-                        rows="8"
-                        :placeholder="t('preferences.promptText')"
-                        class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
-                      ></textarea>
+                      <div class="space-y-2 mb-3">
+                        <div class="flex justify-end">
+                          <button
+                            type="button"
+                            @click="openPromptEditor('edition', index)"
+                            class="px-3 py-1 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 border border-indigo-300 dark:border-indigo-600 rounded-md hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
+                          >
+                            {{ t('preferences.editPromptWysiwyg') }}
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          @click="openPromptEditor('edition', index)"
+                          class="w-full text-left px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600/60 transition-colors"
+                        >
+                          <div
+                            v-if="prompt.text"
+                            class="prose prose-sm max-w-none dark:prose-invert text-gray-900 dark:text-gray-100"
+                            v-html="renderMarkdown(prompt.text)"
+                          />
+                          <p
+                            v-else
+                            class="text-sm text-gray-500 dark:text-gray-400 italic"
+                          >
+                            {{ t('preferences.emptyPromptClickToEdit') }}
+                          </p>
+                        </button>
+                      </div>
                       <div class="mt-3">
                         <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                           {{ t('preferences.maxTokens') }}
@@ -913,12 +1010,34 @@ const updateSourceType = (oldType: string, newType: string, description: string)
                               {{ t('preferences.remove') }}
                             </button>
                           </div>
-                          <textarea
-                            v-model="prompt.text"
-                            rows="8"
-                            :placeholder="t('preferences.promptText')"
-                            class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
-                          ></textarea>
+                          <div class="space-y-2 mb-3">
+                            <div class="flex justify-end">
+                              <button
+                                type="button"
+                                @click="openPromptEditor('extraction', index)"
+                                class="px-3 py-1 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 border border-indigo-300 dark:border-indigo-600 rounded-md hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
+                              >
+                                {{ t('preferences.editPromptWysiwyg') }}
+                              </button>
+                            </div>
+                            <button
+                              type="button"
+                              @click="openPromptEditor('extraction', index)"
+                              class="w-full text-left px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600/60 transition-colors"
+                            >
+                              <div
+                                v-if="prompt.text"
+                                class="prose prose-sm max-w-none dark:prose-invert text-gray-900 dark:text-gray-100"
+                                v-html="renderMarkdown(prompt.text)"
+                              />
+                              <p
+                                v-else
+                                class="text-sm text-gray-500 dark:text-gray-400 italic"
+                              >
+                                {{ t('preferences.emptyPromptClickToEdit') }}
+                              </p>
+                            </button>
+                          </div>
                           <div class="mt-3">
                             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                               {{ t('preferences.maxTokens') }}
@@ -999,12 +1118,34 @@ const updateSourceType = (oldType: string, newType: string, description: string)
                               {{ t('preferences.remove') }}
                             </button>
                           </div>
-                          <textarea
-                            v-model="prompt.text"
-                            rows="8"
-                            :placeholder="t('preferences.promptText')"
-                            class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
-                          ></textarea>
+                          <div class="space-y-2 mb-3">
+                            <div class="flex justify-end">
+                              <button
+                                type="button"
+                                @click="openPromptEditor('sources', index)"
+                                class="px-3 py-1 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 border border-indigo-300 dark:border-indigo-600 rounded-md hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
+                              >
+                                {{ t('preferences.editPromptWysiwyg') }}
+                              </button>
+                            </div>
+                            <button
+                              type="button"
+                              @click="openPromptEditor('sources', index)"
+                              class="w-full text-left px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600/60 transition-colors"
+                            >
+                              <div
+                                v-if="prompt.text"
+                                class="prose prose-sm max-w-none dark:prose-invert text-gray-900 dark:text-gray-100"
+                                v-html="renderMarkdown(prompt.text)"
+                              />
+                              <p
+                                v-else
+                                class="text-sm text-gray-500 dark:text-gray-400 italic"
+                              >
+                                {{ t('preferences.emptyPromptClickToEdit') }}
+                              </p>
+                            </button>
+                          </div>
                           <div class="mt-3">
                             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                               {{ t('preferences.maxTokens') }}
@@ -1087,12 +1228,34 @@ const updateSourceType = (oldType: string, newType: string, description: string)
                           {{ t('preferences.remove') }}
                         </button>
                       </div>
-                      <textarea
-                        v-model="prompt.text"
-                        rows="8"
-                        :placeholder="t('preferences.promptText')"
-                        class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
-                      ></textarea>
+                      <div class="space-y-2 mb-3">
+                        <div class="flex justify-end">
+                          <button
+                            type="button"
+                            @click="openPromptEditor('summary', index)"
+                            class="px-3 py-1 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 border border-indigo-300 dark:border-indigo-600 rounded-md hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
+                          >
+                            {{ t('preferences.editPromptWysiwyg') }}
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          @click="openPromptEditor('summary', index)"
+                          class="w-full text-left px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600/60 transition-colors"
+                        >
+                          <div
+                            v-if="prompt.text"
+                            class="prose prose-sm max-w-none dark:prose-invert text-gray-900 dark:text-gray-100"
+                            v-html="renderMarkdown(prompt.text)"
+                          />
+                          <p
+                            v-else
+                            class="text-sm text-gray-500 dark:text-gray-400 italic"
+                          >
+                            {{ t('preferences.emptyPromptClickToEdit') }}
+                          </p>
+                        </button>
+                      </div>
                       <div class="mt-3">
                         <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                           {{ t('preferences.maxLength') }}
@@ -1166,14 +1329,35 @@ const updateSourceType = (oldType: string, newType: string, description: string)
 
                 <!-- Prompt -->
                 <div>
-                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {{ t('preferences.prompt') }}
-                  </label>
-                  <textarea
-                    v-model="config.brief.prompt"
-                    rows="6"
-                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
-                  ></textarea>
+                  <div class="flex items-center justify-between mb-2">
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {{ t('preferences.prompt') }}
+                    </label>
+                    <button
+                      type="button"
+                      @click="openBriefPromptEditor"
+                      class="px-3 py-1 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 border border-indigo-300 dark:border-indigo-600 rounded-md hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
+                    >
+                      {{ t('preferences.editPromptWysiwyg') }}
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    @click="openBriefPromptEditor"
+                    class="w-full text-left px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600/60 transition-colors"
+                  >
+                    <div
+                      v-if="config.brief.prompt"
+                      class="prose prose-sm max-w-none dark:prose-invert text-gray-900 dark:text-gray-100"
+                      v-html="renderMarkdown(config.brief.prompt)"
+                    />
+                    <p
+                      v-else
+                      class="text-sm text-gray-500 dark:text-gray-400 italic"
+                    >
+                      {{ t('preferences.emptyPromptClickToEdit') }}
+                    </p>
+                  </button>
                   <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
                     {{ t('preferences.briefPromptDesc') }}
                   </p>
@@ -1182,6 +1366,49 @@ const updateSourceType = (oldType: string, newType: string, description: string)
             </TabPanel>
           </TabPanels>
         </TabGroup>
+      </div>
+    </div>
+
+    <div
+      v-if="isPromptEditorOpen"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      @click.self="closePromptEditor"
+    >
+      <div class="w-full max-w-5xl rounded-lg bg-white dark:bg-gray-800 shadow-xl border border-gray-200 dark:border-gray-700">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+          <h3 class="text-base font-semibold text-gray-900 dark:text-white">
+            {{ promptEditorTitle }}
+          </h3>
+          <button
+            type="button"
+            @click="closePromptEditor"
+            class="px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
+          >
+            {{ t('preferences.close') }}
+          </button>
+        </div>
+        <div class="p-4">
+          <MilkdownEditor
+            v-model="promptEditorDraft"
+            :placeholder="t('preferences.promptText')"
+          />
+        </div>
+        <div class="flex justify-end gap-2 px-4 py-3 border-t border-gray-200 dark:border-gray-700">
+          <button
+            type="button"
+            @click="closePromptEditor"
+            class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md transition-colors"
+          >
+            {{ t('preferences.cancel') }}
+          </button>
+          <button
+            type="button"
+            @click="savePromptEditor"
+            class="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md transition-colors"
+          >
+            {{ t('preferences.save') }}
+          </button>
+        </div>
       </div>
     </div>
   </div>

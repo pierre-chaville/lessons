@@ -39,6 +39,11 @@ onMounted(async () => {
   editor = new Crepe({
     root: rootEl.value,
     defaultValue: props.modelValue || '',
+    features: {
+      [Crepe.Feature.BlockEdit]: true,
+      [Crepe.Feature.Toolbar]: true,
+      [Crepe.Feature.TopBar]: true,
+    },
     featureConfigs: {
       [Crepe.Feature.Placeholder]: {
         text: props.placeholder,
