@@ -14,3 +14,4 @@ export type Resource =
   | 'tasks'
   | 'configuration'
   | 'users'
+  | 'model_presets'

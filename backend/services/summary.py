@@ -10,7 +10,7 @@ import time
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from database import engine
-from models import Lesson
+from models import Lesson, ModelPreset
 from schemas import Metadata
 from config import load_config
 from .llm_utils import get_llm_model
@@ -167,18 +167,18 @@ async def generate_summary_async(
             prompts = [{"name": "Default", "text": summary_config["prompt"]}]
 
         # Use selected prompt for the main summary
-        summary_prompt = None
-        selected_prompt_name = None
+        selected_prompt = None
         if prompt_type:
             for p in prompts:
                 if p.get("name") == prompt_type:
-                    summary_prompt = p.get("text")
-                    selected_prompt_name = p.get("name")
+                    selected_prompt = p
                     break
 
-        if not summary_prompt and prompts:
-            summary_prompt = prompts[0].get("text")
-            selected_prompt_name = prompts[0].get("name")
+        if not selected_prompt and prompts:
+            selected_prompt = prompts[0]
+
+        summary_prompt = selected_prompt.get("text") if isinstance(selected_prompt, dict) else None
+        selected_prompt_name = selected_prompt.get("name") if isinstance(selected_prompt, dict) else None
 
         # Fallback to a default prompt if nothing is configured
         if not summary_prompt:
@@ -186,7 +186,17 @@ async def generate_summary_async(
                 "Please provide a concise summary of the following lesson."
             )
 
-        max_length = summary_config.get("max_length", 300)
+        max_length = (
+            selected_prompt.get("max_length", 300)
+            if isinstance(selected_prompt, dict)
+            else summary_config.get("max_length", 300)
+        )
+        try:
+            max_length = int(max_length)
+        except (TypeError, ValueError):
+            max_length = 300
+        max_length = max(1, max_length)
+        summary_max_tokens = max_length * 2
 
         # Add max_length instruction to prompt if specified
         if max_length:
@@ -194,8 +204,32 @@ async def generate_summary_async(
                 f"{summary_prompt}\n\nPlease keep the summary under {max_length} words."
             )
 
+        summary_model_preset = None
+        summary_model_preset_id = (
+            selected_prompt.get("model_preset_id")
+            if isinstance(selected_prompt, dict)
+            else None
+        )
+        if summary_model_preset_id is not None:
+            summary_model_preset = session.get(ModelPreset, int(summary_model_preset_id))
+            if not summary_model_preset:
+                logger.warning(
+                    "Summary prompt '%s' references missing model preset id=%s; using fallback task config.",
+                    selected_prompt_name,
+                    summary_model_preset_id,
+                )
+
         # Get LLM model for summary
-        llm = get_llm_model(task_name="summary")
+        if summary_model_preset:
+            llm = get_llm_model(
+                provider=summary_model_preset.provider,
+                model=summary_model_preset.model_id,
+                temperature=summary_model_preset.temperature,
+                max_tokens=summary_max_tokens,
+                thinking_mode=summary_model_preset.thinking_mode or None,
+            )
+        else:
+            llm = get_llm_model(task_name="summary", max_tokens=summary_max_tokens)
 
         # Generate summary
         summary = await generate_summary_with_retry(
@@ -207,13 +241,13 @@ async def generate_summary_async(
 
         summary_text = summary.strip()
 
-        # Generate brief abstract from summary using the second prompt
-        brief_config = summary_config.get("brief", {})
+        # Generate brief abstract from summary using dedicated brief config
+        brief_config = config.get("brief", {})
         brief_prompt = brief_config.get("prompt")
         brief_prompt_name = "brief"
 
         if not brief_prompt:
-            logger.error("No brief prompt configured in summary.brief.")
+            logger.error("No brief prompt configured in config.brief.")
             return False
 
         brief_llm = get_llm_model(
@@ -238,12 +272,16 @@ async def generate_summary_async(
         if brief_prompt_name:
             prompt_info += f"\n[brief:{brief_prompt_name}] {brief_prompt}"
 
-        summary_provider = summary_config.get("provider", config.get("provider"))
+        summary_provider = (
+            summary_model_preset.provider
+            if summary_model_preset
+            else config.get("provider", "OpenAI")
+        )
         metadata = Metadata(
             provider=summary_provider,
-            model=summary_config.get("model"),
-            temperature=summary_config.get("temperature"),
-            max_tokens=summary_config.get("max_tokens"),
+            model=(summary_model_preset.model_id if summary_model_preset else None),
+            temperature=(summary_model_preset.temperature if summary_model_preset else None),
+            max_tokens=summary_max_tokens,
             prompt=prompt_info,
         )
         lesson.set_summary_metadata(metadata)

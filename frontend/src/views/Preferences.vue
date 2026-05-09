@@ -12,8 +12,9 @@ import {
   TrashIcon,
 } from '@heroicons/vue/24/outline'
 import { configApi } from '@/api/config'
+import { modelPresetsApi } from '@/api/modelPresets'
 import { usePermissions } from '@/composables/usePermissions'
-import type { AppConfig } from '@/api/types'
+import type { AppConfig, ModelPreset } from '@/api/types'
 import { parse, stringify } from 'yaml'
 
 const { t } = useI18n()
@@ -26,14 +27,9 @@ const config = ref<AppConfig>({
   sources:     { provider: 'OpenAI', model: '', prompt: '', prompts: [{ name: 'Default', text: '' }], temperature: 0.3, max_tokens: 4000 },
   source_types: {},
   summary: {
-    max_length: 300,
-    provider: 'OpenAI',
-    model: '',
-    prompts: [{ name: 'Default', text: '' }],
-    temperature: 0.7,
-    max_tokens: 4000,
-    brief: { provider: 'OpenAI', model: '', prompt: '', temperature: 0.5, max_tokens: 1000 },
+    prompts: [{ name: 'Default', text: '', model_preset_id: null, max_length: 300 }],
   },
+  brief: { provider: 'OpenAI', model: '', prompt: '', temperature: 0.5, max_tokens: 1000 },
   transcribe: { model: 'nova-3', language: 'fr' },
 })
 
@@ -42,11 +38,53 @@ const isSaving = ref(false)
 const saveMessage = ref('')
 const saveError = ref('')
 const importInputRef = ref<HTMLInputElement | null>(null)
+const modelPresets = ref<ModelPreset[]>([])
 
 const normalizeConfigShape = () => {
   if (!config.value.transcribe) config.value.transcribe = { model: 'nova-3', language: 'fr' }
   if (!config.value.transcribe.model) config.value.transcribe.model = 'nova-3'
   if (!config.value.transcribe.language) config.value.transcribe.language = 'fr'
+  if (!config.value.brief) {
+    config.value.brief = { provider: 'OpenAI', model: '', prompt: '', temperature: 0.5, max_tokens: 1000 }
+  }
+  // Backward compatibility: migrate legacy summary.brief to top-level brief.
+  const summaryWithLegacyBrief = config.value.summary as typeof config.value.summary & { brief?: typeof config.value.brief }
+  if (!config.value.brief.prompt && summaryWithLegacyBrief.brief) {
+    config.value.brief = { ...summaryWithLegacyBrief.brief }
+  }
+  if (summaryWithLegacyBrief.brief) {
+    delete summaryWithLegacyBrief.brief
+  }
+  const legacySummaryMaxLength =
+    typeof (config.value.summary as { max_length?: unknown }).max_length === 'number'
+      ? (config.value.summary as { max_length: number }).max_length
+      : 300
+  if (!config.value.summary.prompts || config.value.summary.prompts.length === 0) {
+    config.value.summary.prompts = [{ name: 'Default', text: '', model_preset_id: null, max_length: legacySummaryMaxLength }]
+  } else {
+    config.value.summary.prompts = config.value.summary.prompts.map((prompt) => ({
+      ...prompt,
+      model_preset_id:
+        typeof prompt.model_preset_id === 'number' ? prompt.model_preset_id : null,
+      max_length:
+        typeof prompt.max_length === 'number' ? prompt.max_length : legacySummaryMaxLength,
+    }))
+  }
+  // Remove legacy summary-level model settings now replaced by prompt-level presets.
+  const summaryWithLegacyFields = config.value.summary as typeof config.value.summary & {
+    provider?: string
+    model?: string
+    temperature?: number
+    max_tokens?: number
+    prompt?: string
+    max_length?: number
+  }
+  delete summaryWithLegacyFields.provider
+  delete summaryWithLegacyFields.model
+  delete summaryWithLegacyFields.temperature
+  delete summaryWithLegacyFields.max_tokens
+  delete summaryWithLegacyFields.prompt
+  delete summaryWithLegacyFields.max_length
   if (!config.value.source_types) config.value.source_types = {}
   // Ensure prompts arrays exist for backward compatibility with old single-prompt configs
   for (const section of ['correction', 'edition', 'extraction', 'sources'] as const) {
@@ -60,7 +98,7 @@ const normalizeConfigShape = () => {
 }
 
 onMounted(async () => {
-  await loadConfig()
+  await Promise.all([loadConfig(), loadModelPresets()])
 })
 
 const loadConfig = async () => {
@@ -73,6 +111,15 @@ const loadConfig = async () => {
     saveError.value = t('preferences.loadFailed')
   } finally {
     isLoading.value = false
+  }
+}
+
+const loadModelPresets = async () => {
+  try {
+    modelPresets.value = await modelPresetsApi.list()
+  } catch {
+    // Keep page functional even when presets cannot be fetched.
+    modelPresets.value = []
   }
 }
 
@@ -157,7 +204,7 @@ const removePrompt = (section: 'correction' | 'edition' | 'extraction' | 'source
 }
 
 const addSummaryPrompt = () => {
-  config.value.summary.prompts.push({ name: '', text: '' })
+  config.value.summary.prompts.push({ name: '', text: '', model_preset_id: null, max_length: 300 })
 }
 
 const removeSummaryPrompt = (index: number) => {
@@ -328,6 +375,17 @@ const updateSourceType = (oldType: string, newType: string, description: string)
               ]">
                 <DocumentTextIcon class="h-5 w-5" />
                 {{ t('preferences.summary') }}
+              </div>
+            </Tab>
+            <Tab v-slot="{ selected }" class="w-full rounded-md py-2.5 text-sm font-medium leading-5 transition-colors focus:outline-none">
+              <div :class="[
+                'flex items-center justify-center gap-2',
+                selected
+                  ? 'bg-white dark:bg-gray-800 text-indigo-700 dark:text-indigo-400 shadow'
+                  : 'text-gray-700 dark:text-gray-300 hover:bg-white/[0.12] dark:hover:bg-gray-600'
+              ]">
+                <DocumentTextIcon class="h-5 w-5" />
+                {{ t('preferences.brief') }}
               </div>
             </Tab>
           </TabList>
@@ -955,90 +1013,6 @@ const updateSourceType = (oldType: string, newType: string, description: string)
               </h2>
               
               <div class="space-y-6">
-                <!-- Provider -->
-                <div>
-                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {{ t('preferences.provider') }}
-                  </label>
-                  <select
-                    v-model="config.summary.provider"
-                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-                  >
-                    <option value="OpenAI">OpenAI</option>
-                    <option value="Anthropic">Anthropic</option>
-                  </select>
-                </div>
-
-                <!-- Model -->
-                <div>
-                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {{ t('preferences.model') }}
-                  </label>
-                  <input
-                    v-model="config.summary.model"
-                    type="text"
-                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-                    placeholder="gpt-4o"
-                  />
-                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    {{ t('preferences.modelDesc') }}
-                  </p>
-                </div>
-
-                <!-- Temperature -->
-                <div>
-                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {{ t('preferences.temperature') }}: {{ config.summary.temperature }}
-                  </label>
-                  <input
-                    v-model.number="config.summary.temperature"
-                    type="range"
-                    min="0"
-                    max="2"
-                    step="0.1"
-                    class="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer"
-                  />
-                  <div class="flex justify-between text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    <span>{{ t('preferences.precise') }}</span>
-                    <span>{{ t('preferences.creative') }}</span>
-                  </div>
-                </div>
-
-                <!-- Max Tokens -->
-                <div>
-                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {{ t('preferences.maxTokens') }}
-                  </label>
-                  <input
-                    v-model.number="config.summary.max_tokens"
-                    type="number"
-                    min="256"
-                    max="200000"
-                    step="256"
-                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-                  />
-                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    {{ t('preferences.maxTokensDesc') }}
-                  </p>
-                </div>
-
-                <!-- Max Length -->
-                <div>
-                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {{ t('preferences.maxLength') }}
-                  </label>
-                  <input
-                    v-model.number="config.summary.max_length"
-                    type="number"
-                    min="50"
-                    max="2000"
-                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-                  />
-                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    {{ t('preferences.maxLengthDesc') }}
-                  </p>
-                </div>
-
                 <!-- Prompts -->
                 <div>
                   <div class="flex items-center justify-between mb-2">
@@ -1067,6 +1041,19 @@ const updateSourceType = (oldType: string, newType: string, description: string)
                           :placeholder="t('preferences.promptName')"
                           class="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 text-sm font-medium"
                         />
+                        <select
+                          v-model="prompt.model_preset_id"
+                          class="min-w-52 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 text-sm"
+                        >
+                          <option :value="null">{{ t('preferences.selectModelPreset') }}</option>
+                          <option
+                            v-for="preset in modelPresets"
+                            :key="preset.id"
+                            :value="preset.id"
+                          >
+                            {{ preset.name }}
+                          </option>
+                        </select>
                         <button
                           v-if="config.summary.prompts.length > 1"
                           @click="removeSummaryPrompt(index)"
@@ -1082,6 +1069,21 @@ const updateSourceType = (oldType: string, newType: string, description: string)
                         :placeholder="t('preferences.promptText')"
                         class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
                       ></textarea>
+                      <div class="mt-3">
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                          {{ t('preferences.maxLength') }}
+                        </label>
+                        <input
+                          v-model.number="prompt.max_length"
+                          type="number"
+                          min="50"
+                          max="2000"
+                          class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                        />
+                        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                          {{ t('preferences.maxLengthDesc') }}
+                        </p>
+                      </div>
                     </div>
                   </div>
                   
@@ -1090,95 +1092,96 @@ const updateSourceType = (oldType: string, newType: string, description: string)
                   </p>
                 </div>
 
-                <!-- Brief Summary Settings -->
-                <div class="border-t border-gray-200 dark:border-gray-700 pt-6">
-                  <h3 class="text-md font-semibold text-gray-900 dark:text-white mb-4">
-                    {{ t('preferences.briefSettings') }}
-                  </h3>
+              </div>
+            </TabPanel>
 
-                  <div class="space-y-6">
-                    <!-- Provider -->
-                    <div>
-                      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        {{ t('preferences.provider') }}
-                      </label>
-                      <select
-                        v-model="config.summary.brief.provider"
-                        class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-                      >
-                        <option value="OpenAI">OpenAI</option>
-                        <option value="Anthropic">Anthropic</option>
-                      </select>
-                    </div>
+            <!-- Brief Tab -->
+            <TabPanel class="rounded-lg bg-white dark:bg-gray-800 p-6 shadow">
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                {{ t('preferences.briefSettings') }}
+              </h2>
 
-                    <!-- Model -->
-                    <div>
-                      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        {{ t('preferences.model') }}
-                      </label>
-                      <input
-                        v-model="config.summary.brief.model"
-                        type="text"
-                        class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-                        placeholder="gpt-4o"
-                      />
-                      <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                        {{ t('preferences.modelDesc') }}
-                      </p>
-                    </div>
+              <div class="space-y-6">
+                <!-- Provider -->
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    {{ t('preferences.provider') }}
+                  </label>
+                  <select
+                    v-model="config.brief.provider"
+                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="OpenAI">OpenAI</option>
+                    <option value="Anthropic">Anthropic</option>
+                  </select>
+                </div>
 
-                    <!-- Temperature -->
-                    <div>
-                      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        {{ t('preferences.temperature') }}: {{ config.summary.brief.temperature }}
-                      </label>
-                      <input
-                        v-model.number="config.summary.brief.temperature"
-                        type="range"
-                        min="0"
-                        max="2"
-                        step="0.1"
-                        class="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer"
-                      />
-                      <div class="flex justify-between text-xs text-gray-500 dark:text-gray-400 mt-1">
-                        <span>{{ t('preferences.precise') }}</span>
-                        <span>{{ t('preferences.creative') }}</span>
-                      </div>
-                    </div>
+                <!-- Model -->
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    {{ t('preferences.model') }}
+                  </label>
+                  <input
+                    v-model="config.brief.model"
+                    type="text"
+                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                    placeholder="gpt-4o"
+                  />
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('preferences.modelDesc') }}
+                  </p>
+                </div>
 
-                    <!-- Max Tokens -->
-                    <div>
-                      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        {{ t('preferences.maxTokens') }}
-                      </label>
-                      <input
-                        v-model.number="config.summary.brief.max_tokens"
-                        type="number"
-                        min="256"
-                        max="200000"
-                        step="256"
-                        class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-                      />
-                      <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                        {{ t('preferences.maxTokensDesc') }}
-                      </p>
-                    </div>
-
-                    <!-- Prompt -->
-                    <div>
-                      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        {{ t('preferences.prompt') }}
-                      </label>
-                      <textarea
-                        v-model="config.summary.brief.prompt"
-                        rows="6"
-                        class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
-                      ></textarea>
-                      <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                        {{ t('preferences.briefPromptDesc') }}
-                      </p>
-                    </div>
+                <!-- Temperature -->
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    {{ t('preferences.temperature') }}: {{ config.brief.temperature }}
+                  </label>
+                  <input
+                    v-model.number="config.brief.temperature"
+                    type="range"
+                    min="0"
+                    max="2"
+                    step="0.1"
+                    class="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer"
+                  />
+                  <div class="flex justify-between text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    <span>{{ t('preferences.precise') }}</span>
+                    <span>{{ t('preferences.creative') }}</span>
                   </div>
+                </div>
+
+                <!-- Max Tokens -->
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    {{ t('preferences.maxTokens') }}
+                  </label>
+                  <input
+                    v-model.number="config.brief.max_tokens"
+                    type="number"
+                    min="256"
+                    max="200000"
+                    step="256"
+                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('preferences.maxTokensDesc') }}
+                  </p>
+                </div>
+
+                <!-- Prompt -->
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    {{ t('preferences.prompt') }}
+                  </label>
+                  <textarea
+                    v-model="config.brief.prompt"
+                    rows="6"
+                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
+                  ></textarea>
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('preferences.briefPromptDesc') }}
+                  </p>
                 </div>
               </div>
             </TabPanel>

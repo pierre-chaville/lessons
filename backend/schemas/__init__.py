@@ -9,6 +9,7 @@ from schemas.task import TaskCreate, TaskResponse
 from schemas.search import SearchMatchSegment, SearchLessonResult
 from schemas.config import ConfigUpdate
 from schemas.sefaria_cache import SefariaCacheCreate, SefariaCacheUpdate, SefariaCacheResponse
+from schemas.model_preset import ModelPresetCreate, ModelPresetUpdate, ModelPresetResponse
 
 __all__ = [
     "Metadata",
@@ -33,4 +34,7 @@ __all__ = [
     "SefariaCacheCreate",
     "SefariaCacheUpdate",
     "SefariaCacheResponse",
+    "ModelPresetCreate",
+    "ModelPresetUpdate",
+    "ModelPresetResponse",
 ]

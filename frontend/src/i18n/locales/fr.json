@@ -405,6 +405,7 @@
     "processing": "Tâches",
     "users": "Utilisateurs",
     "audit": "Journal d'audit",
+    "modelPresets": "Presets de Modèle",
     "preferences": "Préférences",
     "expand": "Développer le menu",
     "collapse": "Réduire le menu"
@@ -525,6 +526,7 @@
     "edition": "Rédaction",
     "sources": "Sources",
     "summary": "Résumé",
+    "brief": "Bref",
     "transcriptionSettings": "Paramètres de Transcription",
     "correctionSettings": "Paramètres de Correction",
     "editionSettings": "Paramètres de Rédaction",
@@ -559,6 +561,7 @@
     "extractionPrompts": "Prompts d'Extraction de Sources",
     "sourcesPrompts": "Prompts de Vérification de Sources",
     "summaryPrompts": "Prompts de Résumé",
+    "selectModelPreset": "Sélectionner un preset de modèle",
     "addPrompt": "Ajouter un Prompt",
     "promptName": "Nom du prompt (ex: Défaut, Détaillé, Bref)",
     "promptText": "Texte du prompt (instructions pour le LLM)",
@@ -575,10 +578,53 @@
     "sourceTypeDescription": "Description du type de source",
     "noSourceTypes": "Aucun type de source défini. Cliquez sur 'Ajouter un Type' pour en ajouter un.",
     "extractionPromptDesc": "Instructions pour le LLM lors de l'extraction de sources depuis la version rédigée",
-    "summaryPromptDesc": "Créez plusieurs modèles de prompts de résumé pour utiliser différents styles ou niveaux de détail",
+    "summaryPromptDesc": "Chaque prompt de résumé a son propre preset de modèle et sa longueur maximale",
     "briefPromptDesc": "Instructions pour le LLM lors de la génération de résumés brefs",
     "maxLength": "Longueur Max (mots)",
-    "maxLengthDesc": "Nombre maximum de mots dans le résumé"
+    "maxLengthDesc": "Longueur cible du résumé en mots (backend: max tokens = 2 x cette valeur)"
+  },
+  "modelPresets": {
+    "title": "Presets de Modèle",
+    "addNew": "Ajouter un Preset de Modèle",
+    "loading": "Chargement des presets de modèle...",
+    "empty": "Aucun preset de modèle pour le moment. Créez votre premier preset.",
+    "count": "preset(s)",
+    "readOnly": "Lecture seule",
+    "createTitle": "Créer un Preset de Modèle",
+    "editTitle": "Modifier le Preset de Modèle",
+    "deleteTitle": "Supprimer le Preset de Modèle",
+    "deleteMessage": "Cette action est irréversible.",
+    "requiredFields": "Le nom, le fournisseur et l'ID du modèle sont requis.",
+    "invalidThinkingMode": "Le mode de réflexion doit être un objet JSON valide.",
+    "fetchFailed": "Échec du chargement des presets de modèle. Veuillez réessayer.",
+    "createSuccess": "Preset de modèle créé avec succès.",
+    "createFailed": "Échec de la création du preset de modèle. Veuillez réessayer.",
+    "updateSuccess": "Preset de modèle mis à jour avec succès.",
+    "updateFailed": "Échec de la mise à jour du preset de modèle. Veuillez réessayer.",
+    "deleteSuccess": "Preset de modèle supprimé avec succès.",
+    "deleteFailed": "Échec de la suppression du preset de modèle. Veuillez réessayer.",
+    "fields": {
+      "name": "Nom",
+      "provider": "Fournisseur",
+      "modelId": "ID du Modèle",
+      "temperature": "Température",
+      "thinkingMode": "Mode de Réflexion"
+    },
+    "placeholders": {
+      "name": "Creative Teacher",
+      "provider": "openrouter",
+      "modelId": "anthropic/claude-3.5-sonnet",
+      "thinkingMode": "{\n  \"enabled\": true,\n  \"budget\": 2000\n}"
+    },
+    "actions": {
+      "label": "Actions",
+      "save": "Enregistrer",
+      "saving": "Enregistrement...",
+      "edit": "Modifier",
+      "delete": "Supprimer",
+      "deleting": "Suppression...",
+      "cancel": "Annuler"
+    }
   },
   "users": {
     "title": "Utilisateurs",

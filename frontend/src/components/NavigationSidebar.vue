@@ -10,6 +10,7 @@ import {
   UsersIcon,
   ClipboardDocumentListIcon,
   Cog6ToothIcon,
+  CpuChipIcon,
   ChevronLeftIcon,
   ChevronRightIcon
 } from '@heroicons/vue/24/outline';
@@ -33,6 +34,7 @@ const allNavigationItems = [
   { key: 'processing',  label: 'nav.processing',   icon: DocumentTextIcon,     route: '/processing',  always: false },
   { key: 'users',       label: 'nav.users',        icon: UsersIcon,            route: '/users',       always: false },
   { key: 'audit',       label: 'nav.audit',        icon: ClipboardDocumentListIcon, route: '/admin/audit-log', always: false },
+  { key: 'modelPresets',label: 'nav.modelPresets', icon: CpuChipIcon,          route: '/model-presets', always: false },
   { key: 'preferences', label: 'nav.preferences',  icon: Cog6ToothIcon,        route: '/preferences', always: false },
 ];
 
@@ -42,6 +44,7 @@ const navigationItems = computed(() =>
     if (item.key === 'booklets')    return can('lessons', 'update');
     if (item.key === 'users')       return can('users', 'manage');
     if (item.key === 'audit')       return role.value === 'admin';
+    if (item.key === 'modelPresets') return can('model_presets', 'read');
     if (item.key === 'preferences') return can('configuration', 'read');
     return true;
   })

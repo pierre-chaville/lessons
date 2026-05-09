@@ -405,6 +405,7 @@
     "processing": "Processing",
     "users": "Users",
     "audit": "Audit Log",
+    "modelPresets": "Model Presets",
     "preferences": "Preferences",
     "expand": "Expand menu",
     "collapse": "Collapse menu"
@@ -525,6 +526,7 @@
     "edition": "Edition",
     "sources": "Sources",
     "summary": "Summary",
+    "brief": "Brief",
     "transcriptionSettings": "Transcription Settings",
     "correctionSettings": "Correction Settings",
     "editionSettings": "Edition Settings",
@@ -568,6 +570,7 @@
     "extractionPrompts": "Sources Extraction Prompts",
     "sourcesPrompts": "Sources Verification Prompts",
     "summaryPrompts": "Summary Prompts",
+    "selectModelPreset": "Select model preset",
     "addPrompt": "Add Prompt",
     "promptName": "Prompt name (e.g., Default, Detailed, Brief)",
     "promptText": "Prompt text (instructions for the LLM)",
@@ -575,10 +578,53 @@
     "correctionPromptDesc": "Instructions for the LLM when correcting transcripts",
     "editionPromptDesc": "Instructions for the LLM when rewriting transcripts with sources and timing",
     "sourcesPromptDesc": "Instructions for the LLM when identifying and verifying sources using Sefaria.org",
-    "summaryPromptDesc": "Create multiple summary prompt templates to use different styles or levels of detail",
+    "summaryPromptDesc": "Each summary prompt has its own model preset and max length",
     "briefPromptDesc": "Instructions for the LLM when generating brief summaries",
     "maxLength": "Max Length (words)",
-    "maxLengthDesc": "Maximum number of words in the summary"
+    "maxLengthDesc": "Target summary length in words (backend uses max tokens = 2 x this value)"
+  },
+  "modelPresets": {
+    "title": "Model Presets",
+    "addNew": "Add Model Preset",
+    "loading": "Loading model presets...",
+    "empty": "No model presets yet. Create your first preset.",
+    "count": "preset(s)",
+    "readOnly": "Read-only",
+    "createTitle": "Create Model Preset",
+    "editTitle": "Edit Model Preset",
+    "deleteTitle": "Delete Model Preset",
+    "deleteMessage": "This action cannot be undone.",
+    "requiredFields": "Name, provider, and model ID are required.",
+    "invalidThinkingMode": "Thinking mode must be a valid JSON object.",
+    "fetchFailed": "Failed to load model presets. Please try again.",
+    "createSuccess": "Model preset created successfully.",
+    "createFailed": "Failed to create model preset. Please try again.",
+    "updateSuccess": "Model preset updated successfully.",
+    "updateFailed": "Failed to update model preset. Please try again.",
+    "deleteSuccess": "Model preset deleted successfully.",
+    "deleteFailed": "Failed to delete model preset. Please try again.",
+    "fields": {
+      "name": "Name",
+      "provider": "Provider",
+      "modelId": "Model ID",
+      "temperature": "Temperature",
+      "thinkingMode": "Thinking Mode"
+    },
+    "placeholders": {
+      "name": "Creative Teacher",
+      "provider": "openrouter",
+      "modelId": "anthropic/claude-3.5-sonnet",
+      "thinkingMode": "{\n  \"enabled\": true,\n  \"budget\": 2000\n}"
+    },
+    "actions": {
+      "label": "Actions",
+      "save": "Save",
+      "saving": "Saving...",
+      "edit": "Edit",
+      "delete": "Delete",
+      "deleting": "Deleting...",
+      "cancel": "Cancel"
+    }
   },
   "users": {
     "title": "Users",

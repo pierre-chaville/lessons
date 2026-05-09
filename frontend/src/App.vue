@@ -23,6 +23,7 @@ import BookletDetail from './views/BookletDetail.vue';
 import ProcessingTasks from './views/ProcessingTasks.vue';
 import UsersManagement from './views/UsersManagement.vue';
 import AuditLogViewer from './views/AuditLogViewer.vue';
+import ModelPresets from './views/ModelPresets.vue';
 import Preferences from './views/Preferences.vue';
 
 const { locale, t } = useI18n();
@@ -46,7 +47,7 @@ const getInitialRoute = () => {
   const path = raw.length > 1 && raw.endsWith('/') ? raw.slice(0, -1) : raw;
 
   // Known routes
-  const routes = ['/search', '/courses', '/themes', '/booklets', '/booklets/detail', '/processing', '/users', '/admin/audit-log', '/preferences'];
+  const routes = ['/search', '/courses', '/themes', '/booklets', '/booklets/detail', '/processing', '/users', '/admin/audit-log', '/model-presets', '/preferences'];
   const match = routes.find(r => path === r);
   if (match) return match;
 
@@ -72,6 +73,7 @@ const lessonsListRef = ref(null);
 const coursesListRef = ref(null);
 const themesListRef = ref(null);
 const usersListRef = ref(null);
+const modelPresetsRef = ref(null);
 const bookletsListRef = ref(null);
 const selectedBookletId = ref(null);
 
@@ -115,6 +117,8 @@ const pageTitle = computed(() => {
       return t('users.title');
     case '/admin/audit-log':
       return t('nav.audit');
+    case '/model-presets':
+      return t('nav.modelPresets');
     case '/preferences':
       return t('nav.preferences');
     default:
@@ -447,6 +451,28 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
+      <!-- Model Presets View -->
+      <div v-else-if="currentRoute === '/model-presets'">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-0">
+          <div class="mb-6 flex justify-between items-center">
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">
+              {{ t('modelPresets.title') }}
+            </h2>
+            <button
+              v-if="can('model_presets', 'create')"
+              @click="modelPresetsRef?.openCreateModal()"
+              class="inline-flex items-center gap-x-2 rounded-md bg-indigo-600 dark:bg-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 dark:hover:bg-indigo-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:focus-visible:outline-indigo-500 transition-colors"
+            >
+              <PlusIcon class="h-5 w-5" />
+              {{ t('modelPresets.addNew') }}
+            </button>
+          </div>
+        </div>
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8">
+          <ModelPresets ref="modelPresetsRef" />
+        </div>
+      </div>
+
       <!-- Preferences View -->
       <div v-else-if="currentRoute === '/preferences'" class="h-full flex flex-col">
         <Preferences />
@@ -460,7 +486,7 @@ onBeforeUnmount(() => {
       </div>
 
       <!-- Placeholder for other views -->
-      <main v-else-if="!isViewingDetail && currentRoute !== '/lessons' && currentRoute !== '/search' && currentRoute !== '/courses' && currentRoute !== '/themes' && currentRoute !== '/booklets' && currentRoute !== '/booklets/detail' && currentRoute !== '/processing' && currentRoute !== '/users' && currentRoute !== '/admin/audit-log' && currentRoute !== '/preferences'" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main v-else-if="!isViewingDetail && currentRoute !== '/lessons' && currentRoute !== '/search' && currentRoute !== '/courses' && currentRoute !== '/themes' && currentRoute !== '/booklets' && currentRoute !== '/booklets/detail' && currentRoute !== '/processing' && currentRoute !== '/users' && currentRoute !== '/admin/audit-log' && currentRoute !== '/model-presets' && currentRoute !== '/preferences'" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-8 text-center transition-colors">
           <h2 class="text-2xl font-bold text-gray-900 dark:text-white mb-4">
             {{ pageTitle }}

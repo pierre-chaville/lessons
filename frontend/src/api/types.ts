@@ -425,18 +425,15 @@ export interface NamedPrompt {
   text: string
 }
 
-/** @deprecated Use NamedPrompt instead */
-export type SummaryPrompt = NamedPrompt
-
 export interface SummaryConfig {
-  provider: string
-  model: string
-  prompt: string
-  temperature: number
-  max_tokens: number
+  prompts: SummaryPromptConfig[]
+}
+
+export interface SummaryPromptConfig {
+  name: string
+  text: string
+  model_preset_id: number | null
   max_length: number
-  prompts: NamedPrompt[]
-  brief: LLMConfig
 }
 
 export interface TranscribeConfig {
@@ -451,5 +448,33 @@ export interface AppConfig {
   sources: LLMConfig
   source_types: Record<string, string>
   summary: SummaryConfig
+  brief: LLMConfig
   transcribe: TranscribeConfig
+}
+
+export interface ModelPreset {
+  id: number
+  name: string
+  provider: string
+  model_id: string
+  temperature: number
+  thinking_mode: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface ModelPresetCreate {
+  name: string
+  provider: string
+  model_id: string
+  temperature: number
+  thinking_mode: Record<string, unknown>
+}
+
+export interface ModelPresetUpdate {
+  name?: string
+  provider?: string
+  model_id?: string
+  temperature?: number
+  thinking_mode?: Record<string, unknown>
 }

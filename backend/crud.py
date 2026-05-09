@@ -3,7 +3,17 @@
 from sqlmodel import Session, select, func
 from typing import List, Optional
 from datetime import datetime
-from models import Lesson, LessonEditor, LessonSource, Course, Theme, Task, SefariaCache, ContentVersion
+from models import (
+    Lesson,
+    LessonEditor,
+    LessonSource,
+    Course,
+    Theme,
+    Task,
+    SefariaCache,
+    ContentVersion,
+    ModelPreset,
+)
 
 
 # Course CRUD
@@ -128,6 +138,82 @@ def delete_theme(session: Session, theme_id: int) -> bool:
         session.commit()
         return True
     return False
+
+
+# ModelPreset CRUD
+def create_model_preset(
+    session: Session,
+    name: str,
+    provider: str,
+    model_id: str,
+    temperature: float = 0.7,
+    thinking_mode: Optional[dict] = None,
+) -> ModelPreset:
+    """Create a new model preset."""
+    preset = ModelPreset(
+        name=name,
+        provider=provider,
+        model_id=model_id,
+        temperature=temperature,
+        thinking_mode=thinking_mode or {},
+    )
+    session.add(preset)
+    session.commit()
+    session.refresh(preset)
+    return preset
+
+
+def get_model_preset(session: Session, preset_id: int) -> Optional[ModelPreset]:
+    """Get a model preset by ID."""
+    return session.get(ModelPreset, preset_id)
+
+
+def get_all_model_presets(session: Session) -> List[ModelPreset]:
+    """Get all model presets."""
+    statement = select(ModelPreset).order_by(ModelPreset.name)
+    return list(session.exec(statement).all())
+
+
+def update_model_preset(
+    session: Session,
+    preset_id: int,
+    name: Optional[str] = None,
+    provider: Optional[str] = None,
+    model_id: Optional[str] = None,
+    temperature: Optional[float] = None,
+    thinking_mode: Optional[dict] = None,
+) -> Optional[ModelPreset]:
+    """Update an existing model preset."""
+    preset = session.get(ModelPreset, preset_id)
+    if not preset:
+        return None
+
+    if name is not None:
+        preset.name = name
+    if provider is not None:
+        preset.provider = provider
+    if model_id is not None:
+        preset.model_id = model_id
+    if temperature is not None:
+        preset.temperature = temperature
+    if thinking_mode is not None:
+        preset.thinking_mode = thinking_mode
+    preset.updated_at = datetime.utcnow()
+
+    session.add(preset)
+    session.commit()
+    session.refresh(preset)
+    return preset
+
+
+def delete_model_preset(session: Session, preset_id: int) -> bool:
+    """Delete a model preset."""
+    preset = session.get(ModelPreset, preset_id)
+    if not preset:
+        return False
+    session.delete(preset)
+    session.commit()
+    return True
 
 
 # Lesson CRUD

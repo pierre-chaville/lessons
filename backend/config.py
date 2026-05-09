@@ -12,6 +12,8 @@ from models import AppConfig
 
 CONFIG_FILE = Path(__file__).parent / "data/config.yaml"
 CONFIG_RECORD_ID = 1
+MIN_SUMMARY_PROMPT_MAX_LENGTH = 50
+DEFAULT_SUMMARY_PROMPT_MAX_LENGTH = 300
 
 # Default configuration
 DEFAULT_CONFIG = {
@@ -40,24 +42,21 @@ DEFAULT_CONFIG = {
         "max_tokens": 16000,
     },
     "summary": {
-        "max_length": 300,
-        "provider": "OpenAI",
-        "model": "gpt-4o",
         "prompts": [
             {
                 "name": "Default",
                 "text": "Please provide a concise summary of the following lesson transcript.",
+                "model_preset_id": None,
+                "max_length": 300,
             }
         ],
-        "temperature": 0.7,
-        "max_tokens": 4000,
-        "brief": {
-            "provider": "OpenAI",
-            "model": "gpt-4o",
-            "prompt": "Please provide a brief 1-3 line summary of the following lesson transcript.",
-            "temperature": 0.5,
-            "max_tokens": 1000,
-        },
+    },
+    "brief": {
+        "provider": "OpenAI",
+        "model": "gpt-4o",
+        "prompt": "Please provide a brief 1-3 line summary of the following lesson transcript.",
+        "temperature": 0.5,
+        "max_tokens": 1000,
     },
     "extraction": {
         "provider": "OpenAI",
@@ -106,6 +105,100 @@ def _sanitize_config(config: Dict[str, Any]) -> Dict[str, Any]:
     return cleaned
 
 
+def _migrate_legacy_brief_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Promote legacy summary.brief config to top-level brief config."""
+    if not config:
+        return {}
+
+    migrated = dict(config)
+    summary = migrated.get("summary")
+    if isinstance(summary, dict):
+        legacy_brief = summary.get("brief")
+        if legacy_brief is not None:
+            if "brief" not in migrated:
+                migrated["brief"] = legacy_brief
+            summary_copy = dict(summary)
+            summary_copy.pop("brief", None)
+            migrated["summary"] = summary_copy
+    return migrated
+
+
+def _migrate_summary_prompt_model_presets(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Move legacy summary model settings to prompt-level prompt settings."""
+    if not config:
+        return {}
+
+    migrated = dict(config)
+    summary = migrated.get("summary")
+    if not isinstance(summary, dict):
+        return migrated
+
+    summary_copy = dict(summary)
+    legacy_max_length = summary_copy.get(
+        "max_length", DEFAULT_SUMMARY_PROMPT_MAX_LENGTH
+    )
+    prompts = summary_copy.get("prompts", [])
+    if not prompts and summary_copy.get("prompt"):
+        prompts = [{"name": "Default", "text": summary_copy.get("prompt")}]
+
+    normalized_prompts = []
+    for prompt in prompts:
+        if not isinstance(prompt, dict):
+            continue
+        prompt_copy = dict(prompt)
+        prompt_copy.setdefault("model_preset_id", None)
+        prompt_copy.setdefault(
+            "max_length", legacy_max_length or DEFAULT_SUMMARY_PROMPT_MAX_LENGTH
+        )
+        normalized_prompts.append(prompt_copy)
+    if normalized_prompts:
+        summary_copy["prompts"] = normalized_prompts
+
+    # Remove legacy summary-level model tuning fields.
+    for key in ("provider", "model", "temperature", "max_tokens", "prompt", "max_length"):
+        summary_copy.pop(key, None)
+
+    migrated["summary"] = summary_copy
+    return migrated
+
+
+def _normalize_summary_prompt_limits(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize per-prompt summary max_length to a safe integer minimum."""
+    if not config:
+        return {}
+
+    normalized = dict(config)
+    summary = normalized.get("summary")
+    if not isinstance(summary, dict):
+        return normalized
+
+    summary_copy = dict(summary)
+    prompts = summary_copy.get("prompts")
+    if not isinstance(prompts, list):
+        normalized["summary"] = summary_copy
+        return normalized
+
+    normalized_prompts = []
+    for prompt in prompts:
+        if not isinstance(prompt, dict):
+            continue
+        prompt_copy = dict(prompt)
+        raw_max_length = prompt_copy.get(
+            "max_length", DEFAULT_SUMMARY_PROMPT_MAX_LENGTH
+        )
+        try:
+            prompt_max_length = int(raw_max_length)
+        except (TypeError, ValueError):
+            prompt_max_length = DEFAULT_SUMMARY_PROMPT_MAX_LENGTH
+        prompt_copy["max_length"] = max(MIN_SUMMARY_PROMPT_MAX_LENGTH, prompt_max_length)
+        normalized_prompts.append(prompt_copy)
+
+    if normalized_prompts:
+        summary_copy["prompts"] = normalized_prompts
+    normalized["summary"] = summary_copy
+    return normalized
+
+
 def _get_db_config(session: Session) -> Dict[str, Any]:
     record = session.get(AppConfig, CONFIG_RECORD_ID)
     if record and isinstance(record.data, dict):
@@ -135,14 +228,20 @@ def load_config() -> Dict[str, Any]:
                 if CONFIG_FILE.exists():
                     with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                         file_config = yaml.safe_load(f) or {}
+                file_config = _migrate_legacy_brief_config(file_config)
+                file_config = _migrate_summary_prompt_model_presets(file_config)
                 merged = merge_dicts(DEFAULT_CONFIG.copy(), file_config)
+                merged = _normalize_summary_prompt_limits(merged)
                 merged = _sanitize_config(merged)
                 _save_db_config(session, merged)
                 return merged
 
+            db_config = _migrate_legacy_brief_config(db_config)
+            db_config = _migrate_summary_prompt_model_presets(db_config)
             merged = merge_dicts(DEFAULT_CONFIG.copy(), db_config)
+            merged = _normalize_summary_prompt_limits(merged)
             cleaned = _sanitize_config(merged)
-            if "api_key" in db_config:
+            if cleaned != db_config or "api_key" in db_config:
                 _save_db_config(session, cleaned)
             return cleaned
     except Exception as e:
@@ -155,7 +254,8 @@ def save_config(config: Dict[str, Any]) -> bool:
     try:
         create_db_and_tables()
         with Session(engine) as session:
-            cleaned = _sanitize_config(config)
+            normalized = _normalize_summary_prompt_limits(config)
+            cleaned = _sanitize_config(normalized)
             _save_db_config(session, cleaned)
         return True
     except Exception as e:
@@ -179,6 +279,7 @@ def update_config(updates: Dict[str, Any]) -> Dict[str, Any]:
     config = load_config()
     updates = _sanitize_config(updates or {})
     config = merge_dicts(config, updates)
+    config = _normalize_summary_prompt_limits(config)
     save_config(config)
     return config
 

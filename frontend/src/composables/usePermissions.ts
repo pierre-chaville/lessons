@@ -48,6 +48,12 @@ const PERMISSIONS: Record<Resource, Record<string, Role[]>> = {
     read:   ['publisher', 'admin'],
     manage: ['publisher', 'admin'],
   },
+  model_presets: {
+    read: ['publisher', 'admin'],
+    create: ['admin'],
+    update: ['admin'],
+    delete: ['admin'],
+  },
 }
 
 export function usePermissions() {
