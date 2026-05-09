@@ -21,10 +21,18 @@ const { t } = useI18n()
 const { can } = usePermissions()
 
 const config = ref<AppConfig>({
-  correction:  { provider: 'OpenAI', model: '', prompt: '', prompts: [{ name: 'Default', text: '' }], temperature: 0.3, max_tokens: 16000 },
-  edition:     { provider: 'OpenAI', model: '', prompt: '', prompts: [{ name: 'Default', text: '' }], temperature: 0.5, max_tokens: 16000 },
-  extraction:  { provider: 'OpenAI', model: '', prompt: '', prompts: [{ name: 'Default', text: '' }], temperature: 0.3, max_tokens: 4000 },
-  sources:     { provider: 'OpenAI', model: '', prompt: '', prompts: [{ name: 'Default', text: '' }], temperature: 0.3, max_tokens: 4000 },
+  correction: {
+    prompts: [{ name: 'Default', text: '', model_preset_id: null, max_tokens: 16000 }],
+  },
+  edition: {
+    prompts: [{ name: 'Default', text: '', model_preset_id: null, max_tokens: 16000 }],
+  },
+  extraction: {
+    prompts: [{ name: 'Default', text: '', model_preset_id: null, max_tokens: 4000 }],
+  },
+  sources: {
+    prompts: [{ name: 'Default', text: '', model_preset_id: null, max_tokens: 4000 }],
+  },
   source_types: {},
   summary: {
     prompts: [{ name: 'Default', text: '', model_preset_id: null, max_length: 300 }],
@@ -120,15 +128,128 @@ const normalizeConfigShape = () => {
   delete summaryWithLegacyFields.prompt
   delete summaryWithLegacyFields.max_length
   if (!config.value.source_types) config.value.source_types = {}
-  // Ensure prompts arrays exist for backward compatibility with old single-prompt configs
-  for (const section of ['correction', 'edition', 'extraction', 'sources'] as const) {
-    const cfg = config.value[section]
-    if (!cfg.prompts || cfg.prompts.length === 0) {
-      cfg.prompts = cfg.prompt
-        ? [{ name: 'Default', text: cfg.prompt }]
-        : [{ name: 'Default', text: '' }]
-    }
+  const legacyExtractionMaxTokens =
+    typeof (config.value.extraction as { max_tokens?: unknown }).max_tokens === 'number'
+      ? (config.value.extraction as { max_tokens: number }).max_tokens
+      : 4000
+  if (!config.value.extraction.prompts || config.value.extraction.prompts.length === 0) {
+    const legacyExtractionPrompt = (config.value.extraction as { prompt?: unknown }).prompt
+    config.value.extraction.prompts = [{
+      name: 'Default',
+      text: typeof legacyExtractionPrompt === 'string' ? legacyExtractionPrompt : '',
+      model_preset_id: null,
+      max_tokens: legacyExtractionMaxTokens,
+    }]
+  } else {
+    config.value.extraction.prompts = config.value.extraction.prompts.map((prompt) => ({
+      ...prompt,
+      model_preset_id:
+        typeof prompt.model_preset_id === 'number' ? prompt.model_preset_id : null,
+      max_tokens:
+        typeof prompt.max_tokens === 'number' ? prompt.max_tokens : legacyExtractionMaxTokens,
+    }))
   }
+  const extractionWithLegacyFields = config.value.extraction as typeof config.value.extraction & {
+    provider?: string
+    model?: string
+    temperature?: number
+    max_tokens?: number
+    prompt?: string
+  }
+  delete extractionWithLegacyFields.provider
+  delete extractionWithLegacyFields.model
+  delete extractionWithLegacyFields.temperature
+  delete extractionWithLegacyFields.max_tokens
+  delete extractionWithLegacyFields.prompt
+
+  const legacySourcesMaxTokens =
+    typeof (config.value.sources as { max_tokens?: unknown }).max_tokens === 'number'
+      ? (config.value.sources as { max_tokens: number }).max_tokens
+      : 4000
+  if (!config.value.sources.prompts || config.value.sources.prompts.length === 0) {
+    const legacySourcesPrompt = (config.value.sources as { prompt?: unknown }).prompt
+    config.value.sources.prompts = [{
+      name: 'Default',
+      text: typeof legacySourcesPrompt === 'string' ? legacySourcesPrompt : '',
+      model_preset_id: null,
+      max_tokens: legacySourcesMaxTokens,
+    }]
+  } else {
+    config.value.sources.prompts = config.value.sources.prompts.map((prompt) => ({
+      ...prompt,
+      model_preset_id:
+        typeof prompt.model_preset_id === 'number' ? prompt.model_preset_id : null,
+      max_tokens:
+        typeof prompt.max_tokens === 'number' ? prompt.max_tokens : legacySourcesMaxTokens,
+    }))
+  }
+  const sourcesWithLegacyFields = config.value.sources as typeof config.value.sources & {
+    provider?: string
+    model?: string
+    temperature?: number
+    max_tokens?: number
+    prompt?: string
+  }
+  delete sourcesWithLegacyFields.provider
+  delete sourcesWithLegacyFields.model
+  delete sourcesWithLegacyFields.temperature
+  delete sourcesWithLegacyFields.max_tokens
+  delete sourcesWithLegacyFields.prompt
+  const legacyEditionMaxTokens =
+    typeof (config.value.edition as { max_tokens?: unknown }).max_tokens === 'number'
+      ? (config.value.edition as { max_tokens: number }).max_tokens
+      : 16000
+  if (!config.value.edition.prompts || config.value.edition.prompts.length === 0) {
+    config.value.edition.prompts = [{ name: 'Default', text: '', model_preset_id: null, max_tokens: legacyEditionMaxTokens }]
+  } else {
+    config.value.edition.prompts = config.value.edition.prompts.map((prompt) => ({
+      ...prompt,
+      model_preset_id:
+        typeof prompt.model_preset_id === 'number' ? prompt.model_preset_id : null,
+      max_tokens:
+        typeof prompt.max_tokens === 'number' ? prompt.max_tokens : legacyEditionMaxTokens,
+    }))
+  }
+  const editionWithLegacyFields = config.value.edition as typeof config.value.edition & {
+    provider?: string
+    model?: string
+    temperature?: number
+    max_tokens?: number
+    prompt?: string
+  }
+  delete editionWithLegacyFields.provider
+  delete editionWithLegacyFields.model
+  delete editionWithLegacyFields.temperature
+  delete editionWithLegacyFields.max_tokens
+  delete editionWithLegacyFields.prompt
+
+  const legacyCorrectionMaxTokens =
+    typeof (config.value.correction as { max_tokens?: unknown }).max_tokens === 'number'
+      ? (config.value.correction as { max_tokens: number }).max_tokens
+      : 16000
+  if (!config.value.correction.prompts || config.value.correction.prompts.length === 0) {
+    config.value.correction.prompts = [{ name: 'Default', text: '', model_preset_id: null, max_tokens: legacyCorrectionMaxTokens }]
+  } else {
+    config.value.correction.prompts = config.value.correction.prompts.map((prompt) => ({
+      ...prompt,
+      model_preset_id:
+        typeof prompt.model_preset_id === 'number' ? prompt.model_preset_id : null,
+      max_tokens:
+        typeof prompt.max_tokens === 'number' ? prompt.max_tokens : legacyCorrectionMaxTokens,
+    }))
+  }
+  const correctionWithLegacyFields = config.value.correction as typeof config.value.correction & {
+    provider?: string
+    model?: string
+    temperature?: number
+    max_tokens?: number
+    prompt?: string
+  }
+  delete correctionWithLegacyFields.provider
+  delete correctionWithLegacyFields.model
+  delete correctionWithLegacyFields.temperature
+  delete correctionWithLegacyFields.max_tokens
+  delete correctionWithLegacyFields.prompt
 }
 
 onMounted(async () => {
@@ -224,16 +345,33 @@ const importConfigYaml = async (event: Event) => {
   }
 }
 
-const addPrompt = (section: 'correction' | 'edition' | 'extraction' | 'sources') => {
-  const cfg = config.value[section]
-  if (!cfg.prompts) cfg.prompts = []
-  cfg.prompts.push({ name: '', text: '' })
+const addExtractionPrompt = () => {
+  config.value.extraction.prompts.push({ name: '', text: '', model_preset_id: null, max_tokens: 4000 })
 }
 
-const removePrompt = (section: 'correction' | 'edition' | 'extraction' | 'sources', index: number) => {
-  const cfg = config.value[section]
-  if (cfg.prompts && cfg.prompts.length > 1) {
-    cfg.prompts.splice(index, 1)
+const removeExtractionPrompt = (index: number) => {
+  if (config.value.extraction.prompts.length > 1) {
+    config.value.extraction.prompts.splice(index, 1)
+  }
+}
+
+const addSourcesPrompt = () => {
+  config.value.sources.prompts.push({ name: '', text: '', model_preset_id: null, max_tokens: 4000 })
+}
+
+const removeSourcesPrompt = (index: number) => {
+  if (config.value.sources.prompts.length > 1) {
+    config.value.sources.prompts.splice(index, 1)
+  }
+}
+
+const addCorrectionPrompt = () => {
+  config.value.correction.prompts.push({ name: '', text: '', model_preset_id: null, max_tokens: 16000 })
+}
+
+const removeCorrectionPrompt = (index: number) => {
+  if (config.value.correction.prompts.length > 1) {
+    config.value.correction.prompts.splice(index, 1)
   }
 }
 
@@ -244,6 +382,16 @@ const addSummaryPrompt = () => {
 const removeSummaryPrompt = (index: number) => {
   if (config.value.summary.prompts.length > 1) {
     config.value.summary.prompts.splice(index, 1)
+  }
+}
+
+const addEditionPrompt = () => {
+  config.value.edition.prompts.push({ name: '', text: '', model_preset_id: null, max_tokens: 16000 })
+}
+
+const removeEditionPrompt = (index: number) => {
+  if (config.value.edition.prompts.length > 1) {
+    config.value.edition.prompts.splice(index, 1)
   }
 }
 
@@ -472,73 +620,6 @@ const updateSourceType = (oldType: string, newType: string, description: string)
               </h2>
               
               <div class="space-y-6">
-                <!-- Provider -->
-                <div>
-                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {{ t('preferences.provider') }}
-                  </label>
-                  <select
-                    v-model="config.correction.provider"
-                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-                  >
-                    <option value="OpenAI">OpenAI</option>
-                    <option value="Anthropic">Anthropic</option>
-                  </select>
-                </div>
-
-                <!-- Model -->
-                <div>
-                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {{ t('preferences.model') }}
-                  </label>
-                  <input
-                    v-model="config.correction.model"
-                    type="text"
-                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-                    placeholder="gpt-4o"
-                  />
-                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    {{ t('preferences.modelDesc') }}
-                  </p>
-                </div>
-
-                <!-- Temperature -->
-                <div>
-                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {{ t('preferences.temperature') }}: {{ config.correction.temperature }}
-                  </label>
-                  <input
-                    v-model.number="config.correction.temperature"
-                    type="range"
-                    min="0"
-                    max="2"
-                    step="0.1"
-                    class="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer"
-                  />
-                  <div class="flex justify-between text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    <span>{{ t('preferences.precise') }}</span>
-                    <span>{{ t('preferences.creative') }}</span>
-                  </div>
-                </div>
-
-                <!-- Max Tokens -->
-                <div>
-                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {{ t('preferences.maxTokens') }}
-                  </label>
-                  <input
-                    v-model.number="config.correction.max_tokens"
-                    type="number"
-                    min="256"
-                    max="200000"
-                    step="256"
-                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-                  />
-                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    {{ t('preferences.maxTokensDesc') }}
-                  </p>
-                </div>
-
                 <!-- Prompts -->
                 <div>
                   <div class="flex items-center justify-between mb-2">
@@ -546,7 +627,7 @@ const updateSourceType = (oldType: string, newType: string, description: string)
                       {{ t('preferences.correctionPrompts') }}
                     </label>
                     <button
-                      @click="addPrompt('correction')"
+                      @click="addCorrectionPrompt"
                       type="button"
                       class="px-3 py-1 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 border border-indigo-300 dark:border-indigo-600 rounded-md hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
                     >
@@ -567,9 +648,22 @@ const updateSourceType = (oldType: string, newType: string, description: string)
                           :placeholder="t('preferences.promptName')"
                           class="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 text-sm font-medium"
                         />
+                        <select
+                          v-model="prompt.model_preset_id"
+                          class="min-w-52 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 text-sm"
+                        >
+                          <option :value="null">{{ t('preferences.selectModelPreset') }}</option>
+                          <option
+                            v-for="preset in modelPresets"
+                            :key="preset.id"
+                            :value="preset.id"
+                          >
+                            {{ preset.name }}
+                          </option>
+                        </select>
                         <button
-                          v-if="(config.correction.prompts?.length ?? 0) > 1"
-                          @click="removePrompt('correction', index)"
+                          v-if="config.correction.prompts.length > 1"
+                          @click="removeCorrectionPrompt(index)"
                           type="button"
                           class="px-3 py-2 text-xs font-medium text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors"
                         >
@@ -582,6 +676,22 @@ const updateSourceType = (oldType: string, newType: string, description: string)
                         :placeholder="t('preferences.promptText')"
                         class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
                       ></textarea>
+                      <div class="mt-3">
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                          {{ t('preferences.maxTokens') }}
+                        </label>
+                        <input
+                          v-model.number="prompt.max_tokens"
+                          type="number"
+                          min="256"
+                          max="200000"
+                          step="256"
+                          class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                        />
+                        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                          {{ t('preferences.maxTokensDesc') }}
+                        </p>
+                      </div>
                     </div>
                   </div>
                   
@@ -599,73 +709,6 @@ const updateSourceType = (oldType: string, newType: string, description: string)
               </h2>
               
               <div class="space-y-6">
-                <!-- Provider -->
-                <div>
-                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {{ t('preferences.provider') }}
-                  </label>
-                  <select
-                    v-model="config.edition.provider"
-                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-                  >
-                    <option value="OpenAI">OpenAI</option>
-                    <option value="Anthropic">Anthropic</option>
-                  </select>
-                </div>
-
-                <!-- Model -->
-                <div>
-                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {{ t('preferences.model') }}
-                  </label>
-                  <input
-                    v-model="config.edition.model"
-                    type="text"
-                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-                    placeholder="gpt-4o"
-                  />
-                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    {{ t('preferences.modelDesc') }}
-                  </p>
-                </div>
-
-                <!-- Temperature -->
-                <div>
-                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {{ t('preferences.temperature') }}: {{ config.edition.temperature }}
-                  </label>
-                  <input
-                    v-model.number="config.edition.temperature"
-                    type="range"
-                    min="0"
-                    max="2"
-                    step="0.1"
-                    class="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer"
-                  />
-                  <div class="flex justify-between text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    <span>{{ t('preferences.precise') }}</span>
-                    <span>{{ t('preferences.creative') }}</span>
-                  </div>
-                </div>
-
-                <!-- Max Tokens -->
-                <div>
-                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {{ t('preferences.maxTokens') }}
-                  </label>
-                  <input
-                    v-model.number="config.edition.max_tokens"
-                    type="number"
-                    min="256"
-                    max="200000"
-                    step="256"
-                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-                  />
-                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    {{ t('preferences.maxTokensDesc') }}
-                  </p>
-                </div>
-
                 <!-- Prompts -->
                 <div>
                   <div class="flex items-center justify-between mb-2">
@@ -673,7 +716,7 @@ const updateSourceType = (oldType: string, newType: string, description: string)
                       {{ t('preferences.editionPrompts') }}
                     </label>
                     <button
-                      @click="addPrompt('edition')"
+                      @click="addEditionPrompt"
                       type="button"
                       class="px-3 py-1 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 border border-indigo-300 dark:border-indigo-600 rounded-md hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
                     >
@@ -694,9 +737,22 @@ const updateSourceType = (oldType: string, newType: string, description: string)
                           :placeholder="t('preferences.promptName')"
                           class="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 text-sm font-medium"
                         />
+                        <select
+                          v-model="prompt.model_preset_id"
+                          class="min-w-52 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 text-sm"
+                        >
+                          <option :value="null">{{ t('preferences.selectModelPreset') }}</option>
+                          <option
+                            v-for="preset in modelPresets"
+                            :key="preset.id"
+                            :value="preset.id"
+                          >
+                            {{ preset.name }}
+                          </option>
+                        </select>
                         <button
-                          v-if="(config.edition.prompts?.length ?? 0) > 1"
-                          @click="removePrompt('edition', index)"
+                          v-if="config.edition.prompts.length > 1"
+                          @click="removeEditionPrompt(index)"
                           type="button"
                           class="px-3 py-2 text-xs font-medium text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors"
                         >
@@ -709,6 +765,22 @@ const updateSourceType = (oldType: string, newType: string, description: string)
                         :placeholder="t('preferences.promptText')"
                         class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
                       ></textarea>
+                      <div class="mt-3">
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                          {{ t('preferences.maxTokens') }}
+                        </label>
+                        <input
+                          v-model.number="prompt.max_tokens"
+                          type="number"
+                          min="256"
+                          max="200000"
+                          step="256"
+                          class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                        />
+                        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                          {{ t('preferences.maxTokensDesc') }}
+                        </p>
+                      </div>
                     </div>
                   </div>
                   
@@ -791,73 +863,6 @@ const updateSourceType = (oldType: string, newType: string, description: string)
                   </h3>
                   
                   <div class="space-y-6">
-                    <!-- Provider -->
-                    <div>
-                      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        {{ t('preferences.provider') }}
-                      </label>
-                      <select
-                        v-model="config.extraction.provider"
-                        class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-                      >
-                        <option value="OpenAI">OpenAI</option>
-                        <option value="Anthropic">Anthropic</option>
-                      </select>
-                    </div>
-
-                    <!-- Model -->
-                    <div>
-                      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        {{ t('preferences.model') }}
-                      </label>
-                      <input
-                        v-model="config.extraction.model"
-                        type="text"
-                        class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-                        placeholder="gpt-4o"
-                      />
-                      <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                        {{ t('preferences.modelDesc') }}
-                      </p>
-                    </div>
-
-                    <!-- Temperature -->
-                    <div>
-                      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        {{ t('preferences.temperature') }}: {{ config.extraction.temperature }}
-                      </label>
-                      <input
-                        v-model.number="config.extraction.temperature"
-                        type="range"
-                        min="0"
-                        max="2"
-                        step="0.1"
-                        class="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer"
-                      />
-                      <div class="flex justify-between text-xs text-gray-500 dark:text-gray-400 mt-1">
-                        <span>{{ t('preferences.precise') }}</span>
-                        <span>{{ t('preferences.creative') }}</span>
-                      </div>
-                    </div>
-
-                    <!-- Max Tokens -->
-                    <div>
-                      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        {{ t('preferences.maxTokens') }}
-                      </label>
-                      <input
-                        v-model.number="config.extraction.max_tokens"
-                        type="number"
-                        min="256"
-                        max="200000"
-                        step="256"
-                        class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-                      />
-                      <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                        {{ t('preferences.maxTokensDesc') }}
-                      </p>
-                    </div>
-
                     <!-- Prompts -->
                     <div>
                       <div class="flex items-center justify-between mb-2">
@@ -865,7 +870,7 @@ const updateSourceType = (oldType: string, newType: string, description: string)
                           {{ t('preferences.extractionPrompts') }}
                         </label>
                         <button
-                          @click="addPrompt('extraction')"
+                          @click="addExtractionPrompt"
                           type="button"
                           class="px-3 py-1 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 border border-indigo-300 dark:border-indigo-600 rounded-md hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
                         >
@@ -886,9 +891,22 @@ const updateSourceType = (oldType: string, newType: string, description: string)
                               :placeholder="t('preferences.promptName')"
                               class="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 text-sm font-medium"
                             />
+                            <select
+                              v-model="prompt.model_preset_id"
+                              class="min-w-52 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 text-sm"
+                            >
+                              <option :value="null">{{ t('preferences.selectModelPreset') }}</option>
+                              <option
+                                v-for="preset in modelPresets"
+                                :key="preset.id"
+                                :value="preset.id"
+                              >
+                                {{ preset.name }}
+                              </option>
+                            </select>
                             <button
                               v-if="(config.extraction.prompts?.length ?? 0) > 1"
-                              @click="removePrompt('extraction', index)"
+                              @click="removeExtractionPrompt(index)"
                               type="button"
                               class="px-3 py-2 text-xs font-medium text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors"
                             >
@@ -901,6 +919,19 @@ const updateSourceType = (oldType: string, newType: string, description: string)
                             :placeholder="t('preferences.promptText')"
                             class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
                           ></textarea>
+                          <div class="mt-3">
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                              {{ t('preferences.maxTokens') }}
+                            </label>
+                            <input
+                              v-model.number="prompt.max_tokens"
+                              type="number"
+                              min="256"
+                              max="200000"
+                              step="256"
+                              class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                            />
+                          </div>
                         </div>
                       </div>
                       
@@ -918,73 +949,6 @@ const updateSourceType = (oldType: string, newType: string, description: string)
                   </h3>
                   
                   <div class="space-y-6">
-                    <!-- Provider -->
-                    <div>
-                      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        {{ t('preferences.provider') }}
-                      </label>
-                      <select
-                        v-model="config.sources.provider"
-                        class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-                      >
-                        <option value="OpenAI">OpenAI</option>
-                        <option value="Anthropic">Anthropic</option>
-                      </select>
-                    </div>
-
-                    <!-- Model -->
-                    <div>
-                      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        {{ t('preferences.model') }}
-                      </label>
-                      <input
-                        v-model="config.sources.model"
-                        type="text"
-                        class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-                        placeholder="gpt-4o"
-                      />
-                      <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                        {{ t('preferences.modelDesc') }}
-                      </p>
-                    </div>
-
-                    <!-- Temperature -->
-                    <div>
-                      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        {{ t('preferences.temperature') }}: {{ config.sources.temperature }}
-                      </label>
-                      <input
-                        v-model.number="config.sources.temperature"
-                        type="range"
-                        min="0"
-                        max="2"
-                        step="0.1"
-                        class="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer"
-                      />
-                      <div class="flex justify-between text-xs text-gray-500 dark:text-gray-400 mt-1">
-                        <span>{{ t('preferences.precise') }}</span>
-                        <span>{{ t('preferences.creative') }}</span>
-                      </div>
-                    </div>
-
-                    <!-- Max Tokens -->
-                    <div>
-                      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        {{ t('preferences.maxTokens') }}
-                      </label>
-                      <input
-                        v-model.number="config.sources.max_tokens"
-                        type="number"
-                        min="256"
-                        max="200000"
-                        step="256"
-                        class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-                      />
-                      <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                        {{ t('preferences.maxTokensDesc') }}
-                      </p>
-                    </div>
-
                     <!-- Prompts -->
                     <div>
                       <div class="flex items-center justify-between mb-2">
@@ -992,7 +956,7 @@ const updateSourceType = (oldType: string, newType: string, description: string)
                           {{ t('preferences.sourcesPrompts') }}
                         </label>
                         <button
-                          @click="addPrompt('sources')"
+                          @click="addSourcesPrompt"
                           type="button"
                           class="px-3 py-1 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 border border-indigo-300 dark:border-indigo-600 rounded-md hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
                         >
@@ -1013,9 +977,22 @@ const updateSourceType = (oldType: string, newType: string, description: string)
                               :placeholder="t('preferences.promptName')"
                               class="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 text-sm font-medium"
                             />
+                            <select
+                              v-model="prompt.model_preset_id"
+                              class="min-w-52 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 text-sm"
+                            >
+                              <option :value="null">{{ t('preferences.selectModelPreset') }}</option>
+                              <option
+                                v-for="preset in modelPresets"
+                                :key="preset.id"
+                                :value="preset.id"
+                              >
+                                {{ preset.name }}
+                              </option>
+                            </select>
                             <button
                               v-if="(config.sources.prompts?.length ?? 0) > 1"
-                              @click="removePrompt('sources', index)"
+                              @click="removeSourcesPrompt(index)"
                               type="button"
                               class="px-3 py-2 text-xs font-medium text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors"
                             >
@@ -1028,6 +1005,19 @@ const updateSourceType = (oldType: string, newType: string, description: string)
                             :placeholder="t('preferences.promptText')"
                             class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
                           ></textarea>
+                          <div class="mt-3">
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                              {{ t('preferences.maxTokens') }}
+                            </label>
+                            <input
+                              v-model.number="prompt.max_tokens"
+                              type="number"
+                              min="256"
+                              max="200000"
+                              step="256"
+                              class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                            />
+                          </div>
                         </div>
                       </div>
                       

@@ -191,7 +191,10 @@ const getEstimatedCost = (task: Task): number | null => {
 const formatEstimatedCost = (task: Task): string => {
   const cost = getEstimatedCost(task)
   if (cost === null) return '-'
-  return `$${cost.toFixed(6)}`
+  return `$${new Intl.NumberFormat(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 3,
+  }).format(cost)}`
 }
 
 const getStatusColor = (status: TaskStatus): string => {

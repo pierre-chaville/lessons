@@ -15,32 +15,36 @@ CONFIG_RECORD_ID = 1
 MIN_SUMMARY_PROMPT_MAX_LENGTH = 50
 DEFAULT_SUMMARY_PROMPT_MAX_LENGTH = 300
 DEFAULT_BRIEF_MAX_TOKENS = 1000
+DEFAULT_EDITION_PROMPT_MAX_TOKENS = 16000
+MIN_EDITION_PROMPT_MAX_TOKENS = 256
+DEFAULT_CORRECTION_PROMPT_MAX_TOKENS = 16000
+MIN_CORRECTION_PROMPT_MAX_TOKENS = 256
+DEFAULT_EXTRACTION_PROMPT_MAX_TOKENS = 4000
+MIN_EXTRACTION_PROMPT_MAX_TOKENS = 256
+DEFAULT_SOURCES_PROMPT_MAX_TOKENS = 4000
+MIN_SOURCES_PROMPT_MAX_TOKENS = 256
 
 # Default configuration
 DEFAULT_CONFIG = {
     "correction": {
-        "provider": "OpenAI",
-        "model": "gpt-4o",
         "prompts": [
             {
                 "name": "Default",
                 "text": "Please correct the following transcript, fixing any errors while maintaining the original meaning and style.",
+                "model_preset_id": None,
+                "max_tokens": DEFAULT_CORRECTION_PROMPT_MAX_TOKENS,
             }
         ],
-        "temperature": 0.3,
-        "max_tokens": 16000,
     },
     "edition": {
-        "provider": "OpenAI",
-        "model": "gpt-4o",
         "prompts": [
             {
                 "name": "Default",
                 "text": "Please rewrite the following transcript in a clear, written style, maintaining the original meaning and flow. Include timing information (start/end) and cite any sources mentioned.",
+                "model_preset_id": None,
+                "max_tokens": DEFAULT_EDITION_PROMPT_MAX_TOKENS,
             }
         ],
-        "temperature": 0.5,
-        "max_tokens": 16000,
     },
     "summary": {
         "prompts": [
@@ -58,28 +62,24 @@ DEFAULT_CONFIG = {
         "max_tokens": DEFAULT_BRIEF_MAX_TOKENS,
     },
     "extraction": {
-        "provider": "OpenAI",
-        "model": "gpt-4o",
         "prompts": [
             {
                 "name": "Default",
                 "text": "Please extract any sources mentioned in the edited transcript.",
+                "model_preset_id": None,
+                "max_tokens": DEFAULT_EXTRACTION_PROMPT_MAX_TOKENS,
             }
         ],
-        "temperature": 0.3,
-        "max_tokens": 4000,
     },
     "sources": {
-        "provider": "OpenAI",
-        "model": "gpt-4o",
         "prompts": [
             {
                 "name": "Default",
                 "text": "Please verify sources and provide standardized references.",
+                "model_preset_id": None,
+                "max_tokens": DEFAULT_SOURCES_PROMPT_MAX_TOKENS,
             }
         ],
-        "temperature": 0.3,
-        "max_tokens": 4000,
     },
     "transcribe": {
         "model": "nova-3",
@@ -161,6 +161,43 @@ def _migrate_summary_prompt_model_presets(config: Dict[str, Any]) -> Dict[str, A
     return migrated
 
 
+def _migrate_correction_prompt_model_presets(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Move legacy correction model settings to prompt-level settings."""
+    if not config:
+        return {}
+
+    migrated = dict(config)
+    correction = migrated.get("correction")
+    if not isinstance(correction, dict):
+        return migrated
+
+    correction_copy = dict(correction)
+    legacy_max_tokens = correction_copy.get(
+        "max_tokens", DEFAULT_CORRECTION_PROMPT_MAX_TOKENS
+    )
+    prompts = correction_copy.get("prompts", [])
+    if not prompts and correction_copy.get("prompt"):
+        prompts = [{"name": "Default", "text": correction_copy.get("prompt")}]
+
+    normalized_prompts = []
+    for prompt in prompts:
+        if not isinstance(prompt, dict):
+            continue
+        prompt_copy = dict(prompt)
+        prompt_copy.setdefault("model_preset_id", None)
+        prompt_copy.setdefault("max_tokens", legacy_max_tokens)
+        normalized_prompts.append(prompt_copy)
+
+    if normalized_prompts:
+        correction_copy["prompts"] = normalized_prompts
+
+    for key in ("provider", "model", "temperature", "max_tokens", "prompt"):
+        correction_copy.pop(key, None)
+
+    migrated["correction"] = correction_copy
+    return migrated
+
+
 def _normalize_summary_prompt_limits(config: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize per-prompt summary max_length to a safe integer minimum."""
     if not config:
@@ -195,6 +232,56 @@ def _normalize_summary_prompt_limits(config: Dict[str, Any]) -> Dict[str, Any]:
     if normalized_prompts:
         summary_copy["prompts"] = normalized_prompts
     normalized["summary"] = summary_copy
+    return normalized
+
+
+def _normalize_correction_prompt_limits(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize correction prompt-level max_tokens and model_preset_id."""
+    if not config:
+        return {}
+
+    normalized = dict(config)
+    correction = normalized.get("correction")
+    if not isinstance(correction, dict):
+        return normalized
+
+    correction_copy = dict(correction)
+    prompts = correction_copy.get("prompts")
+    if not isinstance(prompts, list):
+        normalized["correction"] = correction_copy
+        return normalized
+
+    normalized_prompts = []
+    for prompt in prompts:
+        if not isinstance(prompt, dict):
+            continue
+        prompt_copy = dict(prompt)
+
+        raw_max_tokens = prompt_copy.get(
+            "max_tokens", DEFAULT_CORRECTION_PROMPT_MAX_TOKENS
+        )
+        try:
+            prompt_max_tokens = int(raw_max_tokens)
+        except (TypeError, ValueError):
+            prompt_max_tokens = DEFAULT_CORRECTION_PROMPT_MAX_TOKENS
+        prompt_copy["max_tokens"] = max(
+            MIN_CORRECTION_PROMPT_MAX_TOKENS, prompt_max_tokens
+        )
+
+        raw_model_preset_id = prompt_copy.get("model_preset_id")
+        if raw_model_preset_id in (None, ""):
+            prompt_copy["model_preset_id"] = None
+        else:
+            try:
+                prompt_copy["model_preset_id"] = int(raw_model_preset_id)
+            except (TypeError, ValueError):
+                prompt_copy["model_preset_id"] = None
+
+        normalized_prompts.append(prompt_copy)
+
+    if normalized_prompts:
+        correction_copy["prompts"] = normalized_prompts
+    normalized["correction"] = correction_copy
     return normalized
 
 
@@ -239,6 +326,259 @@ def _normalize_brief_config(config: Dict[str, Any]) -> Dict[str, Any]:
     return normalized
 
 
+def _migrate_edition_prompt_model_presets(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Move legacy edition model settings to prompt-level settings."""
+    if not config:
+        return {}
+
+    migrated = dict(config)
+    edition = migrated.get("edition")
+    if not isinstance(edition, dict):
+        return migrated
+
+    edition_copy = dict(edition)
+    legacy_max_tokens = edition_copy.get(
+        "max_tokens", DEFAULT_EDITION_PROMPT_MAX_TOKENS
+    )
+    prompts = edition_copy.get("prompts", [])
+    if not prompts and edition_copy.get("prompt"):
+        prompts = [{"name": "Default", "text": edition_copy.get("prompt")}]
+
+    normalized_prompts = []
+    for prompt in prompts:
+        if not isinstance(prompt, dict):
+            continue
+        prompt_copy = dict(prompt)
+        prompt_copy.setdefault("model_preset_id", None)
+        prompt_copy.setdefault("max_tokens", legacy_max_tokens)
+        normalized_prompts.append(prompt_copy)
+
+    if normalized_prompts:
+        edition_copy["prompts"] = normalized_prompts
+
+    for key in ("provider", "model", "temperature", "max_tokens", "prompt"):
+        edition_copy.pop(key, None)
+
+    migrated["edition"] = edition_copy
+    return migrated
+
+
+def _normalize_edition_prompt_limits(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize edition prompt-level max_tokens and model_preset_id."""
+    if not config:
+        return {}
+
+    normalized = dict(config)
+    edition = normalized.get("edition")
+    if not isinstance(edition, dict):
+        return normalized
+
+    edition_copy = dict(edition)
+    prompts = edition_copy.get("prompts")
+    if not isinstance(prompts, list):
+        normalized["edition"] = edition_copy
+        return normalized
+
+    normalized_prompts = []
+    for prompt in prompts:
+        if not isinstance(prompt, dict):
+            continue
+        prompt_copy = dict(prompt)
+
+        raw_max_tokens = prompt_copy.get(
+            "max_tokens", DEFAULT_EDITION_PROMPT_MAX_TOKENS
+        )
+        try:
+            prompt_max_tokens = int(raw_max_tokens)
+        except (TypeError, ValueError):
+            prompt_max_tokens = DEFAULT_EDITION_PROMPT_MAX_TOKENS
+        prompt_copy["max_tokens"] = max(MIN_EDITION_PROMPT_MAX_TOKENS, prompt_max_tokens)
+
+        raw_model_preset_id = prompt_copy.get("model_preset_id")
+        if raw_model_preset_id in (None, ""):
+            prompt_copy["model_preset_id"] = None
+        else:
+            try:
+                prompt_copy["model_preset_id"] = int(raw_model_preset_id)
+            except (TypeError, ValueError):
+                prompt_copy["model_preset_id"] = None
+
+        normalized_prompts.append(prompt_copy)
+
+    if normalized_prompts:
+        edition_copy["prompts"] = normalized_prompts
+    normalized["edition"] = edition_copy
+    return normalized
+
+
+def _migrate_extraction_prompt_model_presets(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Move legacy extraction model settings to prompt-level settings."""
+    if not config:
+        return {}
+
+    migrated = dict(config)
+    extraction = migrated.get("extraction")
+    if not isinstance(extraction, dict):
+        return migrated
+
+    extraction_copy = dict(extraction)
+    legacy_max_tokens = extraction_copy.get(
+        "max_tokens", DEFAULT_EXTRACTION_PROMPT_MAX_TOKENS
+    )
+    prompts = extraction_copy.get("prompts", [])
+    if not prompts and extraction_copy.get("prompt"):
+        prompts = [{"name": "Default", "text": extraction_copy.get("prompt")}]
+
+    normalized_prompts = []
+    for prompt in prompts:
+        if not isinstance(prompt, dict):
+            continue
+        prompt_copy = dict(prompt)
+        prompt_copy.setdefault("model_preset_id", None)
+        prompt_copy.setdefault("max_tokens", legacy_max_tokens)
+        normalized_prompts.append(prompt_copy)
+
+    if normalized_prompts:
+        extraction_copy["prompts"] = normalized_prompts
+
+    for key in ("provider", "model", "temperature", "max_tokens", "prompt"):
+        extraction_copy.pop(key, None)
+
+    migrated["extraction"] = extraction_copy
+    return migrated
+
+
+def _normalize_extraction_prompt_limits(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize extraction prompt-level max_tokens and model_preset_id."""
+    if not config:
+        return {}
+
+    normalized = dict(config)
+    extraction = normalized.get("extraction")
+    if not isinstance(extraction, dict):
+        return normalized
+
+    extraction_copy = dict(extraction)
+    prompts = extraction_copy.get("prompts")
+    if not isinstance(prompts, list):
+        normalized["extraction"] = extraction_copy
+        return normalized
+
+    normalized_prompts = []
+    for prompt in prompts:
+        if not isinstance(prompt, dict):
+            continue
+        prompt_copy = dict(prompt)
+        raw_max_tokens = prompt_copy.get(
+            "max_tokens", DEFAULT_EXTRACTION_PROMPT_MAX_TOKENS
+        )
+        try:
+            prompt_max_tokens = int(raw_max_tokens)
+        except (TypeError, ValueError):
+            prompt_max_tokens = DEFAULT_EXTRACTION_PROMPT_MAX_TOKENS
+        prompt_copy["max_tokens"] = max(MIN_EXTRACTION_PROMPT_MAX_TOKENS, prompt_max_tokens)
+
+        raw_model_preset_id = prompt_copy.get("model_preset_id")
+        if raw_model_preset_id in (None, ""):
+            prompt_copy["model_preset_id"] = None
+        else:
+            try:
+                prompt_copy["model_preset_id"] = int(raw_model_preset_id)
+            except (TypeError, ValueError):
+                prompt_copy["model_preset_id"] = None
+
+        normalized_prompts.append(prompt_copy)
+
+    if normalized_prompts:
+        extraction_copy["prompts"] = normalized_prompts
+    normalized["extraction"] = extraction_copy
+    return normalized
+
+
+def _migrate_sources_prompt_model_presets(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Move legacy sources model settings to prompt-level settings."""
+    if not config:
+        return {}
+
+    migrated = dict(config)
+    sources = migrated.get("sources")
+    if not isinstance(sources, dict):
+        return migrated
+
+    sources_copy = dict(sources)
+    legacy_max_tokens = sources_copy.get(
+        "max_tokens", DEFAULT_SOURCES_PROMPT_MAX_TOKENS
+    )
+    prompts = sources_copy.get("prompts", [])
+    if not prompts and sources_copy.get("prompt"):
+        prompts = [{"name": "Default", "text": sources_copy.get("prompt")}]
+
+    normalized_prompts = []
+    for prompt in prompts:
+        if not isinstance(prompt, dict):
+            continue
+        prompt_copy = dict(prompt)
+        prompt_copy.setdefault("model_preset_id", None)
+        prompt_copy.setdefault("max_tokens", legacy_max_tokens)
+        normalized_prompts.append(prompt_copy)
+
+    if normalized_prompts:
+        sources_copy["prompts"] = normalized_prompts
+
+    for key in ("provider", "model", "temperature", "max_tokens", "prompt"):
+        sources_copy.pop(key, None)
+
+    migrated["sources"] = sources_copy
+    return migrated
+
+
+def _normalize_sources_prompt_limits(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize sources prompt-level max_tokens and model_preset_id."""
+    if not config:
+        return {}
+
+    normalized = dict(config)
+    sources = normalized.get("sources")
+    if not isinstance(sources, dict):
+        return normalized
+
+    sources_copy = dict(sources)
+    prompts = sources_copy.get("prompts")
+    if not isinstance(prompts, list):
+        normalized["sources"] = sources_copy
+        return normalized
+
+    normalized_prompts = []
+    for prompt in prompts:
+        if not isinstance(prompt, dict):
+            continue
+        prompt_copy = dict(prompt)
+        raw_max_tokens = prompt_copy.get(
+            "max_tokens", DEFAULT_SOURCES_PROMPT_MAX_TOKENS
+        )
+        try:
+            prompt_max_tokens = int(raw_max_tokens)
+        except (TypeError, ValueError):
+            prompt_max_tokens = DEFAULT_SOURCES_PROMPT_MAX_TOKENS
+        prompt_copy["max_tokens"] = max(MIN_SOURCES_PROMPT_MAX_TOKENS, prompt_max_tokens)
+
+        raw_model_preset_id = prompt_copy.get("model_preset_id")
+        if raw_model_preset_id in (None, ""):
+            prompt_copy["model_preset_id"] = None
+        else:
+            try:
+                prompt_copy["model_preset_id"] = int(raw_model_preset_id)
+            except (TypeError, ValueError):
+                prompt_copy["model_preset_id"] = None
+
+        normalized_prompts.append(prompt_copy)
+
+    if normalized_prompts:
+        sources_copy["prompts"] = normalized_prompts
+    normalized["sources"] = sources_copy
+    return normalized
+
+
 def _get_db_config(session: Session) -> Dict[str, Any]:
     record = session.get(AppConfig, CONFIG_RECORD_ID)
     if record and isinstance(record.data, dict):
@@ -270,8 +610,16 @@ def load_config() -> Dict[str, Any]:
                         file_config = yaml.safe_load(f) or {}
                 file_config = _migrate_legacy_brief_config(file_config)
                 file_config = _migrate_summary_prompt_model_presets(file_config)
+                file_config = _migrate_correction_prompt_model_presets(file_config)
+                file_config = _migrate_edition_prompt_model_presets(file_config)
+                file_config = _migrate_extraction_prompt_model_presets(file_config)
+                file_config = _migrate_sources_prompt_model_presets(file_config)
                 merged = merge_dicts(DEFAULT_CONFIG.copy(), file_config)
                 merged = _normalize_summary_prompt_limits(merged)
+                merged = _normalize_correction_prompt_limits(merged)
+                merged = _normalize_edition_prompt_limits(merged)
+                merged = _normalize_extraction_prompt_limits(merged)
+                merged = _normalize_sources_prompt_limits(merged)
                 merged = _normalize_brief_config(merged)
                 merged = _sanitize_config(merged)
                 _save_db_config(session, merged)
@@ -279,8 +627,16 @@ def load_config() -> Dict[str, Any]:
 
             db_config = _migrate_legacy_brief_config(db_config)
             db_config = _migrate_summary_prompt_model_presets(db_config)
+            db_config = _migrate_correction_prompt_model_presets(db_config)
+            db_config = _migrate_edition_prompt_model_presets(db_config)
+            db_config = _migrate_extraction_prompt_model_presets(db_config)
+            db_config = _migrate_sources_prompt_model_presets(db_config)
             merged = merge_dicts(DEFAULT_CONFIG.copy(), db_config)
             merged = _normalize_summary_prompt_limits(merged)
+            merged = _normalize_correction_prompt_limits(merged)
+            merged = _normalize_edition_prompt_limits(merged)
+            merged = _normalize_extraction_prompt_limits(merged)
+            merged = _normalize_sources_prompt_limits(merged)
             merged = _normalize_brief_config(merged)
             cleaned = _sanitize_config(merged)
             if cleaned != db_config or "api_key" in db_config:
@@ -297,6 +653,10 @@ def save_config(config: Dict[str, Any]) -> bool:
         create_db_and_tables()
         with Session(engine) as session:
             normalized = _normalize_summary_prompt_limits(config)
+            normalized = _normalize_correction_prompt_limits(normalized)
+            normalized = _normalize_edition_prompt_limits(normalized)
+            normalized = _normalize_extraction_prompt_limits(normalized)
+            normalized = _normalize_sources_prompt_limits(normalized)
             normalized = _normalize_brief_config(normalized)
             cleaned = _sanitize_config(normalized)
             _save_db_config(session, cleaned)
@@ -323,6 +683,10 @@ def update_config(updates: Dict[str, Any]) -> Dict[str, Any]:
     updates = _sanitize_config(updates or {})
     config = merge_dicts(config, updates)
     config = _normalize_summary_prompt_limits(config)
+    config = _normalize_correction_prompt_limits(config)
+    config = _normalize_edition_prompt_limits(config)
+    config = _normalize_extraction_prompt_limits(config)
+    config = _normalize_sources_prompt_limits(config)
     config = _normalize_brief_config(config)
     save_config(config)
     return config

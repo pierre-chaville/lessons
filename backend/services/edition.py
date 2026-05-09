@@ -12,7 +12,7 @@ import time
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from database import engine
-from models import Lesson
+from models import Lesson, ModelPreset
 from schemas import Segment, EditedParagraph, Source, Metadata
 from config import load_config
 from .llm_utils import get_llm_model
@@ -423,14 +423,17 @@ async def edit_transcript_async(
         if not prompts and "prompt" in edition_config:
             prompts = [{"name": "Default", "text": edition_config["prompt"]}]
 
+        selected_prompt = None
         edition_prompt = None
         if prompt_type:
             for p in prompts:
                 if p.get("name") == prompt_type:
+                    selected_prompt = p
                     edition_prompt = p.get("text")
                     break
 
         if not edition_prompt and prompts:
+            selected_prompt = prompts[0]
             edition_prompt = prompts[0].get("text")
 
         if not edition_prompt:
@@ -443,11 +446,53 @@ async def edit_transcript_async(
                 "Focus only on rewriting the text - do not extract or mention sources."
             )
 
+        edition_prompt_max_tokens = (
+            selected_prompt.get("max_tokens", 16000)
+            if isinstance(selected_prompt, dict)
+            else edition_config.get("max_tokens", 16000)
+        )
+        try:
+            edition_prompt_max_tokens = int(edition_prompt_max_tokens)
+        except (TypeError, ValueError):
+            edition_prompt_max_tokens = 16000
+        edition_prompt_max_tokens = max(1, edition_prompt_max_tokens)
+
+        edition_model_preset = None
+        edition_model_preset_id = (
+            selected_prompt.get("model_preset_id")
+            if isinstance(selected_prompt, dict)
+            else None
+        )
+        if edition_model_preset_id is not None:
+            try:
+                edition_model_preset = session.get(ModelPreset, int(edition_model_preset_id))
+            except (TypeError, ValueError):
+                edition_model_preset = None
+            if not edition_model_preset:
+                logger.warning(
+                    "Edition prompt '%s' references missing model preset id=%s; using fallback config.",
+                    selected_prompt.get("name") if isinstance(selected_prompt, dict) else None,
+                    edition_model_preset_id,
+                )
+
         # Get LLM model
-        llm = get_llm_model(task_name="edition")
+        if edition_model_preset:
+            llm = get_llm_model(
+                provider=edition_model_preset.provider,
+                model=edition_model_preset.model_id,
+                temperature=edition_model_preset.temperature,
+                max_tokens=edition_prompt_max_tokens,
+                thinking_mode=edition_model_preset.thinking_mode or None,
+            )
+        else:
+            llm = get_llm_model(task_name="edition", max_tokens=edition_prompt_max_tokens)
 
         # Add structured output (include_raw helps recover tool calls for Anthropic)
-        edition_provider = edition_config.get("provider", "")
+        edition_provider = (
+            edition_model_preset.provider
+            if edition_model_preset
+            else edition_config.get("provider", "")
+        )
         include_raw = edition_provider.lower() == "anthropic"
         llm_with_structure = llm.with_structured_output(
             EditedTranscriptGroupOutput, include_raw=include_raw
@@ -515,11 +560,24 @@ async def edit_transcript_async(
         edited_data = [part.model_dump() for part in edited_parts]
 
         # Save edition metadata
-        edition_provider = edition_config.get("provider", config.get("provider"))
+        edition_provider = (
+            edition_model_preset.provider
+            if edition_model_preset
+            else edition_config.get("provider", config.get("provider"))
+        )
         metadata = Metadata(
             provider=edition_provider,
-            model=edition_config.get("model"),
-            temperature=edition_config.get("temperature"),
+            model=(
+                edition_model_preset.model_id
+                if edition_model_preset
+                else edition_config.get("model")
+            ),
+            temperature=(
+                edition_model_preset.temperature
+                if edition_model_preset
+                else edition_config.get("temperature")
+            ),
+            max_tokens=edition_prompt_max_tokens,
             prompt=edition_prompt,
         )
         lesson.set_edited_metadata(metadata)

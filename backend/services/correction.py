@@ -10,7 +10,7 @@ import time
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from database import engine
-from models import Lesson
+from models import Lesson, ModelPreset
 from schemas import Segment, Metadata
 from config import load_config
 from .llm_utils import get_llm_model
@@ -238,21 +238,62 @@ async def correct_transcript_async(
         if not prompts and 'prompt' in correction_config:
             prompts = [{'name': 'Default', 'text': correction_config['prompt']}]
 
+        selected_prompt = None
         correction_prompt = None
         if prompt_type:
             for p in prompts:
                 if p.get('name') == prompt_type:
+                    selected_prompt = p
                     correction_prompt = p.get('text')
                     break
 
         if not correction_prompt and prompts:
+            selected_prompt = prompts[0]
             correction_prompt = prompts[0].get('text')
 
         if not correction_prompt:
             correction_prompt = 'Please correct the following transcript, fixing any errors while maintaining the original meaning and style.'
         
+        correction_prompt_max_tokens = (
+            selected_prompt.get("max_tokens", 16000)
+            if isinstance(selected_prompt, dict)
+            else correction_config.get("max_tokens", 16000)
+        )
+        try:
+            correction_prompt_max_tokens = int(correction_prompt_max_tokens)
+        except (TypeError, ValueError):
+            correction_prompt_max_tokens = 16000
+        correction_prompt_max_tokens = max(1, correction_prompt_max_tokens)
+
+        correction_model_preset = None
+        correction_model_preset_id = (
+            selected_prompt.get("model_preset_id")
+            if isinstance(selected_prompt, dict)
+            else None
+        )
+        if correction_model_preset_id is not None:
+            try:
+                correction_model_preset = session.get(ModelPreset, int(correction_model_preset_id))
+            except (TypeError, ValueError):
+                correction_model_preset = None
+            if not correction_model_preset:
+                logger.warning(
+                    "Correction prompt '%s' references missing model preset id=%s; using fallback config.",
+                    selected_prompt.get("name") if isinstance(selected_prompt, dict) else None,
+                    correction_model_preset_id,
+                )
+
         # Get LLM model
-        llm = get_llm_model(task_name='correction')
+        if correction_model_preset:
+            llm = get_llm_model(
+                provider=correction_model_preset.provider,
+                model=correction_model_preset.model_id,
+                temperature=correction_model_preset.temperature,
+                max_tokens=correction_prompt_max_tokens,
+                thinking_mode=correction_model_preset.thinking_mode or None,
+            )
+        else:
+            llm = get_llm_model(task_name='correction', max_tokens=correction_prompt_max_tokens)
         
         # Add structured output
         llm_with_structure = llm.with_structured_output(CorrectedTranscriptGroup)
@@ -313,12 +354,25 @@ async def correct_transcript_async(
         corrected_data = [seg.model_dump() for seg in corrected_segments]
         
         # Save correction metadata
-        correction_provider = correction_config.get("provider", config.get("provider"))
+        correction_provider = (
+            correction_model_preset.provider
+            if correction_model_preset
+            else correction_config.get("provider", config.get("provider"))
+        )
         metadata = Metadata(
             provider=correction_provider,
-            model=correction_config.get('model'),
-            temperature=correction_config.get('temperature'),
-            prompt=correction_prompt
+            model=(
+                correction_model_preset.model_id
+                if correction_model_preset
+                else correction_config.get('model')
+            ),
+            temperature=(
+                correction_model_preset.temperature
+                if correction_model_preset
+                else correction_config.get('temperature')
+            ),
+            max_tokens=correction_prompt_max_tokens,
+            prompt=correction_prompt,
         )
         lesson.set_correction_metadata(metadata)
         

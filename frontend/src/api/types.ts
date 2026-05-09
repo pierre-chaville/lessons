@@ -429,6 +429,50 @@ export interface SummaryConfig {
   prompts: SummaryPromptConfig[]
 }
 
+export interface EditionPromptConfig {
+  name: string
+  text: string
+  model_preset_id: number | null
+  max_tokens: number
+}
+
+export interface EditionConfig {
+  prompts: EditionPromptConfig[]
+}
+
+export interface CorrectionPromptConfig {
+  name: string
+  text: string
+  model_preset_id: number | null
+  max_tokens: number
+}
+
+export interface CorrectionConfig {
+  prompts: CorrectionPromptConfig[]
+}
+
+export interface ExtractionPromptConfig {
+  name: string
+  text: string
+  model_preset_id: number | null
+  max_tokens: number
+}
+
+export interface ExtractionConfig {
+  prompts: ExtractionPromptConfig[]
+}
+
+export interface SourcesPromptConfig {
+  name: string
+  text: string
+  model_preset_id: number | null
+  max_tokens: number
+}
+
+export interface SourcesConfig {
+  prompts: SourcesPromptConfig[]
+}
+
 export interface BriefConfig {
   model_preset_id: number | null
   max_tokens: number
@@ -448,10 +492,10 @@ export interface TranscribeConfig {
 }
 
 export interface AppConfig {
-  correction: LLMConfig
-  edition: LLMConfig
-  extraction: LLMConfig
-  sources: LLMConfig
+  correction: CorrectionConfig
+  edition: EditionConfig
+  extraction: ExtractionConfig
+  sources: SourcesConfig
   source_types: Record<string, string>
   summary: SummaryConfig
   brief: BriefConfig

@@ -12,6 +12,7 @@ import time
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from database import engine
 from models import Lesson
+from models.model_preset import ModelPreset
 from schemas import EditedParagraph, Source, Metadata
 from config import load_config
 from .llm_utils import get_llm_model
@@ -298,15 +299,18 @@ async def extract_sources_async(
         if not prompts and "prompt" in extraction_config:
             prompts = [{"name": "Default", "text": extraction_config["prompt"]}]
 
+        selected_prompt = None
         extraction_prompt = None
         if prompt_type:
             for p in prompts:
                 if p.get("name") == prompt_type:
+                    selected_prompt = p
                     extraction_prompt = p.get("text")
                     break
 
         if not extraction_prompt and prompts:
-            extraction_prompt = prompts[0].get("text")
+            selected_prompt = prompts[0]
+            extraction_prompt = selected_prompt.get("text")
 
         if not extraction_prompt:
             extraction_prompt = (
@@ -341,8 +345,48 @@ async def extract_sources_async(
             else:
                 extraction_prompt += f"\n\nIMPORTANT: The 'type' field MUST be one of these values: {', '.join(allowed_types)}"
 
+        extraction_model_preset_id = (
+            selected_prompt.get("model_preset_id") if isinstance(selected_prompt, dict) else None
+        )
+        extraction_max_tokens = (
+            selected_prompt.get("max_tokens")
+            if isinstance(selected_prompt, dict) and selected_prompt.get("max_tokens") is not None
+            else extraction_config.get("max_tokens")
+        )
+        if extraction_max_tokens is not None:
+            try:
+                extraction_max_tokens = int(extraction_max_tokens)
+            except (TypeError, ValueError):
+                extraction_max_tokens = None
+
+        extraction_preset = None
+        if extraction_model_preset_id:
+            extraction_preset = session.get(ModelPreset, extraction_model_preset_id)
+            if extraction_preset is None:
+                logger.warning(
+                    "Extraction prompt preset %s not found; falling back to task defaults",
+                    extraction_model_preset_id,
+                )
+
+        resolved_provider = extraction_config.get("provider", config.get("provider"))
+        resolved_model = extraction_config.get("model")
+        resolved_temperature = extraction_config.get("temperature", 0.3)
+        resolved_thinking_mode = None
+        if extraction_preset is not None:
+            resolved_provider = extraction_preset.provider
+            resolved_model = extraction_preset.model_id
+            resolved_temperature = extraction_preset.temperature
+            resolved_thinking_mode = extraction_preset.thinking_mode
+
         # Get LLM model
-        llm = get_llm_model(task_name="extraction")
+        llm = get_llm_model(
+            task_name="extraction",
+            provider=resolved_provider,
+            model=resolved_model,
+            temperature=resolved_temperature,
+            max_tokens=extraction_max_tokens,
+            thinking_mode=resolved_thinking_mode,
+        )
 
         # Add structured output with the config-based model
         llm_with_structure = llm.with_structured_output(SourceExtractionOutputModel)
@@ -422,11 +466,11 @@ async def extract_sources_async(
                 total_sources += 1
 
         # Save extraction metadata
-        extraction_provider = extraction_config.get("provider", config.get("provider"))
         metadata = Metadata(
-            provider=extraction_provider,
-            model=extraction_config.get("model"),
-            temperature=extraction_config.get("temperature"),
+            provider=resolved_provider,
+            model=resolved_model,
+            temperature=resolved_temperature,
+            max_tokens=extraction_max_tokens,
             prompt=extraction_prompt,
         )
         lesson.set_edited_metadata(metadata)

@@ -14,6 +14,7 @@ import logging
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from database import engine
 from models import Lesson
+from models.model_preset import ModelPreset
 from models.sefaria_cache import SefariaCache
 from schemas import Source
 from config import load_config
@@ -243,32 +244,21 @@ async def verify_single_source(
     # Mark that slug was retrieved successfully
     source.slug_retrieved = True
 
-    # Get LLM model and prompt from config
-    model = sources_config.get("model", "gpt-4o")
-    temperature = sources_config.get("temperature", 0.3)
-
-    # Resolve prompt from prompts list with backward compat
-    prompt_type = sources_config.get("_prompt_type")
-    prompts = sources_config.get("prompts", [])
-    if not prompts and "prompt" in sources_config:
-        prompts = [{"name": "Default", "text": sources_config["prompt"]}]
-
-    prompt = None
-    if prompt_type:
-        for p in prompts:
-            if p.get("name") == prompt_type:
-                prompt = p.get("text")
-                break
-
-    if not prompt and prompts:
-        prompt = prompts[0].get("text", "")
-
+    # Get resolved prompt and model config from caller.
+    prompt = sources_config.get("_resolved_prompt", "")
     if not prompt:
         source.verification_explanation = "No prompt configured for source verification"
         return source
 
     # Get LLM model with structured output
-    llm = get_llm_model(task_name="sources", temperature=temperature, model=model)
+    llm = get_llm_model(
+        task_name="sources",
+        provider=sources_config.get("_resolved_provider"),
+        model=sources_config.get("_resolved_model"),
+        temperature=sources_config.get("_resolved_temperature"),
+        max_tokens=sources_config.get("_resolved_max_tokens"),
+        thinking_mode=sources_config.get("_resolved_thinking_mode"),
+    )
     llm_with_structure = llm.with_structured_output(SourceVerificationOutput)
 
     # Verify with LLM
@@ -406,6 +396,38 @@ async def verify_sources_async(
     if prompt_type:
         sources_config = {**sources_config, "_prompt_type": prompt_type}
 
+    # Resolve prompt-level model settings with backward compatibility.
+    resolved_prompt = ""
+    selected_prompt = None
+    prompts = sources_config.get("prompts", [])
+    if not prompts and "prompt" in sources_config:
+        prompts = [{"name": "Default", "text": sources_config.get("prompt")}]
+
+    if prompt_type:
+        for prompt_entry in prompts:
+            if prompt_entry.get("name") == prompt_type:
+                selected_prompt = prompt_entry
+                break
+    if selected_prompt is None and prompts:
+        selected_prompt = prompts[0]
+
+    if isinstance(selected_prompt, dict):
+        resolved_prompt = selected_prompt.get("text", "") or ""
+
+    sources_model_preset_id = (
+        selected_prompt.get("model_preset_id") if isinstance(selected_prompt, dict) else None
+    )
+    sources_max_tokens = (
+        selected_prompt.get("max_tokens")
+        if isinstance(selected_prompt, dict) and selected_prompt.get("max_tokens") is not None
+        else sources_config.get("max_tokens")
+    )
+    if sources_max_tokens is not None:
+        try:
+            sources_max_tokens = int(sources_max_tokens)
+        except (TypeError, ValueError):
+            sources_max_tokens = None
+
     # Open a DB session for cache operations
     should_close = False
     if session is None:
@@ -413,6 +435,35 @@ async def verify_sources_async(
         should_close = True
 
     try:
+        sources_preset = None
+        if sources_model_preset_id:
+            sources_preset = session.get(ModelPreset, sources_model_preset_id)
+            if sources_preset is None:
+                logger.warning(
+                    "Sources prompt preset %s not found; falling back to task defaults",
+                    sources_model_preset_id,
+                )
+
+        resolved_provider = sources_config.get("provider", config.get("provider"))
+        resolved_model = sources_config.get("model")
+        resolved_temperature = sources_config.get("temperature", 0.3)
+        resolved_thinking_mode = None
+        if sources_preset is not None:
+            resolved_provider = sources_preset.provider
+            resolved_model = sources_preset.model_id
+            resolved_temperature = sources_preset.temperature
+            resolved_thinking_mode = sources_preset.thinking_mode
+
+        sources_config = {
+            **sources_config,
+            "_resolved_prompt": resolved_prompt,
+            "_resolved_provider": resolved_provider,
+            "_resolved_model": resolved_model,
+            "_resolved_temperature": resolved_temperature,
+            "_resolved_max_tokens": sources_max_tokens,
+            "_resolved_thinking_mode": resolved_thinking_mode,
+        }
+
         # --- Phase 1: Pre-fetch all Sefaria texts (cache + API) ---
         slug_text_map = await _prefetch_sefaria_texts(sources, session)
 
