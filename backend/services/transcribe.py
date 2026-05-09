@@ -33,6 +33,7 @@ def _get_api_key() -> str:
 
 def transcribe_audio(
     audio_bytes: bytes,
+    model: Optional[str] = None,
     language: Optional[str] = None,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """
@@ -50,10 +51,11 @@ def transcribe_audio(
     try:
         start_time = time.time()
         logger.info("Starting Deepgram transcription...")
-        logger.info(f"Parameters: language={language}")
+        logger.info(f"Parameters: model={model}, language={language}")
+        selected_model = model or "nova-3"
         response = client.listen.v1.media.transcribe_file(
             request=audio_bytes,
-            model="whisper-large",
+            model=selected_model,
             smart_format=True,
             utterances=True,
             # language='multi' # language or "fr",
@@ -99,7 +101,7 @@ def transcribe_audio(
         logger.info(f"Transcribed {len(seg_list)} segments")
 
         metadata = {
-            "model": "nova-3",
+            "model": selected_model,
             "language": language or "fr",
             "provider": "deepgram",
         }
@@ -167,6 +169,7 @@ def transcribe_lesson(
 
         config = load_config()
         transcribe_config = config.get("transcribe", {})
+        model = transcribe_config.get("model", "nova-3")
         language = transcribe_config.get("language", "fr")
 
         mem_before_transcription = get_rss_memory_mb()
@@ -175,7 +178,7 @@ def transcribe_lesson(
             lesson_id,
             format_memory_mb(mem_before_transcription),
         )
-        segments_data, metadata = transcribe_audio(audio_bytes, language=language)
+        segments_data, metadata = transcribe_audio(audio_bytes, model=model, language=language)
         mem_after_transcription = get_rss_memory_mb()
         logger.info(
             "Memory after Deepgram call for lesson %s: %s",

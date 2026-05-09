@@ -11,11 +11,11 @@ Utility functions for working with LLM models via LangChain.
 - `get_llm_model(task_name=None, temperature=None, model=None)` - Returns a configured ChatOpenAI or ChatAnthropic model based on the provider in the DB config (seeded from config.yaml)
 
 ### `transcribe.py`
-Audio transcription using Faster Whisper.
+Audio transcription using Deepgram.
 
 **Key Functions:**
 - `transcribe_lesson(lesson_id, session=None)` - Transcribe a lesson's audio file
-- `transcribe_audio(audio_path, language=None, beam_size=5, vad_filter=True, initial_prompt=None)` - Low-level transcription function
+- `transcribe_audio(audio_bytes, model=None, language=None)` - Low-level transcription function
 
 ### `correction.py`
 Lesson transcript correction using LLM with parallel processing.

@@ -84,12 +84,9 @@ DEFAULT_CONFIG = {
         "max_tokens": 4000,
     },
     "transcribe": {
-        "beam_size": 5,
-        "initial_prompt": "",
+        "model": "nova-3",
         "language": "fr",
-        "vad_filter": True,
     },
-    "whisper": {"compute_type": "int8", "device": "cuda", "model_size": "large-v3"},
 }
 
 
@@ -187,7 +184,7 @@ def update_config(updates: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def get_config_value(key_path: str, default=None) -> Any:
-    """Get a specific configuration value using dot notation (e.g., 'whisper.model_size')"""
+    """Get a specific configuration value using dot notation (e.g., 'transcribe.model')."""
     config = load_config()
     keys = key_path.split(".")
     value = config

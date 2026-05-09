@@ -44,7 +44,7 @@ def get_configuration_value(
     key_path: str,
     _: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
 ):
-    """Get a specific configuration value using dot notation (e.g., 'whisper.model_size')."""
+    """Get a specific configuration value using dot notation (e.g., 'transcribe.model')."""
     try:
         value = config_module.get_config_value(key_path)
         if value is None:

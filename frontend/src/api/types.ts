@@ -439,17 +439,9 @@ export interface SummaryConfig {
   brief: LLMConfig
 }
 
-export interface WhisperConfig {
-  compute_type: string
-  device: string
-  model_size: string
-}
-
 export interface TranscribeConfig {
-  beam_size: number
-  initial_prompt: string
+  model: string
   language: string
-  vad_filter: boolean
 }
 
 export interface AppConfig {
@@ -460,5 +452,4 @@ export interface AppConfig {
   source_types: Record<string, string>
   summary: SummaryConfig
   transcribe: TranscribeConfig
-  whisper: WhisperConfig
 }

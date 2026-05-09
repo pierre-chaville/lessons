@@ -5,7 +5,6 @@ import { Tab, TabGroup, TabList, TabPanel, TabPanels } from '@headlessui/vue'
 import {
   CogIcon,
   CheckIcon,
-  ArrowPathIcon,
   MicrophoneIcon,
   PencilIcon,
   DocumentTextIcon,
@@ -15,6 +14,7 @@ import {
 import { configApi } from '@/api/config'
 import { usePermissions } from '@/composables/usePermissions'
 import type { AppConfig } from '@/api/types'
+import { parse, stringify } from 'yaml'
 
 const { t } = useI18n()
 const { can } = usePermissions()
@@ -34,15 +34,30 @@ const config = ref<AppConfig>({
     max_tokens: 4000,
     brief: { provider: 'OpenAI', model: '', prompt: '', temperature: 0.5, max_tokens: 1000 },
   },
-  transcribe: { beam_size: 5, initial_prompt: '', language: 'fr', vad_filter: true },
-  whisper:    { compute_type: 'int8', device: 'cuda', model_size: 'large-v3' },
+  transcribe: { model: 'nova-3', language: 'fr' },
 })
 
 const isLoading = ref(true)
 const isSaving = ref(false)
-const isResetting = ref(false)
 const saveMessage = ref('')
 const saveError = ref('')
+const importInputRef = ref<HTMLInputElement | null>(null)
+
+const normalizeConfigShape = () => {
+  if (!config.value.transcribe) config.value.transcribe = { model: 'nova-3', language: 'fr' }
+  if (!config.value.transcribe.model) config.value.transcribe.model = 'nova-3'
+  if (!config.value.transcribe.language) config.value.transcribe.language = 'fr'
+  if (!config.value.source_types) config.value.source_types = {}
+  // Ensure prompts arrays exist for backward compatibility with old single-prompt configs
+  for (const section of ['correction', 'edition', 'extraction', 'sources'] as const) {
+    const cfg = config.value[section]
+    if (!cfg.prompts || cfg.prompts.length === 0) {
+      cfg.prompts = cfg.prompt
+        ? [{ name: 'Default', text: cfg.prompt }]
+        : [{ name: 'Default', text: '' }]
+    }
+  }
+}
 
 onMounted(async () => {
   await loadConfig()
@@ -53,16 +68,7 @@ const loadConfig = async () => {
     isLoading.value = true
     const data = await configApi.get()
     config.value = data
-    if (!config.value.source_types) config.value.source_types = {}
-    // Ensure prompts arrays exist for backward compatibility with old single-prompt configs
-    for (const section of ['correction', 'edition', 'extraction', 'sources'] as const) {
-      const cfg = config.value[section]
-      if (!cfg.prompts || cfg.prompts.length === 0) {
-        cfg.prompts = cfg.prompt
-          ? [{ name: 'Default', text: cfg.prompt }]
-          : [{ name: 'Default', text: '' }]
-      }
-    }
+    normalizeConfigShape()
   } catch {
     saveError.value = t('preferences.loadFailed')
   } finally {
@@ -85,19 +91,55 @@ const saveConfig = async () => {
   }
 }
 
-const resetConfig = async () => {
-  if (!confirm(t('preferences.resetConfirmMessage'))) return
+const exportConfigYaml = () => {
   try {
-    isResetting.value = true
     saveMessage.value = ''
     saveError.value = ''
-    config.value = await configApi.reset()
-    saveMessage.value = t('preferences.resetSuccess')
+    const yamlContent = stringify(config.value)
+    const blob = new Blob([yamlContent], { type: 'application/x-yaml;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'preferences.yaml'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+    saveMessage.value = t('preferences.exportSuccess')
     setTimeout(() => { saveMessage.value = '' }, 3000)
   } catch {
-    saveError.value = t('preferences.resetFailed')
+    saveError.value = t('preferences.exportFailed')
+  }
+}
+
+const openImportDialog = () => {
+  importInputRef.value?.click()
+}
+
+const importConfigYaml = async (event: Event) => {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+
+  try {
+    saveMessage.value = ''
+    saveError.value = ''
+    const yamlContent = await file.text()
+    const parsed = parse(yamlContent)
+    if (!parsed || typeof parsed !== 'object') {
+      throw new Error('Invalid YAML content')
+    }
+
+    const importedConfig = parsed as AppConfig
+    await configApi.update(importedConfig)
+    config.value = importedConfig
+    normalizeConfigShape()
+    saveMessage.value = t('preferences.importSuccess')
+    setTimeout(() => { saveMessage.value = '' }, 3000)
+  } catch {
+    saveError.value = t('preferences.importFailed')
   } finally {
-    isResetting.value = false
+    input.value = ''
   }
 }
 
@@ -179,22 +221,39 @@ const updateSourceType = (oldType: string, newType: string, description: string)
             {{ saveError }}
           </div>
           
-          <!-- Reset Button (admin only) -->
+          <input
+            ref="importInputRef"
+            type="file"
+            accept=".yaml,.yml,text/yaml,application/x-yaml"
+            class="hidden"
+            @change="importConfigYaml"
+          />
+
+          <!-- Export Button (admin only) -->
           <button
             v-if="can('configuration', 'update')"
-            @click="resetConfig"
-            :disabled="isSaving || isResetting || isLoading"
+            @click="exportConfigYaml"
+            :disabled="isSaving || isLoading"
             class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md transition-colors disabled:opacity-50"
           >
-            <ArrowPathIcon class="h-4 w-4" />
-            {{ isResetting ? t('preferences.resetting') : t('preferences.reset') }}
+            {{ t('preferences.exportYaml') }}
+          </button>
+
+          <!-- Import Button (admin only) -->
+          <button
+            v-if="can('configuration', 'update')"
+            @click="openImportDialog"
+            :disabled="isSaving || isLoading"
+            class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md transition-colors disabled:opacity-50"
+          >
+            {{ t('preferences.importYaml') }}
           </button>
 
           <!-- Save Button (admin only) -->
           <button
             v-if="can('configuration', 'update')"
             @click="saveConfig"
-            :disabled="isSaving || isResetting || isLoading"
+            :disabled="isSaving || isLoading"
             class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 rounded-md transition-colors"
           >
             <CheckIcon class="h-4 w-4" />
@@ -281,51 +340,20 @@ const updateSourceType = (oldType: string, newType: string, description: string)
               </h2>
               
               <div class="space-y-6">
-                <!-- Whisper Model Size -->
+                <!-- Deepgram Model -->
                 <div>
                   <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {{ t('preferences.whisperModelSize') }}
+                    {{ t('preferences.model') }}
                   </label>
-                  <select
-                    v-model="config.whisper.model_size"
+                  <input
+                    v-model="config.transcribe.model"
+                    type="text"
                     class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-                  >
-                    <option value="tiny">Tiny</option>
-                    <option value="base">Base</option>
-                    <option value="small">Small</option>
-                    <option value="medium">Medium</option>
-                    <option value="large-v2">Large v2</option>
-                    <option value="large-v3">Large v3</option>
-                  </select>
-                </div>
-
-                <!-- Device -->
-                <div>
-                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {{ t('preferences.device') }}
-                  </label>
-                  <select
-                    v-model="config.whisper.device"
-                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-                  >
-                    <option value="cpu">CPU</option>
-                    <option value="cuda">CUDA (GPU)</option>
-                  </select>
-                </div>
-
-                <!-- Compute Type -->
-                <div>
-                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {{ t('preferences.computeType') }}
-                  </label>
-                  <select
-                    v-model="config.whisper.compute_type"
-                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-                  >
-                    <option value="int8">int8</option>
-                    <option value="float16">float16</option>
-                    <option value="float32">float32</option>
-                  </select>
+                    placeholder="nova-3"
+                  />
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('preferences.modelDesc') }}
+                  </p>
                 </div>
 
                 <!-- Language -->
@@ -340,48 +368,6 @@ const updateSourceType = (oldType: string, newType: string, description: string)
                   />
                   <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
                     {{ t('preferences.languageDesc') }}
-                  </p>
-                </div>
-
-                <!-- Beam Size -->
-                <div>
-                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {{ t('preferences.beamSize') }}
-                  </label>
-                  <input
-                    v-model.number="config.transcribe.beam_size"
-                    type="number"
-                    min="1"
-                    max="10"
-                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
-
-                <!-- VAD Filter -->
-                <div class="flex items-center gap-3">
-                  <input
-                    v-model="config.transcribe.vad_filter"
-                    type="checkbox"
-                    class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
-                  />
-                  <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    {{ t('preferences.vadFilter') }}
-                  </label>
-                </div>
-
-                <!-- Initial Prompt -->
-                <div>
-                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {{ t('preferences.initialPrompt') }}
-                  </label>
-                  <textarea
-                    v-model="config.transcribe.initial_prompt"
-                    rows="4"
-                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-                    :placeholder="t('preferences.initialPromptPlaceholder')"
-                  ></textarea>
-                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    {{ t('preferences.initialPromptDesc') }}
                   </p>
                 </div>
               </div>
