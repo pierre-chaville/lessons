@@ -630,7 +630,7 @@
       "name": "Creative Teacher",
       "provider": "openrouter",
       "modelId": "anthropic/claude-3.5-sonnet",
-      "thinkingMode": "{\n  \"enabled\": true,\n  \"budget\": 2000\n}"
+      "thinkingMode": "\"enabled\": true,\n\"budget\": 2000"
     },
     "actions": {
       "label": "Actions",
