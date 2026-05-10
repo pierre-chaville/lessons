@@ -368,37 +368,37 @@ onBeforeUnmount(() => {
         <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
           <thead class="bg-gray-50 dark:bg-gray-900/50">
             <tr>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400">
                 {{ t('processing.taskId') }}
               </th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400">
                 {{ t('processing.taskType') }}
               </th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400">
                 {{ t('processing.status') }}
               </th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400">
                 {{ t('processing.lessonId') }}
               </th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400">
                 {{ t('processing.lessonLabel') }}
               </th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400">
                 {{ t('processing.started') }}
               </th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400">
                 {{ t('processing.duration') }}
               </th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400">
                 {{ t('processing.inputTokens') }}
               </th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400">
                 {{ t('processing.outputTokens') }}
               </th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400">
                 {{ t('processing.estimatedCost') }}
               </th>
-              <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400">
                 {{ t('processing.actions') }}
               </th>
             </tr>
