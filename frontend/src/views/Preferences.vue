@@ -56,10 +56,31 @@ const isPromptEditorOpen = ref(false)
 const promptEditorTitle = ref('')
 const promptEditorDraft = ref('')
 const promptEditorTarget = ref<PromptEditorTarget | null>(null)
+const promptEditorMode = ref<'visual' | 'markdown'>('visual')
+const expandedPromptPreviews = ref<Record<string, boolean>>({})
 
 const renderMarkdown = (markdown: string | null | undefined): string => {
   if (!markdown) return ''
   return marked(markdown) as string
+}
+
+const promptPreviewKey = (group: PromptGroupKey | 'brief', index?: number): string => {
+  if (group === 'brief') return 'brief'
+  return `${group}-${index ?? 0}`
+}
+
+const isPromptPreviewLong = (text: string | null | undefined): boolean => {
+  if (!text) return false
+  return text.split(/\r?\n/).length > 3
+}
+
+const isPromptPreviewExpanded = (group: PromptGroupKey | 'brief', index?: number): boolean => {
+  return !!expandedPromptPreviews.value[promptPreviewKey(group, index)]
+}
+
+const togglePromptPreview = (group: PromptGroupKey | 'brief', index?: number) => {
+  const key = promptPreviewKey(group, index)
+  expandedPromptPreviews.value[key] = !expandedPromptPreviews.value[key]
 }
 
 const normalizeConfigShape = () => {
@@ -439,10 +460,19 @@ const updateSourceType = (oldType: string, newType: string, description: string)
 
 const getPromptList = (group: PromptGroupKey) => config.value[group].prompts
 
+const movePrompt = (group: PromptGroupKey, index: number, direction: 'up' | 'down') => {
+  const prompts = getPromptList(group)
+  const targetIndex = direction === 'up' ? index - 1 : index + 1
+  if (targetIndex < 0 || targetIndex >= prompts.length) return
+  const [item] = prompts.splice(index, 1)
+  prompts.splice(targetIndex, 0, item)
+}
+
 const openPromptEditor = (group: PromptGroupKey, index: number) => {
   const prompt = getPromptList(group)[index]
   if (!prompt) return
   promptEditorDraft.value = prompt.text || ''
+  promptEditorMode.value = 'visual'
   promptEditorTarget.value = { kind: 'group', group, index }
   promptEditorTitle.value = prompt.name?.trim()
     ? `${t('preferences.editPromptWysiwyg')} - ${prompt.name}`
@@ -452,6 +482,7 @@ const openPromptEditor = (group: PromptGroupKey, index: number) => {
 
 const openBriefPromptEditor = () => {
   promptEditorDraft.value = config.value.brief.prompt || ''
+  promptEditorMode.value = 'visual'
   promptEditorTarget.value = { kind: 'brief' }
   promptEditorTitle.value = t('preferences.editPromptWysiwyg')
   isPromptEditorOpen.value = true
@@ -715,6 +746,24 @@ const savePromptEditor = () => {
                           </option>
                         </select>
                         <button
+                          type="button"
+                          @click="movePrompt('correction', index, 'up')"
+                          :disabled="index === 0"
+                          :title="t('preferences.moveUp')"
+                          class="px-2 py-2 text-xs font-medium text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          @click="movePrompt('correction', index, 'down')"
+                          :disabled="index === config.correction.prompts.length - 1"
+                          :title="t('preferences.moveDown')"
+                          class="px-2 py-2 text-xs font-medium text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          ↓
+                        </button>
+                        <button
                           v-if="config.correction.prompts.length > 1"
                           @click="removeCorrectionPrompt(index)"
                           type="button"
@@ -740,7 +789,10 @@ const savePromptEditor = () => {
                         >
                           <div
                             v-if="prompt.text"
-                            class="prose prose-sm max-w-none dark:prose-invert text-gray-900 dark:text-gray-100"
+                            :class="[
+                              'prose prose-sm max-w-none dark:prose-invert text-gray-900 dark:text-gray-100',
+                              { 'prompt-preview-content--collapsed': !isPromptPreviewExpanded('correction', index) }
+                            ]"
                             v-html="renderMarkdown(prompt.text)"
                           />
                           <p
@@ -750,6 +802,15 @@ const savePromptEditor = () => {
                             {{ t('preferences.emptyPromptClickToEdit') }}
                           </p>
                         </button>
+                        <div v-if="isPromptPreviewLong(prompt.text)" class="flex justify-end">
+                          <button
+                            type="button"
+                            @click="togglePromptPreview('correction', index)"
+                            class="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline"
+                          >
+                            {{ isPromptPreviewExpanded('correction', index) ? t('preferences.showLess') : t('preferences.showMore') }}
+                          </button>
+                        </div>
                       </div>
                       <div class="mt-3">
                         <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -826,6 +887,24 @@ const savePromptEditor = () => {
                           </option>
                         </select>
                         <button
+                          type="button"
+                          @click="movePrompt('edition', index, 'up')"
+                          :disabled="index === 0"
+                          :title="t('preferences.moveUp')"
+                          class="px-2 py-2 text-xs font-medium text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          @click="movePrompt('edition', index, 'down')"
+                          :disabled="index === config.edition.prompts.length - 1"
+                          :title="t('preferences.moveDown')"
+                          class="px-2 py-2 text-xs font-medium text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          ↓
+                        </button>
+                        <button
                           v-if="config.edition.prompts.length > 1"
                           @click="removeEditionPrompt(index)"
                           type="button"
@@ -851,7 +930,10 @@ const savePromptEditor = () => {
                         >
                           <div
                             v-if="prompt.text"
-                            class="prose prose-sm max-w-none dark:prose-invert text-gray-900 dark:text-gray-100"
+                            :class="[
+                              'prose prose-sm max-w-none dark:prose-invert text-gray-900 dark:text-gray-100',
+                              { 'prompt-preview-content--collapsed': !isPromptPreviewExpanded('edition', index) }
+                            ]"
                             v-html="renderMarkdown(prompt.text)"
                           />
                           <p
@@ -861,6 +943,15 @@ const savePromptEditor = () => {
                             {{ t('preferences.emptyPromptClickToEdit') }}
                           </p>
                         </button>
+                        <div v-if="isPromptPreviewLong(prompt.text)" class="flex justify-end">
+                          <button
+                            type="button"
+                            @click="togglePromptPreview('edition', index)"
+                            class="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline"
+                          >
+                            {{ isPromptPreviewExpanded('edition', index) ? t('preferences.showLess') : t('preferences.showMore') }}
+                          </button>
+                        </div>
                       </div>
                       <div class="mt-3">
                         <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -1002,6 +1093,24 @@ const savePromptEditor = () => {
                               </option>
                             </select>
                             <button
+                              type="button"
+                              @click="movePrompt('extraction', index, 'up')"
+                              :disabled="index === 0"
+                              :title="t('preferences.moveUp')"
+                              class="px-2 py-2 text-xs font-medium text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                              ↑
+                            </button>
+                            <button
+                              type="button"
+                              @click="movePrompt('extraction', index, 'down')"
+                              :disabled="index === config.extraction.prompts.length - 1"
+                              :title="t('preferences.moveDown')"
+                              class="px-2 py-2 text-xs font-medium text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                              ↓
+                            </button>
+                            <button
                               v-if="(config.extraction.prompts?.length ?? 0) > 1"
                               @click="removeExtractionPrompt(index)"
                               type="button"
@@ -1027,7 +1136,10 @@ const savePromptEditor = () => {
                             >
                               <div
                                 v-if="prompt.text"
-                                class="prose prose-sm max-w-none dark:prose-invert text-gray-900 dark:text-gray-100"
+                                :class="[
+                                  'prose prose-sm max-w-none dark:prose-invert text-gray-900 dark:text-gray-100',
+                                  { 'prompt-preview-content--collapsed': !isPromptPreviewExpanded('extraction', index) }
+                                ]"
                                 v-html="renderMarkdown(prompt.text)"
                               />
                               <p
@@ -1037,6 +1149,15 @@ const savePromptEditor = () => {
                                 {{ t('preferences.emptyPromptClickToEdit') }}
                               </p>
                             </button>
+                            <div v-if="isPromptPreviewLong(prompt.text)" class="flex justify-end">
+                              <button
+                                type="button"
+                                @click="togglePromptPreview('extraction', index)"
+                                class="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline"
+                              >
+                                {{ isPromptPreviewExpanded('extraction', index) ? t('preferences.showLess') : t('preferences.showMore') }}
+                              </button>
+                            </div>
                           </div>
                           <div class="mt-3">
                             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -1110,6 +1231,24 @@ const savePromptEditor = () => {
                               </option>
                             </select>
                             <button
+                              type="button"
+                              @click="movePrompt('sources', index, 'up')"
+                              :disabled="index === 0"
+                              :title="t('preferences.moveUp')"
+                              class="px-2 py-2 text-xs font-medium text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                              ↑
+                            </button>
+                            <button
+                              type="button"
+                              @click="movePrompt('sources', index, 'down')"
+                              :disabled="index === config.sources.prompts.length - 1"
+                              :title="t('preferences.moveDown')"
+                              class="px-2 py-2 text-xs font-medium text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                              ↓
+                            </button>
+                            <button
                               v-if="(config.sources.prompts?.length ?? 0) > 1"
                               @click="removeSourcesPrompt(index)"
                               type="button"
@@ -1135,7 +1274,10 @@ const savePromptEditor = () => {
                             >
                               <div
                                 v-if="prompt.text"
-                                class="prose prose-sm max-w-none dark:prose-invert text-gray-900 dark:text-gray-100"
+                                :class="[
+                                  'prose prose-sm max-w-none dark:prose-invert text-gray-900 dark:text-gray-100',
+                                  { 'prompt-preview-content--collapsed': !isPromptPreviewExpanded('sources', index) }
+                                ]"
                                 v-html="renderMarkdown(prompt.text)"
                               />
                               <p
@@ -1145,6 +1287,15 @@ const savePromptEditor = () => {
                                 {{ t('preferences.emptyPromptClickToEdit') }}
                               </p>
                             </button>
+                            <div v-if="isPromptPreviewLong(prompt.text)" class="flex justify-end">
+                              <button
+                                type="button"
+                                @click="togglePromptPreview('sources', index)"
+                                class="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline"
+                              >
+                                {{ isPromptPreviewExpanded('sources', index) ? t('preferences.showLess') : t('preferences.showMore') }}
+                              </button>
+                            </div>
                           </div>
                           <div class="mt-3">
                             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -1220,6 +1371,24 @@ const savePromptEditor = () => {
                           </option>
                         </select>
                         <button
+                          type="button"
+                          @click="movePrompt('summary', index, 'up')"
+                          :disabled="index === 0"
+                          :title="t('preferences.moveUp')"
+                          class="px-2 py-2 text-xs font-medium text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          @click="movePrompt('summary', index, 'down')"
+                          :disabled="index === config.summary.prompts.length - 1"
+                          :title="t('preferences.moveDown')"
+                          class="px-2 py-2 text-xs font-medium text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          ↓
+                        </button>
+                        <button
                           v-if="config.summary.prompts.length > 1"
                           @click="removeSummaryPrompt(index)"
                           type="button"
@@ -1245,7 +1414,10 @@ const savePromptEditor = () => {
                         >
                           <div
                             v-if="prompt.text"
-                            class="prose prose-sm max-w-none dark:prose-invert text-gray-900 dark:text-gray-100"
+                            :class="[
+                              'prose prose-sm max-w-none dark:prose-invert text-gray-900 dark:text-gray-100',
+                              { 'prompt-preview-content--collapsed': !isPromptPreviewExpanded('summary', index) }
+                            ]"
                             v-html="renderMarkdown(prompt.text)"
                           />
                           <p
@@ -1255,6 +1427,15 @@ const savePromptEditor = () => {
                             {{ t('preferences.emptyPromptClickToEdit') }}
                           </p>
                         </button>
+                        <div v-if="isPromptPreviewLong(prompt.text)" class="flex justify-end">
+                          <button
+                            type="button"
+                            @click="togglePromptPreview('summary', index)"
+                            class="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline"
+                          >
+                            {{ isPromptPreviewExpanded('summary', index) ? t('preferences.showLess') : t('preferences.showMore') }}
+                          </button>
+                        </div>
                       </div>
                       <div class="mt-3">
                         <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -1348,7 +1529,10 @@ const savePromptEditor = () => {
                   >
                     <div
                       v-if="config.brief.prompt"
-                      class="prose prose-sm max-w-none dark:prose-invert text-gray-900 dark:text-gray-100"
+                      :class="[
+                        'prose prose-sm max-w-none dark:prose-invert text-gray-900 dark:text-gray-100',
+                        { 'prompt-preview-content--collapsed': !isPromptPreviewExpanded('brief') }
+                      ]"
                       v-html="renderMarkdown(config.brief.prompt)"
                     />
                     <p
@@ -1358,6 +1542,15 @@ const savePromptEditor = () => {
                       {{ t('preferences.emptyPromptClickToEdit') }}
                     </p>
                   </button>
+                  <div v-if="isPromptPreviewLong(config.brief.prompt)" class="mt-2 flex justify-end">
+                    <button
+                      type="button"
+                      @click="togglePromptPreview('brief')"
+                      class="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline"
+                    >
+                      {{ isPromptPreviewExpanded('brief') ? t('preferences.showLess') : t('preferences.showMore') }}
+                    </button>
+                  </div>
                   <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
                     {{ t('preferences.briefPromptDesc') }}
                   </p>
@@ -1379,19 +1572,55 @@ const savePromptEditor = () => {
           <h3 class="text-base font-semibold text-gray-900 dark:text-white">
             {{ promptEditorTitle }}
           </h3>
-          <button
-            type="button"
-            @click="closePromptEditor"
-            class="px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
-          >
-            {{ t('preferences.close') }}
-          </button>
+          <div class="flex items-center gap-2">
+            <div class="inline-flex rounded-md border border-gray-300 dark:border-gray-600 overflow-hidden">
+              <button
+                type="button"
+                @click="promptEditorMode = 'visual'"
+                :class="[
+                  'px-3 py-1.5 text-xs font-medium transition-colors',
+                  promptEditorMode === 'visual'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600'
+                ]"
+              >
+                {{ t('preferences.visualMode') }}
+              </button>
+              <button
+                type="button"
+                @click="promptEditorMode = 'markdown'"
+                :class="[
+                  'px-3 py-1.5 text-xs font-medium transition-colors border-l border-gray-300 dark:border-gray-600',
+                  promptEditorMode === 'markdown'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600'
+                ]"
+              >
+                {{ t('preferences.markdownMode') }}
+              </button>
+            </div>
+            <button
+              type="button"
+              @click="closePromptEditor"
+              class="px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
+            >
+              {{ t('preferences.close') }}
+            </button>
+          </div>
         </div>
         <div class="p-4">
           <MilkdownEditor
+            v-if="promptEditorMode === 'visual'"
             v-model="promptEditorDraft"
             :placeholder="t('preferences.promptText')"
           />
+          <textarea
+            v-else
+            v-model="promptEditorDraft"
+            rows="16"
+            :placeholder="t('preferences.promptText')"
+            class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
+          ></textarea>
         </div>
         <div class="flex justify-end gap-2 px-4 py-3 border-t border-gray-200 dark:border-gray-700">
           <button
@@ -1432,6 +1661,11 @@ input[type="range"]::-moz-range-thumb {
   background: #4f46e5;
   cursor: pointer;
   border: none;
+}
+
+.prompt-preview-content--collapsed {
+  max-height: 4.5em;
+  overflow: hidden;
 }
 </style>
 
