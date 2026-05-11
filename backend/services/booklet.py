@@ -298,6 +298,29 @@ def _markdown_inline_to_reportlab(value: str) -> str:
     return text
 
 
+def _markdown_inline_multiline_to_reportlab(value: str) -> str:
+    """Convert multiline markdown text to reportlab inline markup with line breaks."""
+    lines = str(value or "").splitlines()
+    converted = [_markdown_inline_to_reportlab(line.strip()) for line in lines if line.strip()]
+    return "<br/>".join(converted)
+
+
+def _markdown_toc_brief_lines(value: str) -> List[str]:
+    """Format brief text as nested markdown list lines for TOC output."""
+    text = str(value or "").strip()
+    if not text:
+        return []
+    output: List[str] = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        # Normalize existing bullet markers to avoid duplicated list symbols.
+        line = re.sub(r"^\s*[-*+]\s+", "", line)
+        output.append(f"  - {line}")
+    return output
+
+
 def _append_markdown_blocks_to_story(
     story: List[Any],
     markdown_value: str,
@@ -601,7 +624,8 @@ def generate_booklet_pdf(session: Session, booklet_id: int) -> tuple[bytes, str]
             lesson_entry = escape(lesson_line)
         story.append(Paragraph(lesson_entry, toc_entry_style))
         if lesson and lesson.brief:
-            story.append(Paragraph(_to_paragraph_text(lesson.brief), toc_brief_style))
+            brief_text = _markdown_inline_multiline_to_reportlab(lesson.brief)
+            story.append(Paragraph(brief_text or "-", toc_brief_style))
     story.append(PageBreak())
 
     selected_fields = booklet.template_data or []
@@ -800,7 +824,7 @@ def generate_booklet_markdown(session: Session, booklet_id: int) -> tuple[bytes,
         lesson = lessons.get(item.lesson_id)
         lines.append(f"- {_lesson_toc_line(item, lesson)}")
         if lesson and lesson.brief:
-            lines.append(f"  - {lesson.brief.strip()}")
+            lines.extend(_markdown_toc_brief_lines(lesson.brief))
     lines.append("")
     lines.append("---")
 

@@ -254,9 +254,8 @@ def _log_font_diagnostics_once(context: str) -> None:
         f"boldItalic={_pdf_font_names['bold_italic']} [{bold_italic_path}]"
     )
 
-    # WARNING level ensures visibility in typical Render/Uvicorn logs.
-    logger.warning(message)
-    uvicorn_logger.warning(message)
+    logger.info(message)
+    uvicorn_logger.info(message)
 
 
 def log_pdf_font_diagnostics(context: str = "pdf") -> None:
