@@ -720,7 +720,16 @@ def generate_booklet_pdf(session: Session, booklet_id: int) -> tuple[bytes, str]
         bottomMargin=2 * cm,
         title=booklet.title,
     )
-    doc.build(story)
+
+    def _draw_footer(canvas: Any, _doc: Any) -> None:  # pragma: no cover - reportlab callback
+        canvas.saveState()
+        canvas.setFont(regular_font, 9)
+        canvas.setFillColor(colors.HexColor("#6b7280"))
+        page_label = f"{booklet.title} - {canvas.getPageNumber()}"
+        canvas.drawCentredString(A4[0] / 2, 0.9 * cm, page_label)
+        canvas.restoreState()
+
+    doc.build(story, onFirstPage=_draw_footer, onLaterPages=_draw_footer)
     pdf_bytes = buffer.getvalue()
     buffer.close()
     return pdf_bytes, f"{_safe_filename(booklet.title)}.pdf"
