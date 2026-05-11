@@ -319,10 +319,13 @@
       "downloadFormatLabel": "Format de téléchargement",
       "formatPdf": "PDF",
       "formatMarkdown": "Markdown",
+      "formatDocx": "Word",
       "downloadPdf": "Télécharger PDF",
       "downloadingPdf": "Téléchargement PDF...",
       "downloadMarkdown": "Télécharger Markdown",
-      "downloadingMarkdown": "Téléchargement Markdown..."
+      "downloadingMarkdown": "Téléchargement Markdown...",
+      "downloadDocx": "Télécharger Word",
+      "downloadingDocx": "Téléchargement Word..."
     },
     "status": {
       "draft": "Brouillon",

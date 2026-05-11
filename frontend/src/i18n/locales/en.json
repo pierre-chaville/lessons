@@ -319,10 +319,13 @@
       "downloadFormatLabel": "Download format",
       "formatPdf": "PDF",
       "formatMarkdown": "Markdown",
+      "formatDocx": "Word",
       "downloadPdf": "Download PDF",
       "downloadingPdf": "Downloading PDF...",
       "downloadMarkdown": "Download Markdown",
-      "downloadingMarkdown": "Downloading Markdown..."
+      "downloadingMarkdown": "Downloading Markdown...",
+      "downloadDocx": "Download Word",
+      "downloadingDocx": "Downloading Word..."
     },
     "status": {
       "draft": "Draft",

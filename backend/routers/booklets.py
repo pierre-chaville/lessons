@@ -396,6 +396,20 @@ def download_booklet_markdown(
     )
 
 
+@router.get("/{booklet_id}/download-docx")
+def download_booklet_docx(
+    booklet_id: int,
+    session: Session = Depends(get_session),
+    _: Dict[str, Any] = Depends(require_roles(["editor", "publisher", "admin"])),
+):
+    docx_bytes, filename = booklet_service.generate_booklet_docx(session, booklet_id)
+    return Response(
+        content=docx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/{booklet_id}/generations", response_model=List[BookletGenerationResponse])
 def get_booklet_generations(
     booklet_id: int,

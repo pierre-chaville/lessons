@@ -87,4 +87,9 @@ export const bookletsApi = {
     apiClient
       .get<Blob>(`/booklets/${id}/download-markdown`, { responseType: 'blob' })
       .then((r) => r.data),
+
+  downloadDocx: (id: number) =>
+    apiClient
+      .get<Blob>(`/booklets/${id}/download-docx`, { responseType: 'blob' })
+      .then((r) => r.data),
 }

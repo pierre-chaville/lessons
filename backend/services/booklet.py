@@ -34,6 +34,7 @@ from models import (
     Theme,
 )
 from services.audit import log_event
+from services.markdown_docx import markdown_to_docx_bytes
 from pdf_reportlab import get_pdf_font_names, log_pdf_font_diagnostics
 
 ALLOWED_TEMPLATE_FIELDS = {
@@ -908,6 +909,15 @@ def generate_booklet_markdown(session: Session, booklet_id: int) -> tuple[bytes,
 
     markdown = "\n".join(lines).strip() + "\n"
     return markdown.encode("utf-8"), f"{_safe_filename(booklet.title)}.md"
+
+
+def generate_booklet_docx(session: Session, booklet_id: int) -> tuple[bytes, str]:
+    """Generate a DOCX rendition of a booklet from its markdown output."""
+    markdown_bytes, _ = generate_booklet_markdown(session, booklet_id)
+    markdown_text = markdown_bytes.decode("utf-8")
+    docx_bytes = markdown_to_docx_bytes(markdown_text)
+    booklet = _get_booklet(session, booklet_id)
+    return docx_bytes, f"{_safe_filename(booklet.title)}.docx"
 
 
 def create_booklet(session: Session, data: Dict[str, Any], actor: Any) -> Booklet:

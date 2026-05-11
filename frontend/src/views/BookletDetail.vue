@@ -50,7 +50,8 @@ const loading = ref(false)
 const mutating = ref(false)
 const downloadingPdf = ref(false)
 const downloadingMarkdown = ref(false)
-const selectedDownloadFormat = ref<'pdf' | 'markdown'>('pdf')
+const downloadingDocx = ref(false)
+const selectedDownloadFormat = ref<'pdf' | 'markdown' | 'docx'>('pdf')
 const detail = ref<BookletDetail | null>(null)
 const allLessons = ref<LessonListItem[]>([])
 const courseTree = ref<CourseTreeNode[]>([])
@@ -331,9 +332,32 @@ const downloadBookletMarkdown = async () => {
   }
 }
 
+const downloadBookletDocx = async () => {
+  if (!props.bookletId || !detail.value) return
+  try {
+    downloadingDocx.value = true
+    const blob = await bookletsApi.downloadDocx(props.bookletId)
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    const safeTitle = (detail.value.title || 'booklet').replace(/[^\w\- ]+/g, '').trim() || 'booklet'
+    link.download = `${safeTitle}.docx`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.URL.revokeObjectURL(url)
+  } finally {
+    downloadingDocx.value = false
+  }
+}
+
 const downloadSelectedBooklet = async () => {
   if (selectedDownloadFormat.value === 'markdown') {
     await downloadBookletMarkdown()
+    return
+  }
+  if (selectedDownloadFormat.value === 'docx') {
+    await downloadBookletDocx()
     return
   }
   await downloadBookletPdf()
@@ -528,7 +552,7 @@ watch(() => props.bookletId, loadDetail)
               </button>
               <button
                 class="flex-shrink-0 inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 disabled:opacity-50 disabled:cursor-not-allowed"
-                :disabled="mutating || downloadingPdf || downloadingMarkdown"
+                :disabled="mutating || downloadingPdf || downloadingMarkdown || downloadingDocx"
                 @click="deleteBooklet"
               >
                 <TrashIcon class="h-4 w-4" />
@@ -549,7 +573,7 @@ watch(() => props.bookletId, loadDetail)
                       ? 'bg-indigo-600 text-white'
                       : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600'
                   "
-                  :disabled="mutating || downloadingPdf || downloadingMarkdown"
+                  :disabled="mutating || downloadingPdf || downloadingMarkdown || downloadingDocx"
                   :aria-pressed="selectedDownloadFormat === 'pdf'"
                   @click="selectedDownloadFormat = 'pdf'"
                 >
@@ -563,16 +587,30 @@ watch(() => props.bookletId, loadDetail)
                       ? 'bg-indigo-600 text-white'
                       : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600'
                   "
-                  :disabled="mutating || downloadingPdf || downloadingMarkdown"
+                  :disabled="mutating || downloadingPdf || downloadingMarkdown || downloadingDocx"
                   :aria-pressed="selectedDownloadFormat === 'markdown'"
                   @click="selectedDownloadFormat = 'markdown'"
                 >
                   {{ t('booklets.actions.formatMarkdown') }}
                 </button>
+                <button
+                  type="button"
+                  class="px-3 py-2 text-sm font-medium transition-colors border-l border-gray-300 dark:border-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                  :class="
+                    selectedDownloadFormat === 'docx'
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600'
+                  "
+                  :disabled="mutating || downloadingPdf || downloadingMarkdown || downloadingDocx"
+                  :aria-pressed="selectedDownloadFormat === 'docx'"
+                  @click="selectedDownloadFormat = 'docx'"
+                >
+                  {{ t('booklets.actions.formatDocx') }}
+                </button>
               </div>
               <button
                 class="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors text-white bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                :disabled="mutating || downloadingPdf || downloadingMarkdown"
+                :disabled="mutating || downloadingPdf || downloadingMarkdown || downloadingDocx"
                 @click="downloadSelectedBooklet"
               >
                 <DocumentTextIcon class="h-4 w-4" />
@@ -581,6 +619,8 @@ watch(() => props.bookletId, loadDetail)
                     ? t('booklets.actions.downloadingPdf')
                     : downloadingMarkdown
                       ? t('booklets.actions.downloadingMarkdown')
+                      : downloadingDocx
+                        ? t('booklets.actions.downloadingDocx')
                       : t('booklets.actions.download')
                 }}
               </button>
