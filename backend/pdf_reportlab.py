@@ -14,6 +14,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 import os
+import logging
 import httpx
 import re
 from html import unescape
@@ -29,6 +30,13 @@ _pdf_font_names = {
     "italic": "Helvetica-Oblique",
     "bold_italic": "Helvetica-BoldOblique",
 }
+_pdf_font_files = {
+    "regular": None,
+    "bold": None,
+    "italic": None,
+    "bold_italic": None,
+}
+logger = logging.getLogger(__name__)
 
 
 def _discover_font_candidates(
@@ -61,11 +69,20 @@ def _discover_font_candidates(
 
 
 def _register_first_available_font(font_name: str, candidate_paths: list[str]) -> bool:
+    global _pdf_font_files
     for font_path in candidate_paths:
         if not os.path.exists(font_path):
             continue
         try:
             pdfmetrics.registerFont(TTFont(font_name, font_path))
+            if font_name == "Arial":
+                _pdf_font_files["regular"] = font_path
+            elif font_name == "Arial-Bold":
+                _pdf_font_files["bold"] = font_path
+            elif font_name == "Arial-Italic":
+                _pdf_font_files["italic"] = font_path
+            elif font_name == "Arial-BoldItalic":
+                _pdf_font_files["bold_italic"] = font_path
             return True
         except Exception:
             continue
@@ -76,7 +93,14 @@ def _register_unicode_fonts():
     """Register Unicode-compatible fonts for Hebrew and other RTL languages."""
     global _fonts_registered
     global _pdf_font_names
+    global _pdf_font_files
     _fonts_registered = False
+    _pdf_font_files = {
+        "regular": None,
+        "bold": None,
+        "italic": None,
+        "bold_italic": None,
+    }
     
     try:
         # Prefer explicit custom font paths first (if provided).
@@ -188,8 +212,23 @@ def _register_unicode_fonts():
             italic="Arial-Italic",
             boldItalic="Arial-BoldItalic",
         )
+
+        logger.info(
+            "PDF Unicode fonts enabled: regular=%s (%s), bold=%s (%s), italic=%s (%s), boldItalic=%s (%s)",
+            _pdf_font_names["regular"],
+            _pdf_font_files["regular"] or "fallback-to-regular",
+            _pdf_font_names["bold"],
+            _pdf_font_files["bold"] or _pdf_font_files["regular"] or "fallback-to-regular",
+            _pdf_font_names["italic"],
+            _pdf_font_files["italic"] or _pdf_font_files["regular"] or "fallback-to-regular",
+            _pdf_font_names["bold_italic"],
+            _pdf_font_files["bold_italic"] or _pdf_font_files["bold"] or _pdf_font_files["regular"] or "fallback-to-regular",
+        )
     except Exception:
-        pass
+        logger.exception("PDF Unicode font registration failed; falling back to Helvetica")
+
+    if not _fonts_registered:
+        logger.warning("PDF Unicode fonts unavailable; using Helvetica built-ins")
 
 
 # Register fonts on import
