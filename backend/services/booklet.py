@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import threading
 from io import BytesIO
 from html import escape
@@ -74,6 +75,11 @@ PDF_FIELD_LABELS = {
         "edited_transcript": "Édition",
         "corrected_transcript": "Transcription",
     },
+}
+
+TOC_LABELS = {
+    "en": "Table of contents",
+    "fr": "Table des matières",
 }
 
 
@@ -220,6 +226,25 @@ def _format_time(seconds: Any) -> str:
     return f"{minutes:02d}:{secs:02d}"
 
 
+def _format_date(value: Any) -> str:
+    if value is None:
+        return "-"
+    # date and datetime both support strftime.
+    if hasattr(value, "strftime"):
+        try:
+            return value.strftime("%Y-%m-%d")
+        except Exception:
+            pass
+    text = str(value).strip()
+    if not text:
+        return "-"
+    if "T" in text:
+        return text.split("T", 1)[0]
+    if " " in text:
+        return text.split(" ", 1)[0]
+    return text
+
+
 def _to_paragraph_text(value: Any) -> str:
     return escape(str(value)).replace("\n", "<br/>")
 
@@ -251,6 +276,110 @@ def _stringify_transcript_like(raw: Any) -> str:
         else:
             lines.append(str(entry))
     return "\n".join(lines).strip() or "-"
+
+
+def _lesson_toc_line(item: BookletItem, lesson: Optional[Lesson]) -> str:
+    if lesson is None:
+        return "Lesson not found"
+    title = (item.custom_title or lesson.title or "-").strip()
+    date_value = _format_date(lesson.date)
+    return f"{date_value} - {title}"
+
+
+def _markdown_inline_to_reportlab(value: str) -> str:
+    """Convert a minimal markdown subset to reportlab-compatible inline tags."""
+    text = escape(value)
+    # Bold: **text** or __text__
+    text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
+    text = re.sub(r"__(.+?)__", r"<b>\1</b>", text)
+    # Italic: *text* or _text_
+    text = re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"<i>\1</i>", text)
+    text = re.sub(r"(?<!_)_(?!_)(.+?)(?<!_)_(?!_)", r"<i>\1</i>", text)
+    return text
+
+
+def _append_markdown_blocks_to_story(
+    story: List[Any],
+    markdown_value: str,
+    paragraph_style: ParagraphStyle,
+    heading_styles: Dict[int, ParagraphStyle],
+    bullet_style: ParagraphStyle,
+) -> None:
+    """Render simple markdown blocks (headings, bullets, paragraphs) to reportlab story."""
+    lines = str(markdown_value or "").splitlines()
+    idx = 0
+    has_output = False
+    while idx < len(lines):
+        raw = lines[idx]
+        stripped = raw.strip()
+        if not stripped:
+            idx += 1
+            continue
+
+        heading_match = re.match(r"^\s{0,3}(#{1,6})\s+(.+)$", raw)
+        if heading_match:
+            level = min(len(heading_match.group(1)), 6)
+            heading_text = _markdown_inline_to_reportlab(heading_match.group(2).strip())
+            story.append(Paragraph(heading_text, heading_styles.get(level, paragraph_style)))
+            has_output = True
+            idx += 1
+            continue
+
+        bullet_match = re.match(r"^\s*[-*+]\s+(.+)$", raw)
+        if bullet_match:
+            while idx < len(lines):
+                line = lines[idx]
+                m = re.match(r"^\s*[-*+]\s+(.+)$", line)
+                if not m:
+                    break
+                bullet_text = _markdown_inline_to_reportlab(m.group(1).strip())
+                story.append(Paragraph(f"• {bullet_text}", bullet_style))
+                has_output = True
+                idx += 1
+            continue
+
+        paragraph_lines: List[str] = []
+        while idx < len(lines):
+            current = lines[idx]
+            current_stripped = current.strip()
+            if not current_stripped:
+                idx += 1
+                break
+            if re.match(r"^\s{0,3}(#{1,6})\s+(.+)$", current):
+                break
+            if re.match(r"^\s*[-*+]\s+(.+)$", current):
+                break
+            paragraph_lines.append(_markdown_inline_to_reportlab(current_stripped))
+            idx += 1
+        if paragraph_lines:
+            story.append(Paragraph("<br/>".join(paragraph_lines), paragraph_style))
+            has_output = True
+
+    if not has_output:
+        story.append(Paragraph("-", paragraph_style))
+
+
+class _BookletPdfDocTemplate(SimpleDocTemplate):
+    """Doc template that registers clickable outline entries during build."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._seen_outline_keys: set[str] = set()
+
+    def afterFlowable(self, flowable: Any) -> None:  # pragma: no cover - reportlab callback
+        bookmark_name = getattr(flowable, "_bookmark_name", None)
+        outline_title = getattr(flowable, "_outline_title", None)
+        outline_level = getattr(flowable, "_outline_level", None)
+        if not bookmark_name:
+            return
+        self.canv.bookmarkPage(bookmark_name)
+        if (
+            outline_title
+            and isinstance(outline_level, int)
+            and bookmark_name not in self._seen_outline_keys
+        ):
+            self.canv.addOutlineEntry(outline_title, bookmark_name, outline_level, False)
+            self._seen_outline_keys.add(bookmark_name)
 
 
 def generate_booklet_pdf(session: Session, booklet_id: int) -> tuple[bytes, str]:
@@ -323,16 +452,155 @@ def generate_booklet_pdf(session: Session, booklet_id: int) -> tuple[bytes, str]
         textColor=colors.HexColor("#374151"),
         spaceAfter=8,
     )
+    summary_heading_styles: Dict[int, ParagraphStyle] = {
+        1: ParagraphStyle(
+            "SummaryHeading1",
+            parent=value_style,
+            fontName=bold_font,
+            fontSize=14,
+            leading=18,
+            textColor=colors.HexColor("#111827"),
+            spaceAfter=6,
+            spaceBefore=2,
+        ),
+        2: ParagraphStyle(
+            "SummaryHeading2",
+            parent=value_style,
+            fontName=bold_font,
+            fontSize=13,
+            leading=17,
+            textColor=colors.HexColor("#111827"),
+            spaceAfter=5,
+            spaceBefore=2,
+        ),
+        3: ParagraphStyle(
+            "SummaryHeading3",
+            parent=value_style,
+            fontName=bold_font,
+            fontSize=12,
+            leading=16,
+            textColor=colors.HexColor("#111827"),
+            spaceAfter=4,
+            spaceBefore=2,
+        ),
+        4: ParagraphStyle(
+            "SummaryHeading4",
+            parent=value_style,
+            fontName=bold_font,
+            fontSize=11,
+            leading=15,
+            textColor=colors.HexColor("#111827"),
+            spaceAfter=4,
+            spaceBefore=2,
+        ),
+        5: ParagraphStyle(
+            "SummaryHeading5",
+            parent=value_style,
+            fontName=bold_font,
+            fontSize=10,
+            leading=14,
+            textColor=colors.HexColor("#111827"),
+            spaceAfter=3,
+            spaceBefore=2,
+        ),
+        6: ParagraphStyle(
+            "SummaryHeading6",
+            parent=value_style,
+            fontName=bold_font,
+            fontSize=10,
+            leading=14,
+            textColor=colors.HexColor("#111827"),
+            spaceAfter=3,
+            spaceBefore=2,
+        ),
+    }
+    summary_bullet_style = ParagraphStyle(
+        "SummaryBullet",
+        parent=value_style,
+        leftIndent=12,
+        firstLineIndent=0,
+        spaceAfter=3,
+    )
+    toc_title_style = ParagraphStyle(
+        "TOCTitle",
+        parent=styles["Heading2"],
+        fontName=bold_font,
+        fontSize=20,
+        leading=24,
+        textColor=colors.HexColor("#111827"),
+        spaceAfter=10,
+    )
+    toc_entry_style = ParagraphStyle(
+        "TOCEntry",
+        parent=styles["Normal"],
+        fontName=regular_font,
+        fontSize=11,
+        leading=15,
+        textColor=colors.HexColor("#111827"),
+        spaceAfter=4,
+    )
+    toc_brief_style = ParagraphStyle(
+        "TOCBrief",
+        parent=styles["Normal"],
+        fontName=regular_font,
+        fontSize=10,
+        leading=14,
+        textColor=colors.HexColor("#4b5563"),
+        leftIndent=16,
+        spaceAfter=8,
+    )
 
     story: List[Any] = []
     # Cover page
-    story.append(Paragraph(_to_paragraph_text(booklet.title), title_style))
+    cover_heading = Paragraph(_to_paragraph_text(booklet.title), title_style)
+    cover_heading._bookmark_name = "cover"  # type: ignore[attr-defined]
+    cover_heading._outline_title = booklet.title  # type: ignore[attr-defined]
+    cover_heading._outline_level = 0  # type: ignore[attr-defined]
+    story.append(cover_heading)
     if booklet.subtitle:
         story.append(Paragraph(_to_paragraph_text(booklet.subtitle), subtitle_style))
     if booklet.description:
         story.append(Paragraph(_to_paragraph_text(booklet.description), value_style))
     story.append(Spacer(1, 0.6 * cm))
     story.append(Paragraph(f"Status: {_enum_value(booklet.status)}", value_style))
+    story.append(PageBreak())
+
+    item_bookmarks: Dict[int, str] = {}
+    for idx, item in enumerate(items, start=1):
+        item_id = item.id if item.id is not None else idx
+        prefix = "chapter" if item.item_type == BookletItemType.CHAPTER else "lesson"
+        item_bookmarks[item_id] = f"{prefix}-{item_id}"
+
+    toc_title = TOC_LABELS.get(pdf_language, TOC_LABELS["en"])
+    toc_heading = Paragraph(_to_paragraph_text(toc_title), toc_title_style)
+    toc_heading._bookmark_name = "toc"  # type: ignore[attr-defined]
+    toc_heading._outline_title = toc_title  # type: ignore[attr-defined]
+    toc_heading._outline_level = 0  # type: ignore[attr-defined]
+    story.append(toc_heading)
+    for item in items:
+        bookmark = item_bookmarks.get(item.id if item.id is not None else -1)
+        if item.item_type == BookletItemType.CHAPTER:
+            chapter_title = item.chapter_title or "Chapter"
+            if bookmark:
+                chapter_entry = f'<link href="#{bookmark}"><b>{escape(chapter_title)}</b></link>'
+            else:
+                chapter_entry = f"<b>{escape(chapter_title)}</b>"
+            story.append(Paragraph(chapter_entry, toc_entry_style))
+            continue
+
+        if item.lesson_id is None:
+            story.append(Paragraph("Lesson item without lesson reference", toc_entry_style))
+            continue
+
+        lesson = lessons.get(item.lesson_id)
+        lesson_line = _lesson_toc_line(item, lesson)
+        if bookmark:
+            lesson_entry = f'<link href="#{bookmark}">{escape(lesson_line)}</link>'
+        else:
+            lesson_entry = escape(lesson_line)
+        story.append(Paragraph(lesson_entry, toc_entry_style))
+        if lesson and lesson.brief:
+            story.append(Paragraph(_to_paragraph_text(lesson.brief), toc_brief_style))
     story.append(PageBreak())
 
     selected_fields = booklet.template_data or []
@@ -358,12 +626,17 @@ def generate_booklet_pdf(session: Session, booklet_id: int) -> tuple[bytes, str]
 
         if item.item_type == BookletItemType.CHAPTER:
             chapter_title = item.chapter_title or "Chapter"
-            story.append(Paragraph(_to_paragraph_text(chapter_title), heading_style))
+            chapter_heading = Paragraph(_to_paragraph_text(chapter_title), heading_style)
+            chapter_bookmark = item_bookmarks.get(item.id if item.id is not None else -1)
+            if chapter_bookmark:
+                chapter_heading._bookmark_name = chapter_bookmark  # type: ignore[attr-defined]
+                chapter_heading._outline_title = chapter_title  # type: ignore[attr-defined]
+                chapter_heading._outline_level = 1  # type: ignore[attr-defined]
+            story.append(chapter_heading)
             if item.chapter_subtitle:
                 story.append(Paragraph(_to_paragraph_text(item.chapter_subtitle), subtitle_style))
             if item.chapter_body:
                 story.append(Paragraph(_to_paragraph_text(item.chapter_body), value_style))
-            story.append(Paragraph(f"Starts new page: {'Yes' if item.chapter_starts_new_page else 'No'}", value_style))
             continue
 
         if item.lesson_id is None:
@@ -376,14 +649,20 @@ def generate_booklet_pdf(session: Session, booklet_id: int) -> tuple[bytes, str]
             continue
 
         lesson_title = item.custom_title or lesson.title
-        story.append(Paragraph(_to_paragraph_text(lesson_title), heading_style))
+        lesson_heading = Paragraph(_to_paragraph_text(lesson_title), heading_style)
+        lesson_bookmark = item_bookmarks.get(item.id if item.id is not None else -1)
+        if lesson_bookmark:
+            lesson_heading._bookmark_name = lesson_bookmark  # type: ignore[attr-defined]
+            lesson_heading._outline_title = lesson_title  # type: ignore[attr-defined]
+            lesson_heading._outline_level = 1  # type: ignore[attr-defined]
+        story.append(lesson_heading)
         if item.custom_intro:
             story.append(Paragraph(_to_paragraph_text(item.custom_intro), value_style))
 
         date_selected = "date" in ordered_fields
         duration_selected = "duration" in ordered_fields
         if date_selected or duration_selected:
-            date_value = lesson.date.isoformat() if lesson.date else "-"
+            date_value = _format_date(lesson.date)
             duration_value = _format_duration(lesson.duration) if duration_selected else "-"
             if date_selected and duration_selected:
                 story.append(Paragraph(_to_paragraph_text(f"{date_value} / {duration_value}"), value_style))
@@ -420,10 +699,19 @@ def generate_booklet_pdf(session: Session, booklet_id: int) -> tuple[bytes, str]
             if field in {"brief", "summary", "edited_transcript", "corrected_transcript"}:
                 label = localized_labels.get(field, TEMPLATE_FIELD_LABELS.get(field, field))
                 story.append(Paragraph(f"<b>{_to_paragraph_text(label)}</b>", label_style))
-            story.append(Paragraph(_to_paragraph_text(value), value_style))
+            if field == "summary":
+                _append_markdown_blocks_to_story(
+                    story=story,
+                    markdown_value=str(value),
+                    paragraph_style=value_style,
+                    heading_styles=summary_heading_styles,
+                    bullet_style=summary_bullet_style,
+                )
+            else:
+                story.append(Paragraph(_to_paragraph_text(value), value_style))
 
     buffer = BytesIO()
-    doc = SimpleDocTemplate(
+    doc = _BookletPdfDocTemplate(
         buffer,
         pagesize=A4,
         rightMargin=2 * cm,
@@ -488,6 +776,23 @@ def generate_booklet_markdown(session: Session, booklet_id: int) -> tuple[bytes,
         lines.append(str(booklet.description).strip())
     lines.append("")
     lines.append(f"**Status:** {_enum_value(booklet.status)}")
+    lines.append("")
+    lines.append(f"## {TOC_LABELS.get(pdf_language, TOC_LABELS['en'])}")
+    lines.append("")
+    for item in items:
+        if item.item_type == BookletItemType.CHAPTER:
+            chapter_title = item.chapter_title or "Chapter"
+            lines.append(f"- **{chapter_title}**")
+            continue
+        if item.lesson_id is None:
+            lines.append("- Lesson item without lesson reference")
+            continue
+        lesson = lessons.get(item.lesson_id)
+        lines.append(f"- {_lesson_toc_line(item, lesson)}")
+        if lesson and lesson.brief:
+            lines.append(f"  - {lesson.brief.strip()}")
+    lines.append("")
+    lines.append("---")
 
     for idx, item in enumerate(items):
         if idx > 0:
@@ -506,10 +811,6 @@ def generate_booklet_markdown(session: Session, booklet_id: int) -> tuple[bytes,
             if item.chapter_body:
                 lines.append("")
                 lines.append(str(item.chapter_body).strip())
-            lines.append("")
-            lines.append(
-                f"**Starts new page:** {'Yes' if item.chapter_starts_new_page else 'No'}"
-            )
             continue
 
         if item.lesson_id is None:
@@ -530,7 +831,7 @@ def generate_booklet_markdown(session: Session, booklet_id: int) -> tuple[bytes,
         date_selected = "date" in ordered_fields
         duration_selected = "duration" in ordered_fields
         if date_selected or duration_selected:
-            date_value = lesson.date.isoformat() if lesson.date else "-"
+            date_value = _format_date(lesson.date)
             duration_value = _format_duration(lesson.duration) if duration_selected else "-"
             lines.append("")
             if date_selected and duration_selected:
