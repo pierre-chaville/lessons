@@ -31,6 +31,35 @@ _pdf_font_names = {
 }
 
 
+def _discover_font_candidates(
+    required_tokens: list[str],
+    forbidden_tokens: Optional[list[str]] = None,
+) -> list[str]:
+    """Discover matching TTF/OTF fonts from common Linux/custom font directories."""
+    forbidden_tokens = forbidden_tokens or []
+    search_roots = [
+        "/usr/share/fonts",
+        "/usr/local/share/fonts",
+        os.path.join(os.path.dirname(__file__), "fonts"),
+        os.path.join(os.path.dirname(__file__), "..", "fonts"),
+    ]
+    matches: list[str] = []
+    for root in search_roots:
+        if not os.path.isdir(root):
+            continue
+        for dirpath, _, filenames in os.walk(root):
+            for filename in filenames:
+                lower = filename.lower()
+                if not (lower.endswith(".ttf") or lower.endswith(".otf")):
+                    continue
+                if not all(token in lower for token in required_tokens):
+                    continue
+                if any(token in lower for token in forbidden_tokens):
+                    continue
+                matches.append(os.path.join(dirpath, filename))
+    return matches
+
+
 def _register_first_available_font(font_name: str, candidate_paths: list[str]) -> bool:
     for font_path in candidate_paths:
         if not os.path.exists(font_path):
@@ -50,33 +79,87 @@ def _register_unicode_fonts():
     _fonts_registered = False
     
     try:
+        # Prefer explicit custom font paths first (if provided).
+        custom_regular = os.getenv("PDF_FONT_REGULAR")
+        custom_bold = os.getenv("PDF_FONT_BOLD")
+        custom_italic = os.getenv("PDF_FONT_ITALIC")
+        custom_bold_italic = os.getenv("PDF_FONT_BOLD_ITALIC")
+
+        # Discover Linux/Render fonts dynamically (Noto/DejaVu/Liberation variants).
+        discovered_regular = (
+            _discover_font_candidates(["notosanshebrew"], ["bold", "italic", "oblique"])
+            + _discover_font_candidates(["notosans"], ["bold", "italic", "oblique"])
+            + _discover_font_candidates(["dejavusans"], ["bold", "italic", "oblique"])
+            + _discover_font_candidates(["liberationsans", "regular"])
+        )
+        discovered_bold = (
+            _discover_font_candidates(["notosanshebrew", "bold"], ["italic", "oblique"])
+            + _discover_font_candidates(["notosans", "bold"], ["italic", "oblique"])
+            + _discover_font_candidates(["dejavusans", "bold"], ["italic", "oblique"])
+            + _discover_font_candidates(["liberationsans", "bold"], ["italic"])
+        )
+        discovered_italic = (
+            _discover_font_candidates(["notosanshebrew", "italic"], ["bold"])
+            + _discover_font_candidates(["notosans", "italic"], ["bold"])
+            + _discover_font_candidates(["notosanshebrew", "oblique"], ["bold"])
+            + _discover_font_candidates(["notosans", "oblique"], ["bold"])
+            + _discover_font_candidates(["dejavusans", "oblique"], ["bold"])
+            + _discover_font_candidates(["liberationsans", "italic"], ["bold"])
+        )
+        discovered_bold_italic = (
+            _discover_font_candidates(["notosanshebrew", "bold", "italic"])
+            + _discover_font_candidates(["notosans", "bold", "italic"])
+            + _discover_font_candidates(["notosanshebrew", "bold", "oblique"])
+            + _discover_font_candidates(["notosans", "bold", "oblique"])
+            + _discover_font_candidates(["dejavusans", "boldoblique"])
+            + _discover_font_candidates(["liberationsans", "bolditalic"])
+        )
+
         regular_candidates = [
+            custom_regular,
             "C:/Windows/Fonts/arial.ttf",
             "C:/Windows/Fonts/ARIAL.TTF",
+            "/usr/share/fonts/truetype/noto/NotoSansHebrew-Regular.ttf",
+            "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+            "/usr/share/fonts/noto/NotoSansHebrew-Regular.ttf",
+            "/usr/share/fonts/noto/NotoSans-Regular.ttf",
             "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        ]
+        ] + discovered_regular
 
         bold_candidates = [
+            custom_bold,
             "C:/Windows/Fonts/arialbd.ttf",
             "C:/Windows/Fonts/ARIALBD.TTF",
+            "/usr/share/fonts/truetype/noto/NotoSansHebrew-Bold.ttf",
+            "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
+            "/usr/share/fonts/noto/NotoSansHebrew-Bold.ttf",
+            "/usr/share/fonts/noto/NotoSans-Bold.ttf",
             "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        ]
+        ] + discovered_bold
 
         italic_candidates = [
+            custom_italic,
             "C:/Windows/Fonts/ariali.ttf",
             "C:/Windows/Fonts/ARIALI.TTF",
             "/usr/share/fonts/truetype/liberation/LiberationSans-Italic.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Oblique.ttf",
-        ]
+        ] + discovered_italic
 
         bold_italic_candidates = [
+            custom_bold_italic,
             "C:/Windows/Fonts/arialbi.ttf",
             "C:/Windows/Fonts/ARIALBI.TTF",
             "/usr/share/fonts/truetype/liberation/LiberationSans-BoldItalic.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-BoldOblique.ttf",
-        ]
+        ] + discovered_bold_italic
+
+        # Remove empty values and duplicates while preserving order.
+        regular_candidates = [c for c in dict.fromkeys(regular_candidates) if c]
+        bold_candidates = [c for c in dict.fromkeys(bold_candidates) if c]
+        italic_candidates = [c for c in dict.fromkeys(italic_candidates) if c]
+        bold_italic_candidates = [c for c in dict.fromkeys(bold_italic_candidates) if c]
 
         regular_ok = _register_first_available_font("Arial", regular_candidates)
         if not regular_ok:
@@ -843,14 +926,16 @@ def generate_lesson_sources_pdf(
     # Create styles
     styles = getSampleStyleSheet()
 
-    # Use Arial font if registered
-    default_font = "Arial" if _fonts_registered else "Helvetica"
+    # Use active font family (Unicode-capable when available).
+    active_fonts = get_pdf_font_names()
+    default_font = active_fonts["regular"]
+    bold_font = active_fonts["bold"]
 
-    # Title style - use Helvetica-Bold as it's always available
+    # Title style
     title_style = ParagraphStyle(
         "CustomTitle",
         parent=styles["Heading1"],
-        fontName="Helvetica-Bold",
+        fontName=bold_font,
         fontSize=20,
         textColor=HexColor("#1f2937"),
         spaceAfter=12,
@@ -868,11 +953,11 @@ def generate_lesson_sources_pdf(
         alignment=TA_CENTER,
     )
 
-    # Author header style - use Helvetica-Bold as it's always available
+    # Author header style
     author_style = ParagraphStyle(
         "AuthorHeader",
         parent=styles["Heading2"],
-        fontName="Helvetica-Bold",
+        fontName=bold_font,
         fontSize=14,
         textColor=HexColor("#1f2937"),
         spaceAfter=8,
@@ -904,7 +989,7 @@ def generate_lesson_sources_pdf(
     stats_header_style = ParagraphStyle(
         "StatsHeader",
         parent=styles["Heading2"],
-        fontName="Helvetica-Bold",
+        fontName=bold_font,
         fontSize=14,
         textColor=HexColor("#1f2937"),
         spaceAfter=8,
@@ -916,7 +1001,7 @@ def generate_lesson_sources_pdf(
         ('BACKGROUND', (0, 0), (-1, 0), HexColor("#f3f4f6")),
         ('TEXTCOLOR', (0, 0), (-1, 0), HexColor("#374151")),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTNAME', (0, 0), (-1, 0), bold_font),
         ('FONTSIZE', (0, 0), (-1, 0), 10),
         ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
         ('BACKGROUND', (0, 1), (-1, -1), HexColor("#ffffff")),
@@ -991,7 +1076,7 @@ def generate_lesson_sources_pdf(
     
     # Apply bold to total row
     total_row_style = TableStyle([
-        ('FONTNAME', (0, len(table_data)-1), (-1, len(table_data)-1), 'Helvetica-Bold'),
+        ('FONTNAME', (0, len(table_data)-1), (-1, len(table_data)-1), bold_font),
         ('BACKGROUND', (0, len(table_data)-1), (-1, len(table_data)-1), HexColor("#e0e7ff")),
     ])
     stats_table.setStyle(total_row_style)
@@ -1126,14 +1211,16 @@ def generate_lesson_detailed_sources_pdf(
     # Create styles
     styles = getSampleStyleSheet()
 
-    # Use Arial font if registered
-    default_font = "Arial" if _fonts_registered else "Helvetica"
+    # Use active font family (Unicode-capable when available).
+    active_fonts = get_pdf_font_names()
+    default_font = active_fonts["regular"]
+    bold_font = active_fonts["bold"]
 
     # Title style
     title_style = ParagraphStyle(
         "CustomTitle",
         parent=styles["Heading1"],
-        fontName=f"{default_font}-Bold" if _fonts_registered else "Helvetica-Bold",
+        fontName=bold_font,
         fontSize=20,
         textColor=HexColor("#1f2937"),
         spaceAfter=12,
@@ -1151,11 +1238,11 @@ def generate_lesson_detailed_sources_pdf(
         alignment=TA_CENTER,
     )
 
-    # Section header style - use Helvetica-Bold as it's always available
+    # Section header style
     section_style = ParagraphStyle(
         "SectionHeader",
         parent=styles["Heading2"],
-        fontName="Helvetica-Bold",
+        fontName=bold_font,
         fontSize=14,
         textColor=HexColor("#1f2937"),
         spaceAfter=8,
@@ -1199,7 +1286,7 @@ def generate_lesson_detailed_sources_pdf(
     stats_header_style = ParagraphStyle(
         "StatsHeader",
         parent=styles["Heading2"],
-        fontName="Helvetica-Bold",
+        fontName=bold_font,
         fontSize=14,
         textColor=HexColor("#1f2937"),
         spaceAfter=8,
@@ -1211,7 +1298,7 @@ def generate_lesson_detailed_sources_pdf(
         ('BACKGROUND', (0, 0), (-1, 0), HexColor("#f3f4f6")),
         ('TEXTCOLOR', (0, 0), (-1, 0), HexColor("#374151")),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTNAME', (0, 0), (-1, 0), bold_font),
         ('FONTSIZE', (0, 0), (-1, 0), 10),
         ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
         ('BACKGROUND', (0, 1), (-1, -1), HexColor("#ffffff")),
@@ -1286,7 +1373,7 @@ def generate_lesson_detailed_sources_pdf(
     
     # Apply bold to total row
     total_row_style = TableStyle([
-        ('FONTNAME', (0, len(table_data)-1), (-1, len(table_data)-1), 'Helvetica-Bold'),
+        ('FONTNAME', (0, len(table_data)-1), (-1, len(table_data)-1), bold_font),
         ('BACKGROUND', (0, len(table_data)-1), (-1, len(table_data)-1), HexColor("#e0e7ff")),
     ])
     stats_table.setStyle(total_row_style)
