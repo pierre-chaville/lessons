@@ -34,7 +34,7 @@ from models import (
     Theme,
 )
 from services.audit import log_event
-from pdf_reportlab import get_pdf_font_names
+from pdf_reportlab import get_pdf_font_names, log_pdf_font_diagnostics
 
 ALLOWED_TEMPLATE_FIELDS = {
     "title",
@@ -383,6 +383,7 @@ class _BookletPdfDocTemplate(SimpleDocTemplate):
 
 
 def generate_booklet_pdf(session: Session, booklet_id: int) -> tuple[bytes, str]:
+    log_pdf_font_diagnostics("booklet-pdf")
     booklet = _get_booklet(session, booklet_id)
     items = _sorted_booklet_items(session, booklet_id)
     lesson_ids = [row.lesson_id for row in items if row.lesson_id is not None]

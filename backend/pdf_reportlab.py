@@ -36,7 +36,9 @@ _pdf_font_files = {
     "italic": None,
     "bold_italic": None,
 }
+_font_diagnostics_logged = False
 logger = logging.getLogger(__name__)
+uvicorn_logger = logging.getLogger("uvicorn.error")
 
 
 def _discover_font_candidates(
@@ -147,8 +149,8 @@ def _register_unicode_fonts():
             "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
             "/usr/share/fonts/noto/NotoSansHebrew-Regular.ttf",
             "/usr/share/fonts/noto/NotoSans-Regular.ttf",
-            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
         ] + discovered_regular
 
         bold_candidates = [
@@ -159,24 +161,24 @@ def _register_unicode_fonts():
             "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
             "/usr/share/fonts/noto/NotoSansHebrew-Bold.ttf",
             "/usr/share/fonts/noto/NotoSans-Bold.ttf",
-            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
         ] + discovered_bold
 
         italic_candidates = [
             custom_italic,
             "C:/Windows/Fonts/ariali.ttf",
             "C:/Windows/Fonts/ARIALI.TTF",
-            "/usr/share/fonts/truetype/liberation/LiberationSans-Italic.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Oblique.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Italic.ttf",
         ] + discovered_italic
 
         bold_italic_candidates = [
             custom_bold_italic,
             "C:/Windows/Fonts/arialbi.ttf",
             "C:/Windows/Fonts/ARIALBI.TTF",
-            "/usr/share/fonts/truetype/liberation/LiberationSans-BoldItalic.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-BoldOblique.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-BoldItalic.ttf",
         ] + discovered_bold_italic
 
         # Remove empty values and duplicates while preserving order.
@@ -229,6 +231,37 @@ def _register_unicode_fonts():
 
     if not _fonts_registered:
         logger.warning("PDF Unicode fonts unavailable; using Helvetica built-ins")
+
+
+def _log_font_diagnostics_once(context: str) -> None:
+    """Emit a one-time, high-visibility log line with resolved PDF fonts."""
+    global _font_diagnostics_logged
+    if _font_diagnostics_logged:
+        return
+    _font_diagnostics_logged = True
+
+    regular_path = _pdf_font_files["regular"] or "builtin-helvetica"
+    bold_path = _pdf_font_files["bold"] or regular_path
+    italic_path = _pdf_font_files["italic"] or regular_path
+    bold_italic_path = _pdf_font_files["bold_italic"] or bold_path
+
+    message = (
+        f"PDF font diagnostics ({context}): "
+        f"registered={_fonts_registered}, "
+        f"regular={_pdf_font_names['regular']} [{regular_path}], "
+        f"bold={_pdf_font_names['bold']} [{bold_path}], "
+        f"italic={_pdf_font_names['italic']} [{italic_path}], "
+        f"boldItalic={_pdf_font_names['bold_italic']} [{bold_italic_path}]"
+    )
+
+    # WARNING level ensures visibility in typical Render/Uvicorn logs.
+    logger.warning(message)
+    uvicorn_logger.warning(message)
+
+
+def log_pdf_font_diagnostics(context: str = "pdf") -> None:
+    """Public helper to log resolved font state once per process."""
+    _log_font_diagnostics_once(context)
 
 
 # Register fonts on import
@@ -357,6 +390,7 @@ def generate_lesson_summary_pdf(
     Returns:
         PDF file as bytes
     """
+    _log_font_diagnostics_once("summary-pdf")
     buffer = BytesIO()
     doc = SimpleDocTemplate(
         buffer,
@@ -495,6 +529,7 @@ def generate_lesson_transcript_pdf(
     Returns:
         PDF file as bytes
     """
+    _log_font_diagnostics_once("transcript-pdf")
     buffer = BytesIO()
     doc = SimpleDocTemplate(
         buffer,
@@ -708,6 +743,7 @@ def generate_lesson_edited_transcript_pdf(
     Returns:
         PDF file as bytes
     """
+    _log_font_diagnostics_once("edited-transcript-pdf")
     buffer = BytesIO()
     doc = SimpleDocTemplate(
         buffer,
@@ -952,6 +988,7 @@ def generate_lesson_sources_pdf(
     Returns:
         PDF file as bytes
     """
+    _log_font_diagnostics_once("sources-pdf")
     buffer = BytesIO()
     doc = SimpleDocTemplate(
         buffer,
@@ -1237,6 +1274,7 @@ def generate_lesson_detailed_sources_pdf(
     Returns:
         PDF file as bytes
     """
+    _log_font_diagnostics_once("detailed-sources-pdf")
     buffer = BytesIO()
     doc = SimpleDocTemplate(
         buffer,
