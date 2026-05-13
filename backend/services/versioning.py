@@ -320,7 +320,7 @@ def update_content(
             last_edited_at=now if source == VersionSource.HUMAN else None,
             edit_count=1,
             is_sealed=False,
-            created_by_id=actor_id if source == VersionSource.HUMAN else None,
+            created_by_id=actor_id if source in (VersionSource.HUMAN, VersionSource.RESTORE) else None,
             change_summary=change_summary,
             parent_version_id=previous_current.id if previous_current else None,
             is_current=True,
@@ -343,7 +343,7 @@ def update_content(
                     "content_type": content_type.value,
                     "version_number": version_number,
                     "version_source": source.value,
-                    "created_by_id": actor_id if source == VersionSource.HUMAN else None,
+                    "created_by_id": actor_id if source in (VersionSource.HUMAN, VersionSource.RESTORE) else None,
                     "change_summary": change_summary,
                 },
             )

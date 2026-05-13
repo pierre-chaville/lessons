@@ -36,7 +36,7 @@ import { usersApi, type ClerkUser } from '@/api/users'
 import { useToast } from '@/composables/useToast'
 import { usePermissions } from '@/composables/usePermissions'
 import { useAuth } from '@/composables/useAuth'
-import VersionHistory from '@/components/VersionHistory.vue'
+import VersionHistoryPanel from '@/components/VersionHistoryPanel.vue'
 import MilkdownEditor from '@/components/MilkdownEditor.vue'
 import type {
   LessonDetail as LessonDetailType,
@@ -51,6 +51,14 @@ import type {
 const props = defineProps<{
   lesson: LessonDetailType
   autoplayFrom?: number | null
+  initialHistoryContentType?: ContentType | null
+  initialHistoryVersionId?: string | null
+  initialHistoryCompare?: {
+    versionAId: string
+    versionBId: string
+    fromVersionNumber?: number | null
+    toVersionNumber?: number | null
+  } | null
 }>()
 
 const emit = defineEmits<{ (e: 'close'): void }>()
@@ -126,8 +134,6 @@ const sefariaDisplayMode = ref<'he' | 'en' | 'both'>('both')
 
 // Source stats modal state
 const showSourceStatsModal = ref(false)
-const showHistoryDrawer = ref(false)
-const selectedHistoryContentType = ref<ContentType>('summary')
 const workflowAuditLog = ref<AuditLogRow[]>([])
 const workflowAuditLoading = ref(false)
 const workflowExpandedPayload = ref<Set<number>>(new Set())
@@ -135,6 +141,16 @@ const workflowExpandedPayload = ref<Set<number>>(new Set())
 // Transcript expander state (for edited view)
 const expandedTranscriptIndex = ref<number | null>(null)
 const showSideBySideTranscript = ref(false)
+
+const historyContentType = ref<ContentType | null>(props.initialHistoryContentType ?? null)
+const historySelectedVersionId = ref<string | null>(props.initialHistoryVersionId ?? null)
+const historyActiveCompare = ref<{
+  versionAId: string
+  versionBId: string
+  fromVersionNumber?: number | null
+  toVersionNumber?: number | null
+} | null>(props.initialHistoryCompare ?? null)
+const isHistoryMode = computed(() => historyContentType.value !== null)
 
 // Process tasks modal state
 const showProcessModal = ref(false)
@@ -834,20 +850,79 @@ const getUserName = (userId: string) => {
 }
 
 const openHistory = (contentType: ContentType) => {
-  selectedHistoryContentType.value = contentType
-  showHistoryDrawer.value = true
+  historyContentType.value = contentType
+  historySelectedVersionId.value = null
+  historyActiveCompare.value = null
+  window.history.pushState(
+    { hashid: props.lesson.hashid, history: { contentType } },
+    '',
+    `/lessons/${props.lesson.hashid}/${contentType}/history`,
+  )
 }
 
-const contentTypeLabel = (contentType: ContentType): string => {
-  const map: Record<ContentType, string> = {
-    title: t('history.contentTypeTitle'),
-    corrected_transcript: t('history.contentTypeCorrectedTranscript'),
-    edited_transcript: t('history.contentTypeEditedTranscript'),
-    brief: t('history.contentTypeBrief'),
-    summary: t('history.contentTypeSummary'),
-  }
-  return map[contentType] ?? contentType
+const closeHistoryMode = () => {
+  historyContentType.value = null
+  historySelectedVersionId.value = null
+  historyActiveCompare.value = null
+  window.history.pushState(
+    { hashid: props.lesson.hashid },
+    '',
+    `/lessons/${props.lesson.hashid}`,
+  )
 }
+
+const onHistoryVersionChange = (versionId: string | null) => {
+  if (historySelectedVersionId.value === versionId) return
+  if (!historyContentType.value) return
+  historySelectedVersionId.value = versionId
+  historyActiveCompare.value = null
+  const query = new URLSearchParams()
+  if (versionId) query.set('version', versionId)
+  const search = query.toString() ? `?${query.toString()}` : ''
+  window.history.pushState(
+    { hashid: props.lesson.hashid, history: { contentType: historyContentType.value, versionId } },
+    '',
+    `/lessons/${props.lesson.hashid}/${historyContentType.value}/history${search}`,
+  )
+}
+
+const onHistoryCompareChange = (
+  compare: {
+    versionAId: string
+    versionBId: string
+    fromVersionNumber?: number | null
+    toVersionNumber?: number | null
+  } | null,
+) => {
+  if (!historyContentType.value) return
+  historyActiveCompare.value = compare
+  const query = new URLSearchParams()
+  if (historySelectedVersionId.value) query.set('version', historySelectedVersionId.value)
+  if (compare) query.set('compare', `${compare.versionAId},${compare.versionBId}`)
+  const search = query.toString() ? `?${query.toString()}` : ''
+  window.history.pushState(
+    {
+      hashid: props.lesson.hashid,
+      history: {
+        contentType: historyContentType.value,
+        versionId: historySelectedVersionId.value,
+        compare,
+      },
+    },
+    '',
+    `/lessons/${props.lesson.hashid}/${historyContentType.value}/history${search}`,
+  )
+}
+
+watch(
+  () => [props.initialHistoryContentType, props.initialHistoryVersionId, props.initialHistoryCompare] as const,
+  ([contentType, versionId, compare]) => {
+    historyContentType.value = contentType ?? null
+    historySelectedVersionId.value = versionId ?? null
+    historyActiveCompare.value = compare ?? null
+  },
+  { immediate: true },
+)
 
 const loadWorkflowAudit = async () => {
   workflowAuditLoading.value = true
@@ -1666,6 +1741,20 @@ const saveParagraph = async () => {
   <div class="bg-gray-50 dark:bg-gray-900 min-h-screen transition-colors">
     <!-- Main Content -->
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <VersionHistoryPanel
+        v-if="isHistoryMode && historyContentType"
+        :lesson-id="lesson.id"
+        :lesson-hashid="lesson.hashid"
+        :content-type="historyContentType"
+        :selected-version-id="historySelectedVersionId"
+        :active-compare="historyActiveCompare"
+        @update:selected-version-id="onHistoryVersionChange"
+        @update:active-compare="onHistoryCompareChange"
+        @close="closeHistoryMode"
+        @restored="refreshLesson"
+      />
+
+      <template v-else>
       <!-- Back Button (no card, just like home page) -->
       <button
         @click="emit('close')"
@@ -2621,37 +2710,8 @@ const saveParagraph = async () => {
           {{ t('lessons.noContent') }}
         </p>
       </div>
+      </template>
     </div>
-
-    <!-- Version History Drawer -->
-    <Dialog
-      :open="showHistoryDrawer"
-      @close="showHistoryDrawer = false"
-      class="relative z-50"
-    >
-      <div class="fixed inset-0 bg-black/30" aria-hidden="true" />
-      <div class="fixed inset-0 flex justify-end">
-        <DialogPanel class="h-full w-full max-w-3xl overflow-auto bg-white p-4 shadow-xl dark:bg-gray-800">
-          <div class="mb-4 flex items-center justify-between">
-            <DialogTitle class="text-lg font-semibold text-gray-900 dark:text-white">
-              {{ t('history.drawerTitle', { contentType: contentTypeLabel(selectedHistoryContentType) }) }}
-            </DialogTitle>
-            <button
-              @click="showHistoryDrawer = false"
-              class="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
-            >
-              {{ t('lessons.close') }}
-            </button>
-          </div>
-          <VersionHistory
-            :lesson-id="lesson.id"
-            :lesson-hashid="lesson.hashid"
-            :content-type="selectedHistoryContentType"
-            @restored="refreshLesson"
-          />
-        </DialogPanel>
-      </div>
-    </Dialog>
 
     <!-- Source Modal -->
     <Dialog

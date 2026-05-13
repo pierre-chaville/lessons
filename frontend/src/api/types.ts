@@ -216,6 +216,7 @@ export interface LessonVersion {
   change_summary: string | null
   parent_version_id: string | null
   restored_from_id: string | null
+  restored_from_version_number?: number | null
   is_current: boolean
   content?: unknown
 }

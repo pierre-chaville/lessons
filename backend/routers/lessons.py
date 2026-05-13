@@ -4,7 +4,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
-from sqlmodel import Session
+from sqlmodel import Session, select
 from typing import List, Dict, Any, Optional
 
 import crud
@@ -26,6 +26,7 @@ from services.versioning import (
     restore_version,
     seal_current_version,
 )
+from models.versioning import ContentVersion
 from hashid_utils import decode_id
 
 router = APIRouter(prefix="/lessons", tags=["Lessons"])
@@ -54,6 +55,32 @@ def _deny_history_for_viewer(claims: Dict[str, Any]) -> None:
     role = _extract_role(claims)
     if role in ("viewer", "reader"):
         raise HTTPException(status_code=404, detail="Lesson not found")
+
+
+def _build_version_response(
+    version: ContentVersion,
+    restored_from_version_number: Optional[int] = None,
+) -> VersionResponse:
+    return VersionResponse(
+        id=version.id,
+        lesson_id=version.lesson_id,
+        content_type=version.content_type,
+        version_number=version.version_number,
+        version_source=version.version_source,
+        created_at=version.created_at,
+        last_edited_at=version.last_edited_at,
+        edit_count=version.edit_count,
+        is_sealed=version.is_sealed,
+        sealed_at=version.sealed_at,
+        sealed_reason=version.sealed_reason,
+        created_by_id=version.created_by_id,
+        change_summary=version.change_summary,
+        parent_version_id=version.parent_version_id,
+        restored_from_id=version.restored_from_id,
+        restored_from_version_number=restored_from_version_number,
+        is_current=version.is_current,
+        content=version.content,
+    )
 
 
 @router.get("", response_model=List[LessonListResponse])
@@ -198,7 +225,23 @@ def get_lesson_versions(
         limit=limit,
         before=before,
     )
-    return [VersionResponse.model_validate(v) for v in versions]
+    restored_from_ids = [v.restored_from_id for v in versions if v.restored_from_id]
+    restored_numbers: Dict[UUID, int] = {}
+    if restored_from_ids:
+        rows = session.exec(
+            select(ContentVersion.id, ContentVersion.version_number).where(
+                ContentVersion.id.in_(restored_from_ids),
+            )
+        ).all()
+        restored_numbers = {row[0]: row[1] for row in rows}
+
+    return [
+        _build_version_response(
+            v,
+            restored_numbers.get(v.restored_from_id) if v.restored_from_id else None,
+        )
+        for v in versions
+    ]
 
 
 @router.get("/{lesson_hashid}/versions/{version_id}", response_model=VersionResponse)
@@ -214,7 +257,12 @@ def get_lesson_version(
     version = get_version(session, version_id)
     if version.lesson_id != lesson_id:
         raise HTTPException(status_code=404, detail="Version not found")
-    return VersionResponse.model_validate(version)
+    restored_from_version_number = None
+    if version.restored_from_id:
+        restored_from = session.get(ContentVersion, version.restored_from_id)
+        if restored_from:
+            restored_from_version_number = restored_from.version_number
+    return _build_version_response(version, restored_from_version_number)
 
 
 @router.get("/{lesson_hashid}/versions/{version_a}/diff/{version_b}")

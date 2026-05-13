@@ -124,6 +124,7 @@ class VersionResponse(BaseModel):
     change_summary: Optional[str]
     parent_version_id: Optional[UUID]
     restored_from_id: Optional[UUID]
+    restored_from_version_number: Optional[int] = None
     is_current: bool
     content: Optional[Any] = None
 

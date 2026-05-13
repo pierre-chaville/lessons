@@ -173,6 +173,7 @@ def test_restore_creates_new_version_from_old() -> None:
         restored = restore_version(session, v1.id, {"sub": "u1", "role": "editor"}, reason="rollback")
         session.commit()
         assert restored.version_source == VersionSource.RESTORE.value
+        assert restored.created_by_id == "u1"
         assert restored.restored_from_id == v1.id
         assert restored.version_number == 3
         session.refresh(v2)

@@ -16,7 +16,13 @@ import { lessonsApi } from '@/api/lessons'
 import { coursesApi } from '@/api/courses'
 import { usersApi, type ClerkUser } from '@/api/users'
 import { useAuth } from '@/composables/useAuth'
-import type { CourseTreeNode, LessonListItem, LessonDetail as LessonDetailType, LessonStatus } from '@/api/types'
+import type {
+  ContentType,
+  CourseTreeNode,
+  LessonListItem,
+  LessonDetail as LessonDetailType,
+  LessonStatus,
+} from '@/api/types'
 
 const { t } = useI18n()
 const { user } = useAuth()
@@ -54,6 +60,16 @@ const loading = ref(true)
 const loadingTree = ref(true)
 const selectedLesson = ref<LessonListItem | null>(null)
 const selectedLessonDetail = ref<LessonDetailType | null>(null)
+const selectedHistoryRoute = ref<{
+  contentType: ContentType
+  versionId: string | null
+  compare:
+    | {
+        versionAId: string
+        versionBId: string
+      }
+    | null
+} | null>(null)
 const showCreateModal = ref(false)
 const sortMode = ref<SortMode>('date_desc')
 
@@ -189,13 +205,82 @@ const selectCourseNode = (node: CourseTreeNode) => {
   persistPanelState()
 }
 
-const getHashidFromUrl = (): string | null => {
-  const match = window.location.pathname.match(/\/lessons\/([a-zA-Z0-9]+)/)
-  return match ? match[1] : null
+const HISTORY_CONTENT_TYPES: ContentType[] = [
+  'title',
+  'corrected_transcript',
+  'edited_transcript',
+  'brief',
+  'summary',
+]
+
+const parseLessonRoute = (): {
+  hashid: string | null
+  historyContentType: ContentType | null
+  versionId: string | null
+  compare:
+    | {
+        versionAId: string
+        versionBId: string
+      }
+    | null
+} => {
+  const match = window.location.pathname.match(
+    /^\/lessons\/([a-zA-Z0-9]+)(?:\/([a-z_]+)\/history)?\/?$/,
+  )
+  if (!match) {
+    return { hashid: null, historyContentType: null, versionId: null, compare: null }
+  }
+
+  const contentTypeCandidate = match[2] as ContentType | undefined
+  const historyContentType =
+    contentTypeCandidate && HISTORY_CONTENT_TYPES.includes(contentTypeCandidate)
+      ? contentTypeCandidate
+      : null
+
+  if (match[2] && !historyContentType) {
+    return { hashid: null, historyContentType: null, versionId: null, compare: null }
+  }
+
+  const params = new URLSearchParams(window.location.search)
+  const versionId = historyContentType ? params.get('version') : null
+  const compareRaw = historyContentType ? params.get('compare') : null
+  let compare: { versionAId: string; versionBId: string } | null = null
+  if (compareRaw) {
+    const [versionAId, versionBId] = compareRaw.split(',')
+    if (versionAId && versionBId) {
+      compare = { versionAId, versionBId }
+    }
+  }
+
+  return { hashid: match[1], historyContentType, versionId, compare }
 }
 
-const updateUrl = (hashid: string | null) => {
+const updateUrl = (
+  hashid: string | null,
+  historyRoute?: {
+    contentType: ContentType
+    versionId: string | null
+    compare:
+      | {
+          versionAId: string
+          versionBId: string
+        }
+      | null
+  } | null,
+) => {
   if (hashid) {
+    if (historyRoute) {
+      const query = new URLSearchParams()
+      if (historyRoute.versionId) query.set('version', historyRoute.versionId)
+      if (historyRoute.compare) query.set('compare', `${historyRoute.compare.versionAId},${historyRoute.compare.versionBId}`)
+      const search = query.toString() ? `?${query.toString()}` : ''
+      window.history.pushState(
+        { hashid, history: historyRoute },
+        '',
+        `/lessons/${hashid}/${historyRoute.contentType}/history${search}`,
+      )
+      return
+    }
     window.history.pushState({ hashid }, '', `/lessons/${hashid}`)
   } else {
     window.history.pushState({}, '', '/lessons')
@@ -203,13 +288,22 @@ const updateUrl = (hashid: string | null) => {
 }
 
 const handlePopState = (event: PopStateEvent) => {
-  const hashid = event.state?.hashid ?? getHashidFromUrl()
+  const parsedRoute = parseLessonRoute()
+  const hashid = event.state?.hashid ?? parsedRoute.hashid
+  const historyRoute =
+    parsedRoute.historyContentType
+      ? {
+          contentType: parsedRoute.historyContentType,
+          versionId: parsedRoute.versionId,
+          compare: parsedRoute.compare,
+        }
+      : null
   if (hashid) {
     const lesson = lessons.value.find((l) => l.hashid === hashid)
     if (lesson) {
-      openLesson(lesson)
+      openLesson(lesson, historyRoute, false)
     } else {
-      fetchLessonByHashid(hashid)
+      fetchLessonByHashid(hashid, historyRoute, false)
     }
   } else {
     closeLesson()
@@ -289,20 +383,49 @@ const isStepDone = (lesson: LessonListItem, step: PipelineStep): boolean => {
   return status === 'summary' || lesson.status === 'validated' || !!lesson.brief
 }
 
-const fetchLessonByHashid = async (hashid: string) => {
+const fetchLessonByHashid = async (
+  hashid: string,
+  historyRoute: {
+    contentType: ContentType
+    versionId: string | null
+    compare:
+      | {
+          versionAId: string
+          versionBId: string
+        }
+      | null
+  } | null = null,
+  syncUrl = true,
+) => {
   try {
+    if (syncUrl) updateUrl(hashid, historyRoute)
     selectedLessonDetail.value = await lessonsApi.get(hashid)
     selectedLesson.value = { hashid } as LessonListItem
+    selectedHistoryRoute.value = historyRoute
   } catch {
     updateUrl(null)
   }
 }
 
-const openLesson = async (lesson: LessonListItem) => {
+const openLesson = async (
+  lesson: LessonListItem,
+  historyRoute: {
+    contentType: ContentType
+    versionId: string | null
+    compare:
+      | {
+          versionAId: string
+          versionBId: string
+        }
+      | null
+  } | null = null,
+  syncUrl = true,
+) => {
   try {
-    updateUrl(lesson.hashid)
+    if (syncUrl) updateUrl(lesson.hashid, historyRoute)
     selectedLessonDetail.value = await lessonsApi.get(lesson.hashid)
     selectedLesson.value = lesson
+    selectedHistoryRoute.value = historyRoute
   } catch {
     updateUrl(null)
   }
@@ -311,6 +434,7 @@ const openLesson = async (lesson: LessonListItem) => {
 const closeLesson = () => {
   selectedLesson.value = null
   selectedLessonDetail.value = null
+  selectedHistoryRoute.value = null
   updateUrl(null)
 }
 
@@ -360,13 +484,22 @@ onMounted(async () => {
   restorePanelState()
   await fetchTree()
   await Promise.all([fetchLessons(), fetchUsers()])
-  const hashid = getHashidFromUrl()
+  const parsedRoute = parseLessonRoute()
+  const hashid = parsedRoute.hashid
+  const historyRoute =
+    parsedRoute.historyContentType
+      ? {
+          contentType: parsedRoute.historyContentType,
+          versionId: parsedRoute.versionId,
+          compare: parsedRoute.compare,
+        }
+      : null
   if (hashid) {
     const lesson = lessons.value.find((l) => l.hashid === hashid)
     if (lesson) {
-      await openLesson(lesson)
+      await openLesson(lesson, historyRoute, false)
     } else {
-      await fetchLessonByHashid(hashid)
+      await fetchLessonByHashid(hashid, historyRoute, false)
     }
   }
 })
@@ -395,6 +528,9 @@ defineExpose({
   <LessonDetail
     v-if="selectedLessonDetail"
     :lesson="selectedLessonDetail"
+    :initial-history-content-type="selectedHistoryRoute?.contentType ?? null"
+    :initial-history-version-id="selectedHistoryRoute?.versionId ?? null"
+    :initial-history-compare="selectedHistoryRoute?.compare ?? null"
     @close="closeLesson"
   />
 

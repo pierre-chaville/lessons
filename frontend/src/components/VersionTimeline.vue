@@ -1,23 +1,43 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { Dialog } from '@headlessui/vue'
 import { useI18n } from 'vue-i18n'
 import type { ClerkUser } from '@/api/users'
 import { usersApi } from '@/api/users'
 import { lessonsApi } from '@/api/lessons'
 import type { ContentType, LessonVersion } from '@/api/types'
 import { usePermissions } from '@/composables/usePermissions'
-import DiffViewer from '@/components/DiffViewer.vue'
+import { useVersionLabel } from '@/composables/useVersionLabel'
 import RestoreVersionModal from '@/components/RestoreVersionModal.vue'
 
 const props = defineProps<{
   lessonId: number
   lessonHashid: string
   contentType: ContentType
+  selectedVersionId: string | null
+  activeCompare: {
+    versionAId: string
+    versionBId: string
+    fromVersionNumber?: number | null
+    toVersionNumber?: number | null
+  } | null
 }>()
-const emit = defineEmits<{ (e: 'restored'): void }>()
-const { t } = useI18n()
 
+const emit = defineEmits<{
+  (e: 'update:selectedVersionId', value: string | null): void
+  (e: 'restored'): void
+  (e: 'versions-loaded', versions: LessonVersion[]): void
+  (
+    e: 'compare',
+    payload: {
+      versionAId: string
+      versionBId: string
+      fromVersionNumber: number
+      toVersionNumber: number
+    },
+  ): void
+}>()
+
+const { t } = useI18n()
 const { can } = usePermissions()
 const canRestore = computed(() => can('lessons', 'update'))
 
@@ -27,13 +47,12 @@ const versions = ref<LessonVersion[]>([])
 const users = ref<ClerkUser[]>([])
 const hasMore = ref(true)
 
-const compareVersion = ref<LessonVersion | null>(null)
 const restoreTarget = ref<LessonVersion | null>(null)
 
 const currentVersion = computed(() => versions.value.find((v) => v.is_current) ?? null)
 
 const loadUsers = async () => {
-  if (!canRestore.value || users.value.length > 0) return
+  if (users.value.length > 0) return
   try {
     users.value = await usersApi.list()
   } catch {
@@ -43,9 +62,9 @@ const loadUsers = async () => {
 
 const getUserName = (id: string | null) => {
   if (!id) return t('history.pipeline')
-  const u = users.value.find((x) => x.id === id)
-  if (!u) return id
-  return [u.first_name, u.last_name].filter(Boolean).join(' ') || u.email || id
+  const user = users.value.find((x) => x.id === id)
+  if (!user) return id
+  return [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email || id
 }
 
 const loadVersions = async (reset = false) => {
@@ -58,13 +77,32 @@ const loadVersions = async (reset = false) => {
       limit: 20,
       before,
     })
-    if (reset) versions.value = rows
-    else versions.value.push(...rows)
+    if (reset) {
+      versions.value = rows
+    } else {
+      versions.value.push(...rows)
+    }
     hasMore.value = rows.length === 20
+    emit('versions-loaded', versions.value)
   } catch (e: any) {
     error.value = e?.response?.data?.detail || t('history.versionLoadFailed')
   } finally {
     loading.value = false
+  }
+}
+
+const ensureSelectedVersion = () => {
+  if (versions.value.length === 0) {
+    emit('update:selectedVersionId', null)
+    return
+  }
+  if (!props.selectedVersionId) {
+    emit('update:selectedVersionId', null)
+    return
+  }
+  const exists = versions.value.some((version) => version.id === props.selectedVersionId)
+  if (!exists) {
+    emit('update:selectedVersionId', null)
   }
 }
 
@@ -79,6 +117,7 @@ const sealCurrentSession = async () => {
       'manual_checkpoint',
     )
     await loadVersions(true)
+    ensureSelectedVersion()
   } catch (e: any) {
     error.value = e?.response?.data?.detail || t('history.sealFailed')
   } finally {
@@ -89,46 +128,14 @@ const sealCurrentSession = async () => {
 const onRestored = async () => {
   restoreTarget.value = null
   await loadVersions(true)
+  ensureSelectedVersion()
   emit('restored')
 }
-
-watch(
-  () => [props.lessonHashid, props.contentType],
-  async () => {
-    versions.value = []
-    hasMore.value = true
-    await Promise.all([loadUsers(), loadVersions(true)])
-  },
-  { immediate: true },
-)
 
 const sourceBadge = (source: LessonVersion['version_source']) => {
   if (source === 'human') return t('history.sourceHuman')
   if (source === 'pipeline') return t('history.sourcePipeline')
   return t('history.sourceRestore')
-}
-
-const contentTypeLabel = (contentType: ContentType): string => {
-  const map: Record<ContentType, string> = {
-    title: t('history.contentTypeTitle'),
-    corrected_transcript: t('history.contentTypeCorrectedTranscript'),
-    edited_transcript: t('history.contentTypeEditedTranscript'),
-    brief: t('history.contentTypeBrief'),
-    summary: t('history.contentTypeSummary'),
-  }
-  return map[contentType] ?? contentType
-}
-
-const formatDateTime = (iso: string | null) => {
-  if (!iso) return 'n/a'
-  return new Date(iso).toLocaleString()
-}
-
-const sessionMinutes = (v: LessonVersion) => {
-  if (!v.last_edited_at) return 0
-  const start = new Date(v.created_at).getTime()
-  const end = new Date(v.last_edited_at).getTime()
-  return Math.max(0, Math.round((end - start) / 60000))
 }
 
 const sealedReasonLabel = (reason: string | null) => {
@@ -145,13 +152,41 @@ const sealedReasonLabel = (reason: string | null) => {
   }
   return map[reason] ?? reason
 }
+
+const viewVersion = (version: LessonVersion) => {
+  const selected = currentVersion.value?.id === version.id ? null : version.id
+  emit('update:selectedVersionId', selected)
+}
+
+const previousVersion = (index: number): LessonVersion | null => {
+  if (index >= versions.value.length - 1) return null
+  return versions.value[index + 1]
+}
+
+watch(
+  () => [props.lessonHashid, props.contentType],
+  async () => {
+    versions.value = []
+    hasMore.value = true
+    await Promise.all([loadUsers(), loadVersions(true)])
+    ensureSelectedVersion()
+  },
+  { immediate: true },
+)
+
+watch(
+  () => props.selectedVersionId,
+  () => {
+    ensureSelectedVersion()
+  },
+)
 </script>
 
 <template>
   <div class="space-y-4">
-    <div class="flex items-center justify-between">
+    <div class="flex items-center justify-between gap-2">
       <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
-        {{ t('history.versionHistoryFor', { contentType: contentTypeLabel(contentType) }) }}
+        {{ t('history.timelineTitle') }}
       </h3>
       <button
         v-if="canRestore && currentVersion && !currentVersion.is_sealed"
@@ -169,9 +204,14 @@ const sealedReasonLabel = (reason: string | null) => {
 
     <div class="space-y-3">
       <div
-        v-for="version in versions"
+        v-for="(version, index) in versions"
         :key="version.id"
-        class="rounded-md border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900"
+        :class="[
+          'rounded-md border bg-white p-3 dark:bg-gray-900',
+          (selectedVersionId ?? currentVersion?.id) === version.id
+            ? 'border-indigo-300 ring-1 ring-indigo-200 dark:border-indigo-500/70 dark:ring-indigo-500/40'
+            : 'border-gray-200 dark:border-gray-700',
+        ]"
       >
         <div class="mb-2 flex items-center justify-between gap-3">
           <div class="flex items-center gap-2">
@@ -191,52 +231,75 @@ const sealedReasonLabel = (reason: string | null) => {
               v-if="version.is_sealed"
               class="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
             >
-              {{ t('history.sealed') }}{{ version.sealed_reason ? `: ${sealedReasonLabel(version.sealed_reason)}` : '' }}
+              {{ t('history.sealed') }}
             </span>
-          </div>
-          <div class="flex items-center gap-2">
-            <button
-              class="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
-              @click="compareVersion = version"
+            <span
+              v-if="activeCompare && (activeCompare.versionAId === version.id || activeCompare.versionBId === version.id)"
+              class="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
             >
-              {{ t('history.view') }}
-            </button>
-            <button
-              v-if="currentVersion && version.id !== currentVersion.id"
-              class="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
-              @click="compareVersion = version"
-            >
-              {{ t('history.compareToCurrent') }}
-            </button>
-            <button
-              v-if="canRestore && currentVersion && version.id !== currentVersion.id"
-              class="rounded bg-indigo-600 px-2 py-1 text-xs font-medium text-white hover:bg-indigo-700"
-              @click="restoreTarget = version"
-            >
-              {{ t('history.restore') }}
-            </button>
+              {{
+                t('history.comparingChip', {
+                  from: activeCompare.fromVersionNumber ?? '?',
+                  to: activeCompare.toVersionNumber ?? '?',
+                })
+              }}
+            </span>
           </div>
         </div>
 
-        <div class="text-xs text-gray-600 dark:text-gray-400">
-          {{ t('history.sessionInfo', {
-            started: formatDateTime(version.created_at),
-            lastEdited: formatDateTime(version.last_edited_at),
-            edits: version.edit_count,
-            minutes: sessionMinutes(version),
-          }) }}
+        <div class="mb-2 flex flex-wrap items-center gap-2">
+          <button
+            class="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+            @click="viewVersion(version)"
+          >
+            {{ t('history.view') }}
+          </button>
+          <button
+            v-if="currentVersion && version.id !== currentVersion.id"
+            class="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+            @click="
+              emit('compare', {
+                versionAId: version.id,
+                versionBId: currentVersion.id,
+                fromVersionNumber: version.version_number,
+                toVersionNumber: currentVersion.version_number,
+              })
+            "
+          >
+            {{ t('history.compareToCurrent') }}
+          </button>
+          <button
+            v-if="previousVersion(index)"
+            class="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+            @click="
+              emit('compare', {
+                versionAId: previousVersion(index)!.id,
+                versionBId: version.id,
+                fromVersionNumber: previousVersion(index)!.version_number,
+                toVersionNumber: version.version_number,
+              })
+            "
+          >
+            {{ t('history.compareToPrevious') }}
+          </button>
+          <button
+            v-if="canRestore && currentVersion && version.id !== currentVersion.id"
+            class="rounded bg-indigo-600 px-2 py-1 text-xs font-medium text-white hover:bg-indigo-700"
+            @click="restoreTarget = version"
+          >
+            {{ t('history.restore') }}
+          </button>
         </div>
-        <div class="mt-1 text-xs text-gray-600 dark:text-gray-400">
-          {{ t('history.authorLabel') }}: {{ version.version_source === 'pipeline' ? t('history.pipeline') : getUserName(version.created_by_id) }}
-        </div>
+
         <div
-          v-if="version.change_summary"
-          class="mt-2 rounded bg-gray-50 px-2 py-1 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300"
+          v-if="version.is_sealed && version.sealed_reason"
+          class="mt-1 text-xs text-amber-700 dark:text-amber-300"
         >
-          {{ version.change_summary }}
+          {{ t('history.sealed') }}: {{ sealedReasonLabel(version.sealed_reason) }}
         </div>
-        <div v-if="version.restored_from_id" class="mt-1 text-xs text-indigo-600 dark:text-indigo-400">
-          {{ t('history.restoredFromVersionId', { id: version.restored_from_id }) }}
+
+        <div class="text-xs text-gray-600 dark:text-gray-400">
+          {{ useVersionLabel(version, t, getUserName) }}
         </div>
       </div>
     </div>
@@ -252,31 +315,6 @@ const sealedReasonLabel = (reason: string | null) => {
       </button>
     </div>
 
-    <Dialog v-if="compareVersion && currentVersion" :open="true" @close="compareVersion = null" class="relative z-50">
-      <div class="fixed inset-0 bg-black/30" aria-hidden="true" />
-      <div class="fixed inset-0 flex items-center justify-center p-4">
-        <div class="w-full max-w-4xl rounded-lg bg-white p-4 dark:bg-gray-800">
-          <div class="mb-3 flex items-center justify-between">
-            <h4 class="text-sm font-semibold text-gray-900 dark:text-white">
-              {{ t('history.compareVersionsTitle', {
-                from: currentVersion.version_number,
-                to: compareVersion.version_number,
-              }) }}
-            </h4>
-            <button class="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200" @click="compareVersion = null">
-              {{ t('lessons.close') }}
-            </button>
-          </div>
-          <DiffViewer
-            :lesson-hashid="lessonHashid"
-            :version-a-id="currentVersion.id"
-            :version-b-id="compareVersion.id"
-            :content-type="contentType"
-          />
-        </div>
-      </div>
-    </Dialog>
-
     <RestoreVersionModal
       :is-open="!!restoreTarget"
       :lesson-hashid="lessonHashid"
@@ -288,4 +326,3 @@ const sealedReasonLabel = (reason: string | null) => {
     />
   </div>
 </template>
-
