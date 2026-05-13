@@ -20,11 +20,15 @@ const props = withDefaults(defineProps<{
   showActions?: boolean
   isFirst?: boolean
   isLast?: boolean
+  draggedId?: number | null
+  dropTargetId?: number | null
 }>(), {
   selectedId: null,
   showActions: true,
   isFirst: false,
   isLast: false,
+  draggedId: null,
+  dropTargetId: null,
 })
 
 const emit = defineEmits<{
@@ -34,6 +38,10 @@ const emit = defineEmits<{
   (e: 'select', node: CourseTreeNode): void
   (e: 'moveUp', node: CourseTreeNode): void
   (e: 'moveDown', node: CourseTreeNode): void
+  (e: 'dragStart', node: CourseTreeNode): void
+  (e: 'dragEnter', node: CourseTreeNode): void
+  (e: 'drop', node: CourseTreeNode): void
+  (e: 'dragEnd'): void
 }>()
 
 const { can } = usePermissions()
@@ -41,9 +49,37 @@ const { can } = usePermissions()
 const hasChildren = () => props.node.children.length > 0
 const isExpanded = () => props.expanded.has(props.node.id)
 const isSelected = () => props.selectedId === props.node.id
+const canDrag = () => props.showActions && can('courses', 'update')
+const isDropTarget = () => props.dropTargetId === props.node.id && props.draggedId !== props.node.id
 
 const handleRowClick = () => {
   emit('select', props.node)
+}
+
+const handleDragStart = (event: DragEvent) => {
+  if (!canDrag()) return
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', String(props.node.id))
+  }
+  emit('dragStart', props.node)
+}
+
+const handleDragEnter = (event: DragEvent) => {
+  if (!canDrag()) return
+  event.preventDefault()
+  emit('dragEnter', props.node)
+}
+
+const handleDragOver = (event: DragEvent) => {
+  if (!canDrag()) return
+  event.preventDefault()
+}
+
+const handleDrop = (event: DragEvent) => {
+  if (!canDrag()) return
+  event.preventDefault()
+  emit('drop', props.node)
 }
 </script>
 
@@ -55,10 +91,19 @@ const handleRowClick = () => {
         isSelected()
           ? 'bg-indigo-50 dark:bg-indigo-900/30'
           : 'hover:bg-gray-50 dark:hover:bg-gray-700/50',
+        isDropTarget()
+          ? 'ring-1 ring-inset ring-indigo-400 dark:ring-indigo-500 bg-indigo-50/60 dark:bg-indigo-900/30'
+          : '',
         selectedId !== undefined ? 'cursor-pointer' : 'cursor-default',
       ]"
       :style="{ paddingLeft: `${depth * 1.5 + 0.75}rem` }"
+      :draggable="canDrag()"
       @click="handleRowClick"
+      @dragstart="handleDragStart"
+      @dragenter="handleDragEnter"
+      @dragover="handleDragOver"
+      @drop="handleDrop"
+      @dragend="emit('dragEnd')"
     >
       <!-- Expand/Collapse toggle -->
       <button
@@ -144,12 +189,18 @@ const handleRowClick = () => {
         :show-actions="showActions"
         :is-first="idx === 0"
         :is-last="idx === node.children.length - 1"
+        :dragged-id="draggedId"
+        :drop-target-id="dropTargetId"
         @toggle="(id) => emit('toggle', id)"
         @edit="(n) => emit('edit', n)"
         @delete="(n) => emit('delete', n)"
         @select="(n) => emit('select', n)"
         @move-up="(n) => emit('moveUp', n)"
         @move-down="(n) => emit('moveDown', n)"
+        @drag-start="(n) => emit('dragStart', n)"
+        @drag-enter="(n) => emit('dragEnter', n)"
+        @drop="(n) => emit('drop', n)"
+        @drag-end="emit('dragEnd')"
       />
     </template>
   </div>

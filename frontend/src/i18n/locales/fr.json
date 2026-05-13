@@ -13,6 +13,7 @@
   },
   "lessons": {
     "title": "Sessions",
+    "lessonTitle": "Titre",
     "addNew": "Nouvelle Session",
     "loading": "Chargement des sessions...",
     "noLessons": "Aucune session pour le moment. Créez votre première session !",
@@ -193,6 +194,9 @@
     "updateFailed": "Échec de la modification du cours. Veuillez réessayer.",
     "deleteFailed": "Échec de la suppression du cours. Veuillez réessayer.",
     "fetchFailed": "Échec du chargement des cours. Veuillez réessayer.",
+    "dragHint": "Astuce : glissez-déposez les cours pour changer l'ordre.",
+    "dropToRoot": "Déposez ici pour revenir à la racine",
+    "resizeHint": "Astuce : faites glisser le séparateur pour redimensionner ce panneau.",
     "lessonsCount": "session | sessions",
     "parentCourse": "Cours parent",
     "noParent": "Aucun (racine)"

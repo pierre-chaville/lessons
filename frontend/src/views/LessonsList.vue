@@ -15,9 +15,11 @@ import CourseTreeItem from '@/components/CourseTreeItem.vue'
 import { lessonsApi } from '@/api/lessons'
 import { coursesApi } from '@/api/courses'
 import { usersApi, type ClerkUser } from '@/api/users'
+import { useAuth } from '@/composables/useAuth'
 import type { CourseTreeNode, LessonListItem, LessonDetail as LessonDetailType, LessonStatus } from '@/api/types'
 
 const { t } = useI18n()
+const { user } = useAuth()
 
 type SortMode = 'date_desc' | 'date_asc' | 'name' | 'status'
 
@@ -91,8 +93,75 @@ const sortOptions: { key: SortMode; labelKey: string }[] = [
   { key: 'status', labelKey: 'lessons.sortStatus' },
 ]
 
+const layoutRef = ref<HTMLElement | null>(null)
 const expanded = ref<Set<number>>(new Set())
-const selectedCourseNode = ref<CourseTreeNode | null>(null)
+const selectedCourseId = ref<number | null>(null)
+const panelWidth = ref(288)
+const isResizing = ref(false)
+
+const MIN_PANEL_WIDTH = 240
+const MAX_PANEL_WIDTH = 560
+const PANEL_STATE_KEY_PREFIX = 'lessons.courses-panel.v1'
+
+const getPanelStateKey = (): string => {
+  const userId = user.value?.id ?? 'anonymous'
+  return `${PANEL_STATE_KEY_PREFIX}:${userId}`
+}
+
+const collectTreeIds = (nodes: CourseTreeNode[]): number[] => {
+  const ids: number[] = []
+  for (const n of nodes) {
+    ids.push(n.id, ...collectTreeIds(n.children))
+  }
+  return ids
+}
+
+const findNodeById = (nodes: CourseTreeNode[], id: number): CourseTreeNode | null => {
+  for (const node of nodes) {
+    if (node.id === id) return node
+    const found = findNodeById(node.children, id)
+    if (found) return found
+  }
+  return null
+}
+
+const selectedCourseNode = computed<CourseTreeNode | null>(() => {
+  if (!selectedCourseId.value) return null
+  return findNodeById(tree.value, selectedCourseId.value)
+})
+
+const persistPanelState = () => {
+  const payload = {
+    selectedCourseId: selectedCourseId.value,
+    expandedIds: [...expanded.value],
+    panelWidth: panelWidth.value,
+  }
+  localStorage.setItem(getPanelStateKey(), JSON.stringify(payload))
+}
+
+const restorePanelState = () => {
+  const raw = localStorage.getItem(getPanelStateKey())
+  if (!raw) return
+
+  try {
+    const parsed = JSON.parse(raw) as {
+      selectedCourseId?: number | null
+      expandedIds?: number[]
+      panelWidth?: number
+    }
+    selectedCourseId.value = typeof parsed.selectedCourseId === 'number' ? parsed.selectedCourseId : null
+    expanded.value = new Set(
+      Array.isArray(parsed.expandedIds)
+        ? parsed.expandedIds.filter((id) => typeof id === 'number')
+        : [],
+    )
+    if (typeof parsed.panelWidth === 'number') {
+      panelWidth.value = Math.min(MAX_PANEL_WIDTH, Math.max(MIN_PANEL_WIDTH, parsed.panelWidth))
+    }
+  } catch {
+    // ignore malformed persisted state
+  }
+}
 
 const toggleExpand = (id: number) => {
   if (expanded.value.has(id)) {
@@ -100,15 +169,7 @@ const toggleExpand = (id: number) => {
   } else {
     expanded.value.add(id)
   }
-}
-
-const expandAll = (nodes: CourseTreeNode[]) => {
-  for (const n of nodes) {
-    if (n.children.length > 0) {
-      expanded.value.add(n.id)
-      expandAll(n.children)
-    }
-  }
+  persistPanelState()
 }
 
 const collectDescendantIds = (node: CourseTreeNode): number[] => {
@@ -120,11 +181,12 @@ const collectDescendantIds = (node: CourseTreeNode): number[] => {
 }
 
 const selectCourseNode = (node: CourseTreeNode) => {
-  if (selectedCourseNode.value?.id === node.id) {
-    selectedCourseNode.value = null
+  if (selectedCourseId.value === node.id) {
+    selectedCourseId.value = null
   } else {
-    selectedCourseNode.value = node
+    selectedCourseId.value = node.id
   }
+  persistPanelState()
 }
 
 const getHashidFromUrl = (): string | null => {
@@ -158,7 +220,13 @@ const fetchTree = async () => {
   try {
     loadingTree.value = true
     tree.value = await coursesApi.tree()
-    expandAll(tree.value)
+
+    const validIds = new Set(collectTreeIds(tree.value))
+    if (selectedCourseId.value !== null && !validIds.has(selectedCourseId.value)) {
+      selectedCourseId.value = null
+    }
+    expanded.value = new Set([...expanded.value].filter((id) => validIds.has(id)))
+    persistPanelState()
   } catch { /* silent */ } finally {
     loadingTree.value = false
   }
@@ -167,8 +235,9 @@ const fetchTree = async () => {
 const fetchLessons = async () => {
   try {
     loading.value = true
-    if (selectedCourseNode.value) {
-      const ids = collectDescendantIds(selectedCourseNode.value)
+    const selectedNode = selectedCourseNode.value
+    if (selectedNode) {
+      const ids = collectDescendantIds(selectedNode)
       lessons.value = await lessonsApi.list({ course_ids: ids.join(',') })
     } else {
       lessons.value = await lessonsApi.list()
@@ -178,8 +247,13 @@ const fetchLessons = async () => {
   }
 }
 
-watch(selectedCourseNode, () => {
+watch(selectedCourseId, () => {
+  persistPanelState()
   fetchLessons()
+})
+
+watch(() => user.value?.id, () => {
+  restorePanelState()
 })
 
 const formatDate = (dateString: string | null | undefined): string => {
@@ -253,9 +327,39 @@ const onLessonCreated = () => {
   fetchTree()
 }
 
+const updatePanelWidth = (clientX: number) => {
+  const layoutBounds = layoutRef.value?.getBoundingClientRect()
+  if (!layoutBounds) return
+  const nextWidth = clientX - layoutBounds.left
+  panelWidth.value = Math.min(MAX_PANEL_WIDTH, Math.max(MIN_PANEL_WIDTH, nextWidth))
+}
+
+const onResizeMouseMove = (event: MouseEvent) => {
+  if (!isResizing.value) return
+  updatePanelWidth(event.clientX)
+}
+
+const stopResize = () => {
+  if (!isResizing.value) return
+  isResizing.value = false
+  window.removeEventListener('mousemove', onResizeMouseMove)
+  window.removeEventListener('mouseup', stopResize)
+  persistPanelState()
+}
+
+const startResize = (event: MouseEvent) => {
+  event.preventDefault()
+  isResizing.value = true
+  updatePanelWidth(event.clientX)
+  window.addEventListener('mousemove', onResizeMouseMove)
+  window.addEventListener('mouseup', stopResize)
+}
+
 onMounted(async () => {
   window.addEventListener('popstate', handlePopState)
-  await Promise.all([fetchTree(), fetchLessons(), fetchUsers()])
+  restorePanelState()
+  await fetchTree()
+  await Promise.all([fetchLessons(), fetchUsers()])
   const hashid = getHashidFromUrl()
   if (hashid) {
     const lesson = lessons.value.find((l) => l.hashid === hashid)
@@ -269,6 +373,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('popstate', handlePopState)
+  stopResize()
 })
 
 defineExpose({
@@ -294,13 +399,19 @@ defineExpose({
   />
 
   <!-- Two-panel layout: tree on left, lessons on right -->
-  <div v-else class="flex gap-6 min-h-0">
+  <div v-else ref="layoutRef" class="flex min-h-0">
     <!-- Left panel: Course tree -->
-    <aside class="w-72 flex-shrink-0 bg-white dark:bg-gray-800 shadow-sm rounded-lg overflow-hidden transition-colors">
+    <aside
+      class="flex-shrink-0 bg-white dark:bg-gray-800 shadow-sm rounded-lg overflow-hidden transition-colors"
+      :style="{ width: `${panelWidth}px` }"
+    >
       <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
         <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
           {{ t('courses.title') }}
         </h3>
+        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          {{ t('courses.resizeHint') }}
+        </p>
       </div>
 
       <div v-if="loadingTree" class="p-4 text-center text-sm text-gray-400 dark:text-gray-500">
@@ -310,10 +421,10 @@ defineExpose({
       <div v-else class="overflow-y-auto" style="max-height: calc(100vh - 12rem)">
         <!-- "All lessons" entry -->
         <button
-          @click="selectedCourseNode = null"
+          @click="selectedCourseId = null"
           :class="[
             'w-full flex items-center gap-2 px-4 py-2 text-sm transition-colors',
-            !selectedCourseNode
+            !selectedCourseId
               ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-semibold'
               : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50',
           ]"
@@ -329,7 +440,7 @@ defineExpose({
           :node="node"
           :depth="0"
           :expanded="expanded"
-          :selected-id="selectedCourseNode?.id ?? null"
+          :selected-id="selectedCourseId"
           :show-actions="false"
           @toggle="toggleExpand"
           @select="selectCourseNode"
@@ -337,19 +448,25 @@ defineExpose({
       </div>
     </aside>
 
+    <div
+      class="mx-2 w-1.5 flex-shrink-0 cursor-col-resize rounded bg-transparent hover:bg-indigo-200 dark:hover:bg-indigo-700 transition-colors"
+      :class="{ 'bg-indigo-300 dark:bg-indigo-600': isResizing }"
+      @mousedown="startResize"
+    />
+
     <!-- Right panel: Lessons list -->
-    <div class="flex-1 min-w-0">
+    <div class="flex-1 min-w-0 pl-2">
       <!-- Toolbar: breadcrumb + sort -->
       <div class="mb-4 flex items-center gap-2">
         <template v-if="selectedCourseNode">
           <span class="text-sm text-gray-500 dark:text-gray-400">
-            {{ selectedCourseNode.name }}
+            {{ selectedCourseNode?.name }}
           </span>
           <span class="text-xs text-gray-400 dark:text-gray-500">
-            ({{ selectedCourseNode.lesson_count }} {{ t('lessons.lessonsLabel') }})
+            ({{ selectedCourseNode?.lesson_count ?? 0 }} {{ t('lessons.lessonsLabel') }})
           </span>
           <button
-            @click="selectedCourseNode = null"
+            @click="selectedCourseId = null"
             class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
           >
             {{ t('lessons.showAll') }}

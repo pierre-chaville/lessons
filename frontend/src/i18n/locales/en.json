@@ -13,6 +13,7 @@
   },
   "lessons": {
     "title": "Lessons",
+    "lessonTitle": "Title",
     "addNew": "New Lesson",
     "loading": "Loading lessons...",
     "noLessons": "No lessons yet. Create your first lesson!",
@@ -193,6 +194,9 @@
     "updateFailed": "Failed to update course. Please try again.",
     "deleteFailed": "Failed to delete course. Please try again.",
     "fetchFailed": "Failed to load courses. Please try again.",
+    "dragHint": "Tip: drag and drop courses to reorder.",
+    "dropToRoot": "Drop here to move to root level",
+    "resizeHint": "Tip: drag the divider to resize this panel.",
     "lessonsCount": "lesson | lessons",
     "parentCourse": "Parent course",
     "noParent": "None (root level)"

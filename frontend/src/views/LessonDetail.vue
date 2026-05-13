@@ -1530,6 +1530,138 @@ const saveParagraph = async () => {
       </DialogPanel>
     </div>
   </Dialog>
+
+  <!-- Edit Lesson Modal -->
+  <Dialog :open="isEditingLesson" @close="cancelEditLesson" class="relative z-50">
+    <div class="fixed inset-0 bg-black/30 backdrop-blur-sm" aria-hidden="true" />
+
+    <div class="fixed inset-0 flex items-center justify-center p-4">
+      <DialogPanel class="mx-auto max-w-2xl w-full bg-white dark:bg-gray-800 rounded-lg shadow-xl">
+        <div class="p-6 max-h-[85vh] overflow-y-auto">
+          <DialogTitle class="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+            {{ t('lessons.editLesson') }}
+          </DialogTitle>
+
+          <div class="space-y-4">
+            <!-- Title -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                {{ t('lessons.lessonTitle') }}
+              </label>
+              <input
+                v-model="editedLesson.title"
+                type="text"
+                class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              />
+            </div>
+
+            <!-- Date -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                {{ t('lessons.date') }}
+              </label>
+              <input
+                v-model="editedLesson.date"
+                type="date"
+                class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              />
+            </div>
+
+            <!-- Brief -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                {{ t('lessons.brief') }}
+              </label>
+              <textarea
+                v-model="editedLesson.brief"
+                :placeholder="t('lessons.briefPlaceholder')"
+                rows="3"
+                class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+              ></textarea>
+            </div>
+
+            <!-- Course -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                {{ t('lessons.course') }}
+              </label>
+              <select
+                v-model="editedLesson.course_id"
+                class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              >
+                <option :value="null">{{ t('lessons.noCourse') }}</option>
+                <option v-for="course in courses" :key="course.id" :value="course.id">
+                  {{ course.name }}
+                </option>
+              </select>
+            </div>
+
+            <!-- Themes -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                {{ t('lessons.themes') }}
+              </label>
+              <div class="flex flex-wrap gap-2">
+                <button
+                  v-for="theme in themes"
+                  :key="theme.id"
+                  @click="toggleTheme(theme.id)"
+                  :class="[
+                    'px-3 py-1.5 rounded-full text-sm font-medium transition-colors',
+                    editedLesson.theme_ids.includes(theme.id)
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                  ]"
+                >
+                  {{ theme.name }}
+                </button>
+              </div>
+            </div>
+
+            <!-- Editors -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                {{ t('lessons.editors') }}
+              </label>
+              <div class="flex flex-wrap gap-2">
+                <button
+                  v-for="user in editorRoleUsers"
+                  :key="user.id"
+                  @click="toggleEditor(user.id)"
+                  :class="[
+                    'px-3 py-1.5 rounded-full text-sm font-medium transition-colors',
+                    editedLesson.editor_ids.includes(user.id)
+                      ? 'bg-sky-600 text-white'
+                      : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                  ]"
+                >
+                  {{ [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email || user.id }}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex justify-end gap-3 pt-6">
+            <button
+              @click="cancelEditLesson"
+              :disabled="isSavingLesson"
+              class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md transition-colors disabled:opacity-50"
+            >
+              {{ t('lessons.cancel') }}
+            </button>
+            <button
+              @click="saveLesson"
+              :disabled="isSavingLesson"
+              class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 rounded-md transition-colors"
+            >
+              <CheckIcon class="h-4 w-4" />
+              {{ isSavingLesson ? t('lessons.saving') : t('lessons.save') }}
+            </button>
+          </div>
+        </div>
+      </DialogPanel>
+    </div>
+  </Dialog>
   
   <div class="bg-gray-50 dark:bg-gray-900 min-h-screen transition-colors">
     <!-- Main Content -->
@@ -1756,127 +1888,6 @@ const saveParagraph = async () => {
           </div>
         </div>
         
-        <!-- Edit Lesson Form -->
-        <div v-if="isEditingLesson" class="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
-          <div class="space-y-4">
-            <!-- Title -->
-            <div>
-              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                {{ t('lessons.title') }}
-              </label>
-              <input
-                v-model="editedLesson.title"
-                type="text"
-                class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              />
-            </div>
-            
-            <!-- Date -->
-            <div>
-              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                {{ t('lessons.date') }}
-              </label>
-              <input
-                v-model="editedLesson.date"
-                type="date"
-                class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              />
-            </div>
-            
-            <!-- Brief -->
-            <div>
-              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                {{ t('lessons.brief') }}
-              </label>
-              <textarea
-                v-model="editedLesson.brief"
-                :placeholder="t('lessons.briefPlaceholder')"
-                rows="3"
-                class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
-              ></textarea>
-            </div>
-            
-            <!-- Course -->
-            <div>
-              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                {{ t('lessons.course') }}
-              </label>
-              <select
-                v-model="editedLesson.course_id"
-                class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              >
-                <option :value="null">{{ t('lessons.noCourse') }}</option>
-                <option v-for="course in courses" :key="course.id" :value="course.id">
-                  {{ course.name }}
-                </option>
-              </select>
-            </div>
-            
-            <!-- Themes -->
-            <div>
-              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                {{ t('lessons.themes') }}
-              </label>
-              <div class="flex flex-wrap gap-2">
-                <button
-                  v-for="theme in themes"
-                  :key="theme.id"
-                  @click="toggleTheme(theme.id)"
-                  :class="[
-                    'px-3 py-1.5 rounded-full text-sm font-medium transition-colors',
-                    editedLesson.theme_ids.includes(theme.id)
-                      ? 'bg-indigo-600 text-white'
-                      : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
-                  ]"
-                >
-                  {{ theme.name }}
-                </button>
-              </div>
-            </div>
-
-            <!-- Editors -->
-            <div>
-              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                {{ t('lessons.editors') }}
-              </label>
-              <div class="flex flex-wrap gap-2">
-                <button
-                  v-for="user in editorRoleUsers"
-                  :key="user.id"
-                  @click="toggleEditor(user.id)"
-                  :class="[
-                    'px-3 py-1.5 rounded-full text-sm font-medium transition-colors',
-                    editedLesson.editor_ids.includes(user.id)
-                      ? 'bg-sky-600 text-white'
-                      : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
-                  ]"
-                >
-                  {{ [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email || user.id }}
-                </button>
-              </div>
-            </div>
-            
-            <!-- Action Buttons -->
-            <div class="flex gap-3 pt-4">
-              <button
-                @click="saveLesson"
-                :disabled="isSavingLesson"
-                class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 rounded-md transition-colors"
-              >
-                <CheckIcon class="h-4 w-4" />
-                {{ isSavingLesson ? t('lessons.saving') : t('lessons.save') }}
-              </button>
-              <button
-                @click="cancelEditLesson"
-                :disabled="isSavingLesson"
-                class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 rounded-md transition-colors"
-              >
-                <XMarkIcon class="h-4 w-4" />
-                {{ t('lessons.cancel') }}
-              </button>
-            </div>
-          </div>
-        </div>
       </div>
 
       <!-- Content Section with Toggle -->

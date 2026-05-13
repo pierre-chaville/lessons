@@ -33,6 +33,10 @@ const isSaving = ref(false)
 const isDeleting = ref(false)
 
 const expanded = ref<Set<number>>(new Set())
+const draggedNode = ref<CourseTreeNode | null>(null)
+const dropTargetId = ref<number | null>(null)
+const isRootDropTarget = ref(false)
+const isDragReordering = ref(false)
 
 const toggleExpand = (id: number) => {
   if (expanded.value.has(id)) {
@@ -159,6 +163,161 @@ const moveCourse = async (node: CourseTreeNode, direction: 'up' | 'down') => {
     await fetchData()
   } catch {
     toast.error(t('courses.updateFailed'))
+  }
+}
+
+const getSiblingList = (
+  parentId: number | null,
+  nodes: CourseTreeNode[] = tree.value,
+): CourseTreeNode[] | null => {
+  if (parentId === null) return nodes
+
+  for (const node of nodes) {
+    if (node.id === parentId) return node.children
+    const found = getSiblingList(parentId, node.children)
+    if (found) return found
+  }
+
+  return null
+}
+
+const findNodeById = (
+  id: number,
+  nodes: CourseTreeNode[] = tree.value,
+): CourseTreeNode | null => {
+  for (const node of nodes) {
+    if (node.id === id) return node
+    const found = findNodeById(id, node.children)
+    if (found) return found
+  }
+  return null
+}
+
+const isDescendantNode = (ancestorId: number, nodeId: number): boolean => {
+  const ancestor = findNodeById(ancestorId)
+  if (!ancestor) return false
+
+  const stack = [...ancestor.children]
+  while (stack.length > 0) {
+    const current = stack.pop()
+    if (!current) continue
+    if (current.id === nodeId) return true
+    stack.push(...current.children)
+  }
+  return false
+}
+
+const moveWithinSiblings = async (
+  sourceNode: CourseTreeNode,
+  targetNode: CourseTreeNode,
+) => {
+  const siblings = getSiblingList(sourceNode.parent_id)
+  if (!siblings) return
+
+  const sourceIndex = siblings.findIndex((s) => s.id === sourceNode.id)
+  const targetIndex = siblings.findIndex((s) => s.id === targetNode.id)
+  if (sourceIndex === -1 || targetIndex === -1 || sourceIndex === targetIndex) return
+
+  const direction: 'up' | 'down' = sourceIndex < targetIndex ? 'down' : 'up'
+  const moveCount = Math.abs(targetIndex - sourceIndex)
+  for (let i = 0; i < moveCount; i += 1) {
+    await coursesApi.reorder(sourceNode.hashid, direction)
+  }
+}
+
+const handleDragStart = (node: CourseTreeNode) => {
+  if (!can('courses', 'update')) return
+  draggedNode.value = node
+  dropTargetId.value = null
+  isRootDropTarget.value = false
+}
+
+const handleDragEnter = (node: CourseTreeNode) => {
+  if (!draggedNode.value || draggedNode.value.id === node.id || isDragReordering.value) {
+    dropTargetId.value = null
+    isRootDropTarget.value = false
+    return
+  }
+
+  if (isDescendantNode(draggedNode.value.id, node.id)) {
+    dropTargetId.value = null
+    isRootDropTarget.value = false
+    return
+  }
+
+  isRootDropTarget.value = false
+  dropTargetId.value = node.id
+}
+
+const resetDragState = () => {
+  draggedNode.value = null
+  dropTargetId.value = null
+  isRootDropTarget.value = false
+}
+
+const handleRootDragEnter = (event: DragEvent) => {
+  if (!draggedNode.value || isDragReordering.value) return
+  event.preventDefault()
+  dropTargetId.value = null
+  isRootDropTarget.value = true
+}
+
+const handleRootDragOver = (event: DragEvent) => {
+  if (!draggedNode.value || isDragReordering.value) return
+  event.preventDefault()
+}
+
+const handleRootDrop = async (event: DragEvent) => {
+  event.preventDefault()
+  const sourceNode = draggedNode.value
+  if (!sourceNode || isDragReordering.value) {
+    resetDragState()
+    return
+  }
+
+  if (sourceNode.parent_id === null) {
+    resetDragState()
+    return
+  }
+
+  try {
+    isDragReordering.value = true
+    await coursesApi.update(sourceNode.hashid, { parent_id: 0 })
+    await fetchData()
+  } catch {
+    toast.error(t('courses.updateFailed'))
+  } finally {
+    isDragReordering.value = false
+    resetDragState()
+  }
+}
+
+const handleDrop = async (targetNode: CourseTreeNode) => {
+  const sourceNode = draggedNode.value
+  if (!sourceNode || sourceNode.id === targetNode.id || isDragReordering.value) {
+    resetDragState()
+    return
+  }
+
+  if (isDescendantNode(sourceNode.id, targetNode.id)) {
+    resetDragState()
+    return
+  }
+
+  try {
+    isDragReordering.value = true
+    if (sourceNode.parent_id === targetNode.parent_id) {
+      await moveWithinSiblings(sourceNode, targetNode)
+    } else {
+      await coursesApi.update(sourceNode.hashid, { parent_id: targetNode.id })
+    }
+    await fetchData()
+    expanded.value.add(targetNode.id)
+  } catch {
+    toast.error(t('courses.updateFailed'))
+  } finally {
+    isDragReordering.value = false
+    resetDragState()
   }
 }
 
@@ -371,7 +530,23 @@ defineExpose({ openCreateModal })
 
     <!-- Tree View -->
     <div v-else class="bg-white dark:bg-gray-800 shadow-sm rounded-lg overflow-hidden transition-colors">
+      <div class="px-4 pt-3">
+        <p class="text-xs text-gray-500 dark:text-gray-400">
+          {{ t('courses.dragHint') }}
+        </p>
+      </div>
       <div class="py-2">
+        <div
+          class="mx-4 mb-2 rounded-md border border-dashed px-3 py-2 text-xs transition-colors"
+          :class="isRootDropTarget
+            ? 'border-indigo-400 bg-indigo-50 text-indigo-700 dark:border-indigo-500 dark:bg-indigo-900/30 dark:text-indigo-300'
+            : 'border-gray-300 text-gray-500 dark:border-gray-600 dark:text-gray-400'"
+          @dragenter="handleRootDragEnter"
+          @dragover="handleRootDragOver"
+          @drop="handleRootDrop"
+        >
+          {{ t('courses.dropToRoot') }}
+        </div>
         <CourseTreeItem
           v-for="(node, idx) in tree"
           :key="node.id"
@@ -380,11 +555,17 @@ defineExpose({ openCreateModal })
           :expanded="expanded"
           :is-first="idx === 0"
           :is-last="idx === tree.length - 1"
+          :dragged-id="draggedNode?.id ?? null"
+          :drop-target-id="dropTargetId"
           @toggle="toggleExpand"
           @edit="openEditModal"
           @delete="confirmDelete"
           @move-up="(n) => moveCourse(n, 'up')"
           @move-down="(n) => moveCourse(n, 'down')"
+          @drag-start="handleDragStart"
+          @drag-enter="handleDragEnter"
+          @drop="handleDrop"
+          @drag-end="resetDragState"
         />
       </div>
     </div>
