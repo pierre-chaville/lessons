@@ -197,11 +197,7 @@ const collectDescendantIds = (node: CourseTreeNode): number[] => {
 }
 
 const selectCourseNode = (node: CourseTreeNode) => {
-  if (selectedCourseId.value === node.id) {
-    selectedCourseId.value = null
-  } else {
-    selectedCourseId.value = node.id
-  }
+  selectedCourseId.value = node.id
   persistPanelState()
 }
 
