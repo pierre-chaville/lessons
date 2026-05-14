@@ -280,7 +280,8 @@ const isEditedAlignmentStale = computed(() => {
     if (!row) return true
     const hasIndexes = typeof row.start_index === 'number' && typeof row.end_index === 'number'
     const hasTimes = typeof row.start === 'number' && typeof row.end === 'number'
-    return !hasIndexes || !hasTimes
+    const intentionallyUnaligned = !hasIndexes && !hasTimes && typeof row.match_score === 'number'
+    return !(hasIndexes && hasTimes) && !intentionallyUnaligned
   })
 })
 
@@ -299,7 +300,7 @@ type SummaryAlignedRow = {
   summaryText: string
   startIndex: number | null
   endIndex: number | null
-  editedText: string
+  alignedEditedParts: EditedPart[]
 }
 
 const summaryAlignedRows = computed<SummaryAlignedRow[]>(() => {
@@ -310,7 +311,7 @@ const summaryAlignedRows = computed<SummaryAlignedRow[]>(() => {
     const row = alignment[index]
     const startIndex = typeof row?.start_index === 'number' ? row.start_index : null
     const endIndex = typeof row?.end_index === 'number' ? row.end_index : null
-    let editedText = ''
+    let alignedEditedParts: EditedPart[] = []
     if (
       startIndex !== null &&
       endIndex !== null &&
@@ -318,11 +319,16 @@ const summaryAlignedRows = computed<SummaryAlignedRow[]>(() => {
       endIndex >= startIndex &&
       endIndex < edited.length
     ) {
-      editedText = edited.slice(startIndex, endIndex + 1).map((p) => p.text).join('\n\n')
+      alignedEditedParts = edited.slice(startIndex, endIndex + 1)
     }
-    return { summaryText, startIndex, endIndex, editedText }
+    return { summaryText, startIndex, endIndex, alignedEditedParts }
   })
 })
+
+const isSummaryAlignedPartPlaying = (part: EditedPart): boolean =>
+  isPlaying.value &&
+  currentTime.value >= part.start &&
+  currentTime.value < part.end
 
 // Format seconds to MM:SS format
 const formatTimestamp = (seconds: number | null | undefined): string => {
@@ -2318,6 +2324,38 @@ const saveParagraph = async () => {
         
         <!-- Content Panels -->
         <div class="p-6">
+          <!-- Global floating now-playing bar -->
+          <div
+            v-if="isPlaying && (activeView === 'transcript' || activeView === 'edited' || (activeView === 'summary' && showSummaryWithEdited))"
+            class="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-[min(1100px,calc(100vw-2rem))] flex items-center justify-between gap-3 px-4 py-2 bg-indigo-50/95 dark:bg-indigo-900/80 border border-indigo-300 dark:border-indigo-700 rounded-lg shadow-lg backdrop-blur-sm print:hidden"
+          >
+            <div class="flex items-center gap-2 text-sm font-medium text-indigo-700 dark:text-indigo-300">
+              <SpeakerWaveIcon class="h-4 w-4 animate-pulse" />
+              <span>{{ t('lessons.nowPlaying') }}</span>
+              <span class="font-mono text-xs">{{ formatTimestamp(currentTime) }}</span>
+            </div>
+            <div class="flex items-center gap-1">
+              <button
+                @click="togglePlayPause"
+                class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-indigo-700 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-800/50 hover:bg-indigo-200 dark:hover:bg-indigo-800 rounded-md transition-colors"
+              >
+                <PauseIcon class="h-3.5 w-3.5" />
+                {{ t('lessons.pause') }}
+              </button>
+              <button
+                @click="stopAudio"
+                class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
+              >
+                <StopIcon class="h-3.5 w-3.5" />
+                {{ t('lessons.stop') }}
+              </button>
+            </div>
+          </div>
+          <div
+            v-if="isPlaying && (activeView === 'transcript' || activeView === 'edited' || (activeView === 'summary' && showSummaryWithEdited))"
+            class="h-16 print:hidden"
+          ></div>
+
           <!-- Summary View -->
           <div v-if="activeView === 'summary'">
             <div
@@ -2359,20 +2397,47 @@ const saveParagraph = async () => {
               </label>
             </div>
 
-            <div v-if="showSummaryWithEdited && summaryAlignedRows.length > 0" class="space-y-4">
+            <div v-if="showSummaryWithEdited && summaryAlignedRows.length > 0" class="space-y-3">
+              <div class="sticky top-0 z-10 grid grid-cols-2 gap-4 py-2 bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm border-b border-gray-200 dark:border-gray-700">
+                <div class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  {{ t('lessons.summary') }}
+                </div>
+                <div class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  {{ t('lessons.editedTranscript') }}
+                </div>
+              </div>
               <div
                 v-for="(row, idx) in summaryAlignedRows"
                 :key="`summary-aligned-${idx}`"
                 class="grid grid-cols-2 gap-4 py-1.5 rounded-lg"
               >
                 <div class="prose prose-sm dark:prose-invert max-w-none">
-                  <div class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">{{ t('lessons.summary') }}</div>
                   <div class="text-gray-900 dark:text-gray-100 leading-relaxed" v-html="renderMarkdown(row.summaryText)"></div>
                 </div>
                 <div class="prose prose-sm dark:prose-invert max-w-none">
-                  <div class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">{{ t('lessons.editedTranscript') }}</div>
-                  <div v-if="row.editedText" class="text-gray-900 dark:text-gray-100 leading-relaxed" v-html="renderMarkdown(row.editedText)"></div>
-                  <div v-else class="text-sm italic text-gray-500 dark:text-gray-400">{{ t('lessons.noAlignedEditedParagraph') }}</div>
+                  <div
+                    v-for="(part, partIdx) in row.alignedEditedParts"
+                    :key="`summary-aligned-edited-${idx}-${partIdx}`"
+                    class="flex items-start gap-2 mb-3 last:mb-0"
+                  >
+                    <div class="mt-1 inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400 print:hidden">
+                      <button
+                        @click="isSummaryAlignedPartPlaying(part) ? togglePlayPause() : playFromTimestamp(part.start)"
+                        class="inline-flex h-6 w-6 items-center justify-center rounded-md hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors"
+                        :title="isSummaryAlignedPartPlaying(part) ? t('lessons.pause') : t('lessons.play')"
+                      >
+                        <PauseIcon v-if="isSummaryAlignedPartPlaying(part)" class="h-3.5 w-3.5" />
+                        <PlayIcon v-else class="h-3.5 w-3.5" />
+                      </button>
+                      <span class="text-[11px] font-mono leading-none text-indigo-500 dark:text-indigo-300">
+                        {{ formatTimestamp(part.start) }}
+                      </span>
+                    </div>
+                    <div
+                      class="flex-1 text-gray-900 dark:text-gray-100 leading-relaxed"
+                      v-html="renderMarkdown(part.text)"
+                    ></div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -2439,34 +2504,7 @@ const saveParagraph = async () => {
           
           <!-- Unified Transcript View with Diffs -->
           <div v-else-if="activeView === 'transcript'">
-            <div v-if="unifiedTranscript.length > 0" class="space-y-4 max-h-[600px] overflow-auto scroll-smooth print:max-h-none relative">
-              <!-- Sticky Now-Playing bar -->
-              <div
-                v-if="isPlaying"
-                class="sticky top-0 z-10 flex items-center justify-between gap-3 px-4 py-2 bg-indigo-50 dark:bg-indigo-900/40 border border-indigo-300 dark:border-indigo-700 rounded-lg shadow-sm print:hidden"
-              >
-                <div class="flex items-center gap-2 text-sm font-medium text-indigo-700 dark:text-indigo-300">
-                  <SpeakerWaveIcon class="h-4 w-4 animate-pulse" />
-                  <span>{{ t('lessons.nowPlaying') }}</span>
-                  <span class="font-mono text-xs">{{ formatTimestamp(currentTime) }}</span>
-                </div>
-                <div class="flex items-center gap-1">
-                  <button
-                    @click="togglePlayPause"
-                    class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-indigo-700 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-800/50 hover:bg-indigo-200 dark:hover:bg-indigo-800 rounded-md transition-colors"
-                  >
-                    <PauseIcon class="h-3.5 w-3.5" />
-                    {{ t('lessons.pause') }}
-                  </button>
-                  <button
-                    @click="stopAudio"
-                    class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
-                  >
-                    <StopIcon class="h-3.5 w-3.5" />
-                    {{ t('lessons.stop') }}
-                  </button>
-                </div>
-              </div>
+            <div v-if="unifiedTranscript.length > 0" class="space-y-4 scroll-smooth relative">
               <div
                 v-for="segment in unifiedTranscript"
                 :key="segment.index"
@@ -2670,34 +2708,7 @@ const saveParagraph = async () => {
               </label>
             </div>
 
-            <div v-if="editedParts.length > 0" class="max-h-[600px] overflow-auto scroll-smooth print:max-h-none relative">
-              <!-- Sticky Now-Playing bar -->
-              <div
-                v-if="isPlaying"
-                class="sticky top-0 z-10 flex items-center justify-between gap-3 px-4 py-2 mb-2 bg-indigo-50 dark:bg-indigo-900/40 border border-indigo-300 dark:border-indigo-700 rounded-lg shadow-sm print:hidden"
-              >
-                <div class="flex items-center gap-2 text-sm font-medium text-indigo-700 dark:text-indigo-300">
-                  <SpeakerWaveIcon class="h-4 w-4 animate-pulse" />
-                  <span>{{ t('lessons.nowPlaying') }}</span>
-                  <span class="font-mono text-xs">{{ formatTimestamp(currentTime) }}</span>
-                </div>
-                <div class="flex items-center gap-1">
-                  <button
-                    @click="togglePlayPause"
-                    class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-indigo-700 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-800/50 hover:bg-indigo-200 dark:hover:bg-indigo-800 rounded-md transition-colors"
-                  >
-                    <PauseIcon class="h-3.5 w-3.5" />
-                    {{ t('lessons.pause') }}
-                  </button>
-                  <button
-                    @click="stopAudio"
-                    class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
-                  >
-                    <StopIcon class="h-3.5 w-3.5" />
-                    {{ t('lessons.stop') }}
-                  </button>
-                </div>
-              </div>
+            <div v-if="editedParts.length > 0" class="scroll-smooth relative">
               <!-- Side-by-side layout: one row per paragraph -->
               <div v-if="showSideBySideTranscript">
                 <div

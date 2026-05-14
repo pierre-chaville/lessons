@@ -152,6 +152,14 @@ async def generate_summary_async(
         # Load config
         config = load_config()
         summary_config = config.get("summary", {})
+        alignment_config = config.get("alignment", {})
+        try:
+            summary_min_alignment_score = float(
+                alignment_config.get("summary_min_score", 0.2)
+            )
+        except (TypeError, ValueError):
+            summary_min_alignment_score = 0.2
+        summary_min_alignment_score = max(0.0, min(1.0, summary_min_alignment_score))
 
         # Get prompts list
         prompts = summary_config.get("prompts", [])
@@ -306,6 +314,7 @@ async def generate_summary_async(
             build_summary_alignment_metadata(
                 summary_markdown=summary_text,
                 edited_markdown=edited_text,
+                min_alignment_score=summary_min_alignment_score,
             )
         )
         lesson.summary_metadata = base_metadata

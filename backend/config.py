@@ -23,6 +23,8 @@ DEFAULT_EXTRACTION_PROMPT_MAX_TOKENS = 4000
 MIN_EXTRACTION_PROMPT_MAX_TOKENS = 256
 DEFAULT_SOURCES_PROMPT_MAX_TOKENS = 4000
 MIN_SOURCES_PROMPT_MAX_TOKENS = 256
+DEFAULT_EDITED_MIN_ALIGNMENT_SCORE = 0.2
+DEFAULT_SUMMARY_MIN_ALIGNMENT_SCORE = 0.2
 
 # Default configuration
 DEFAULT_CONFIG = {
@@ -84,6 +86,10 @@ DEFAULT_CONFIG = {
     "transcribe": {
         "model": "nova-3",
         "language": "fr",
+    },
+    "alignment": {
+        "edited_min_score": DEFAULT_EDITED_MIN_ALIGNMENT_SCORE,
+        "summary_min_score": DEFAULT_SUMMARY_MIN_ALIGNMENT_SCORE,
     },
 }
 
@@ -532,6 +538,39 @@ def _migrate_sources_prompt_model_presets(config: Dict[str, Any]) -> Dict[str, A
     return migrated
 
 
+def _normalize_alignment_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize alignment score thresholds to [0.0, 1.0]."""
+    if not config:
+        return {}
+
+    normalized = dict(config)
+    alignment = normalized.get("alignment")
+    if not isinstance(alignment, dict):
+        normalized["alignment"] = dict(DEFAULT_CONFIG["alignment"])
+        return normalized
+
+    alignment_copy = dict(alignment)
+
+    def _score(raw: Any, default: float) -> float:
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            value = default
+        return max(0.0, min(1.0, value))
+
+    alignment_copy["edited_min_score"] = _score(
+        alignment_copy.get("edited_min_score", DEFAULT_EDITED_MIN_ALIGNMENT_SCORE),
+        DEFAULT_EDITED_MIN_ALIGNMENT_SCORE,
+    )
+    alignment_copy["summary_min_score"] = _score(
+        alignment_copy.get("summary_min_score", DEFAULT_SUMMARY_MIN_ALIGNMENT_SCORE),
+        DEFAULT_SUMMARY_MIN_ALIGNMENT_SCORE,
+    )
+
+    normalized["alignment"] = alignment_copy
+    return normalized
+
+
 def _normalize_sources_prompt_limits(config: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize sources prompt-level max_tokens and model_preset_id."""
     if not config:
@@ -621,6 +660,7 @@ def load_config() -> Dict[str, Any]:
                 merged = _normalize_extraction_prompt_limits(merged)
                 merged = _normalize_sources_prompt_limits(merged)
                 merged = _normalize_brief_config(merged)
+                merged = _normalize_alignment_config(merged)
                 merged = _sanitize_config(merged)
                 _save_db_config(session, merged)
                 return merged
@@ -638,6 +678,7 @@ def load_config() -> Dict[str, Any]:
             merged = _normalize_extraction_prompt_limits(merged)
             merged = _normalize_sources_prompt_limits(merged)
             merged = _normalize_brief_config(merged)
+            merged = _normalize_alignment_config(merged)
             cleaned = _sanitize_config(merged)
             if cleaned != db_config or "api_key" in db_config:
                 _save_db_config(session, cleaned)
@@ -658,6 +699,7 @@ def save_config(config: Dict[str, Any]) -> bool:
             normalized = _normalize_extraction_prompt_limits(normalized)
             normalized = _normalize_sources_prompt_limits(normalized)
             normalized = _normalize_brief_config(normalized)
+            normalized = _normalize_alignment_config(normalized)
             cleaned = _sanitize_config(normalized)
             _save_db_config(session, cleaned)
         return True
@@ -688,6 +730,7 @@ def update_config(updates: Dict[str, Any]) -> Dict[str, Any]:
     config = _normalize_extraction_prompt_limits(config)
     config = _normalize_sources_prompt_limits(config)
     config = _normalize_brief_config(config)
+    config = _normalize_alignment_config(config)
     save_config(config)
     return config
 

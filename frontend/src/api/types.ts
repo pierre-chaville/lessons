@@ -518,6 +518,10 @@ export interface AppConfig {
   summary: SummaryConfig
   brief: BriefConfig
   transcribe: TranscribeConfig
+  alignment?: {
+    edited_min_score: number
+    summary_min_score: number
+  }
 }
 
 export interface ModelPreset {

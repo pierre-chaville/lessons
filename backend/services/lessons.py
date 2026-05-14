@@ -17,6 +17,7 @@ from schemas.source import LessonSourceResponse
 from schemas.course import CourseResponse
 from schemas.theme import ThemeResponse
 from storage import rename_audio_object, s3_enabled
+from config import load_config
 from hashid_utils import encode_id
 from models.versioning import ContentType, VersionSource
 from services.audit import log_event
@@ -373,11 +374,20 @@ def realign_edited_markdown(
     transcript = lesson.corrected_transcript or lesson.transcript
     if not transcript:
         raise HTTPException(status_code=400, detail="No transcript available for alignment")
+    alignment_config = load_config().get("alignment", {})
+    try:
+        edited_min_alignment_score = float(
+            alignment_config.get("edited_min_score", 0.2)
+        )
+    except (TypeError, ValueError):
+        edited_min_alignment_score = 0.2
+    edited_min_alignment_score = max(0.0, min(1.0, edited_min_alignment_score))
 
     refreshed_payload = build_edited_transcript_payload(
         markdown=markdown,
         transcript=transcript,
         sources=payload.get("sources"),
+        min_alignment_score=edited_min_alignment_score,
     )
     update_content(
         session=session,
@@ -408,11 +418,20 @@ def realign_summary_alignment(
     edited_markdown = edited_transcript_markdown(lesson.edited_transcript).strip()
     if not edited_markdown:
         raise HTTPException(status_code=400, detail="Edited transcript markdown is empty")
+    alignment_config = load_config().get("alignment", {})
+    try:
+        summary_min_alignment_score = float(
+            alignment_config.get("summary_min_score", 0.2)
+        )
+    except (TypeError, ValueError):
+        summary_min_alignment_score = 0.2
+    summary_min_alignment_score = max(0.0, min(1.0, summary_min_alignment_score))
 
     current_metadata = lesson.summary_metadata or {}
     refreshed = build_summary_alignment_metadata(
         summary_markdown=str(lesson.summary),
         edited_markdown=edited_markdown,
+        min_alignment_score=summary_min_alignment_score,
     )
     lesson.summary_metadata = {**current_metadata, **refreshed}
     session.add(lesson)

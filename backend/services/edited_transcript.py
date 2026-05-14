@@ -11,6 +11,8 @@ from typing import Any
 from services.dp_align_core import align_dp_texts
 from schemas.lesson import EditedAlignment, EditedTranscript, Segment
 
+MIN_PARAGRAPH_ALIGNMENT_SCORE = 0.2
+
 
 def _canonical_json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
@@ -152,9 +154,20 @@ def normalize_sources_by_paragraph_count(
     return normalized
 
 
+def _is_non_alignable_paragraph(text: str) -> bool:
+    stripped = (text or "").strip()
+    if not stripped:
+        return True
+    # Markdown headings are often structural labels and should not be forced to align.
+    if stripped.startswith("#"):
+        return True
+    return False
+
+
 def build_alignment_rows(
     transcript: list[dict[str, Any]] | list[Segment],
     paragraphs: list[str],
+    min_alignment_score: float = MIN_PARAGRAPH_ALIGNMENT_SCORE,
 ) -> list[dict[str, Any]]:
     if not transcript or not paragraphs:
         return []
@@ -163,16 +176,24 @@ def build_alignment_rows(
     ]
     aligned = align_dp_texts(transcript=transcript_texts, edited=paragraphs)
     rows: list[dict[str, Any]] = []
-    for row in aligned:
+    for idx, row in enumerate(aligned):
+        paragraph_text = paragraphs[idx] if idx < len(paragraphs) else ""
+        score = float(row.get("match_score", 0.0))
         start_index = row.get("source_start_index")
         end_index = row.get("source_end_index")
         start = None
         end = None
-        if (
+        is_candidate = (
             isinstance(start_index, int)
             and isinstance(end_index, int)
             and 0 <= start_index <= end_index < len(transcript)
-        ):
+        )
+        should_align = (
+            is_candidate
+            and not _is_non_alignable_paragraph(paragraph_text)
+            and score >= min_alignment_score
+        )
+        if should_align:
             start_seg = transcript[start_index]
             end_seg = transcript[end_index]
             start = (
@@ -190,9 +211,9 @@ def build_alignment_rows(
             {
                 "start": start,
                 "end": end,
-                "match_score": float(row.get("match_score", 0.0)),
-                "start_index": start_index,
-                "end_index": end_index,
+                "match_score": score,
+                "start_index": start_index if should_align else None,
+                "end_index": end_index if should_align else None,
             }
         )
     return rows
@@ -203,11 +224,16 @@ def build_edited_transcript_payload(
     transcript: list[dict[str, Any]] | list[Segment],
     sources: Any = None,
     aligned_at_iso: str | None = None,
+    min_alignment_score: float = MIN_PARAGRAPH_ALIGNMENT_SCORE,
 ) -> dict[str, Any]:
     paragraphs = markdown_to_paragraphs(markdown)
     if not paragraphs and markdown.strip():
         paragraphs = [markdown.strip()]
-    alignment = build_alignment_rows(transcript=transcript, paragraphs=paragraphs)
+    alignment = build_alignment_rows(
+        transcript=transcript,
+        paragraphs=paragraphs,
+        min_alignment_score=min_alignment_score,
+    )
     return {
         "markdown": markdown,
         "sources": normalize_sources_by_paragraph_count(sources, len(paragraphs)),

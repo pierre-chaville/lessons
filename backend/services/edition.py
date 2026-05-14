@@ -215,6 +215,14 @@ async def edit_transcript_async(
         # Load config
         config = load_config()
         edition_config = config.get("edition", {})
+        alignment_config = config.get("alignment", {})
+        try:
+            edited_min_alignment_score = float(
+                alignment_config.get("edited_min_score", 0.2)
+            )
+        except (TypeError, ValueError):
+            edited_min_alignment_score = 0.2
+        edited_min_alignment_score = max(0.0, min(1.0, edited_min_alignment_score))
 
         # Resolve prompt from prompts list (like summary) with backward compat
         prompts = edition_config.get("prompts", [])
@@ -337,6 +345,7 @@ async def edit_transcript_async(
             transcript=segments,
             sources=[[] for _ in edited_paragraphs],
             aligned_at_iso=datetime.utcnow().isoformat(),
+            min_alignment_score=edited_min_alignment_score,
         )
 
         # Save edition metadata
