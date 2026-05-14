@@ -17,6 +17,7 @@ from .llm_utils import get_llm_model
 from models.versioning import ContentType, VersionSource
 from services.versioning import update_content
 from services.edited_transcript import edited_transcript_markdown
+from services.summary_alignment import build_summary_alignment_metadata
 import logging
 
 logger = logging.getLogger(__name__)
@@ -300,7 +301,14 @@ async def generate_summary_async(
             max_tokens=summary_max_tokens,
             prompt=prompt_info,
         )
-        lesson.set_summary_metadata(metadata)
+        base_metadata = metadata.model_dump()
+        base_metadata.update(
+            build_summary_alignment_metadata(
+                summary_markdown=summary_text,
+                edited_markdown=edited_text,
+            )
+        )
+        lesson.summary_metadata = base_metadata
 
         # Commit metadata then persist versioned brief/summary snapshots.
         session.add(lesson)

@@ -197,6 +197,21 @@ def realign_lesson_edited_markdown(
     )
 
 
+@router.post("/{lesson_hashid}/summary/realign", response_model=LessonResponse)
+def realign_lesson_summary(
+    lesson_hashid: str,
+    session: Session = Depends(get_session),
+    claims: Dict[str, Any] = Depends(require_roles(["editor", "publisher", "admin"])),
+):
+    """Refresh summary alignment from current summary + edited markdown."""
+    lesson_id = decode_id(lesson_hashid)
+    _require_lesson_access(lesson_id, claims, session)
+    return lesson_service.realign_summary_alignment(
+        lesson_id=lesson_id,
+        session=session,
+    )
+
+
 @router.delete("/{lesson_hashid}", status_code=204)
 def delete_lesson(
     lesson_hashid: str,

@@ -25,6 +25,7 @@ from services.edited_transcript import (
     edited_transcript_markdown,
     normalize_edited_transcript_payload,
 )
+from services.summary_alignment import build_summary_alignment_metadata
 from services.versioning import seal_all_current_versions, update_content
 
 
@@ -387,6 +388,34 @@ def realign_edited_markdown(
         source=VersionSource.HUMAN if actor else VersionSource.PIPELINE,
         change_summary="Edited transcript alignment refreshed",
     )
+    session.commit()
+    session.refresh(lesson)
+    return build_lesson_response(lesson, session)
+
+
+def realign_summary_alignment(
+    lesson_id: int, session: Session
+) -> LessonResponse:
+    """Recompute summary alignment against current edited markdown."""
+    lesson = crud.get_lesson(session, lesson_id)
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+    if not lesson.summary:
+        raise HTTPException(status_code=404, detail="No summary available")
+    if not lesson.edited_transcript:
+        raise HTTPException(status_code=404, detail="No edited transcript available")
+
+    edited_markdown = edited_transcript_markdown(lesson.edited_transcript).strip()
+    if not edited_markdown:
+        raise HTTPException(status_code=400, detail="Edited transcript markdown is empty")
+
+    current_metadata = lesson.summary_metadata or {}
+    refreshed = build_summary_alignment_metadata(
+        summary_markdown=str(lesson.summary),
+        edited_markdown=edited_markdown,
+    )
+    lesson.summary_metadata = {**current_metadata, **refreshed}
+    session.add(lesson)
     session.commit()
     session.refresh(lesson)
     return build_lesson_response(lesson, session)

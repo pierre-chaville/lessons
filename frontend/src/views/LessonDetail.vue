@@ -97,6 +97,11 @@ const isEditingSummary = ref(false)
 const editedSummary = ref('')
 const isSavingSummary = ref(false)
 
+// Edit full edited-markdown state
+const isEditingEditedMarkdown = ref(false)
+const editedMarkdownDraft = ref('')
+const isSavingEditedMarkdown = ref(false)
+
 // Edit lesson state
 const isEditingLesson = ref(false)
 const editedLesson = ref<{
@@ -141,6 +146,7 @@ const workflowExpandedPayload = ref<Set<number>>(new Set())
 // Transcript expander state (for edited view)
 const expandedTranscriptIndex = ref<number | null>(null)
 const showSideBySideTranscript = ref(false)
+const showSummaryWithEdited = ref(false)
 
 const historyContentType = ref<ContentType | null>(props.initialHistoryContentType ?? null)
 const historySelectedVersionId = ref<string | null>(props.initialHistoryVersionId ?? null)
@@ -275,6 +281,46 @@ const isEditedAlignmentStale = computed(() => {
     const hasIndexes = typeof row.start_index === 'number' && typeof row.end_index === 'number'
     const hasTimes = typeof row.start === 'number' && typeof row.end === 'number'
     return !hasIndexes || !hasTimes
+  })
+})
+
+const isSummaryAlignmentStale = computed(() => {
+  if (!props.lesson.summary || !props.lesson.edited_transcript?.markdown) return false
+  const meta = (props.lesson.summary_metadata ?? {}) as Record<string, unknown>
+  const rows = Array.isArray(meta.summary_alignment) ? meta.summary_alignment : []
+  if (!meta.summary_aligned_at || !meta.summary_hash || !meta.edited_markdown_hash) return true
+  if (rows.length === 0) return true
+  return false
+})
+
+const summaryParagraphs = computed(() => splitMarkdownParagraphs(props.lesson.summary || ''))
+
+type SummaryAlignedRow = {
+  summaryText: string
+  startIndex: number | null
+  endIndex: number | null
+  editedText: string
+}
+
+const summaryAlignedRows = computed<SummaryAlignedRow[]>(() => {
+  const meta = (props.lesson.summary_metadata ?? {}) as Record<string, unknown>
+  const alignment = Array.isArray(meta.summary_alignment) ? meta.summary_alignment as Array<Record<string, unknown>> : []
+  const edited = editedParts.value
+  return summaryParagraphs.value.map((summaryText, index) => {
+    const row = alignment[index]
+    const startIndex = typeof row?.start_index === 'number' ? row.start_index : null
+    const endIndex = typeof row?.end_index === 'number' ? row.end_index : null
+    let editedText = ''
+    if (
+      startIndex !== null &&
+      endIndex !== null &&
+      startIndex >= 0 &&
+      endIndex >= startIndex &&
+      endIndex < edited.length
+    ) {
+      editedText = edited.slice(startIndex, endIndex + 1).map((p) => p.text).join('\n\n')
+    }
+    return { summaryText, startIndex, endIndex, editedText }
   })
 })
 
@@ -680,13 +726,57 @@ const saveSummary = async () => {
   if (isSavingSummary.value) return
   try {
     isSavingSummary.value = true
-    await lessonsApi.update(props.lesson.hashid, { summary: editedSummary.value })
-    props.lesson.summary = editedSummary.value
+    const updated = await lessonsApi.update(props.lesson.hashid, { summary: editedSummary.value })
+    Object.assign(props.lesson, updated)
+    const realigned = await lessonsApi.realignSummary(props.lesson.hashid)
+    Object.assign(props.lesson, realigned)
     isEditingSummary.value = false
+    toast.success(t('lessons.realignSummarySuccess'))
   } catch {
-    toast.error(t('lessons.saveFailed'))
+    toast.error(t('lessons.realignSummaryFailed'))
   } finally {
     isSavingSummary.value = false
+  }
+}
+
+const startEditEditedMarkdown = () => {
+  editedMarkdownDraft.value = props.lesson.edited_transcript?.markdown || ''
+  isEditingEditedMarkdown.value = true
+}
+
+const cancelEditEditedMarkdown = () => {
+  if (isSavingEditedMarkdown.value) return
+  isEditingEditedMarkdown.value = false
+  editedMarkdownDraft.value = ''
+}
+
+const closeEditedMarkdownEditorModal = () => {
+  if (isSavingEditedMarkdown.value) return
+  cancelEditEditedMarkdown()
+}
+
+const saveEditedMarkdown = async () => {
+  if (isSavingEditedMarkdown.value || !props.lesson.edited_transcript) return
+  try {
+    isSavingEditedMarkdown.value = true
+    await lessonsApi.update(props.lesson.hashid, {
+      edited_transcript: {
+        ...props.lesson.edited_transcript,
+        markdown: editedMarkdownDraft.value,
+        markdown_hash: null,
+        transcript_hash: null,
+        aligned_at: null,
+      },
+    })
+    const updated = await lessonsApi.realignEdited(props.lesson.hashid)
+    Object.assign(props.lesson, updated)
+    isEditingEditedMarkdown.value = false
+    editedMarkdownDraft.value = ''
+    toast.success(t('lessons.realignSuccess'))
+  } catch {
+    toast.error(t('lessons.realignFailed'))
+  } finally {
+    isSavingEditedMarkdown.value = false
   }
 }
 
@@ -854,6 +944,21 @@ const realignEditedMarkdown = async () => {
     toast.error(t('lessons.realignFailed'))
   } finally {
     isRealigningEdited.value = false
+  }
+}
+
+const isRealigningSummary = ref(false)
+const realignSummaryAlignment = async () => {
+  if (isRealigningSummary.value || !canEditLesson.value || isProcessing.value) return
+  try {
+    isRealigningSummary.value = true
+    const updated = await lessonsApi.realignSummary(props.lesson.hashid)
+    Object.assign(props.lesson, updated)
+    toast.success(t('lessons.realignSummarySuccess'))
+  } catch {
+    toast.error(t('lessons.realignSummaryFailed'))
+  } finally {
+    isRealigningSummary.value = false
   }
 }
 
@@ -2072,6 +2177,15 @@ const saveParagraph = async () => {
                 <PrinterIcon class="h-4 w-4" />
                 {{ t('lessons.downloadPDF') }}
               </button>
+              <button
+                v-if="activeView === 'summary' && canEditLesson && isSummaryAlignmentStale"
+                @click="realignSummaryAlignment"
+                :disabled="isRealigningSummary || isProcessing"
+                class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-md transition-colors"
+              >
+                <CogIcon class="h-4 w-4" />
+                {{ isRealigningSummary ? t('lessons.realigning') : t('lessons.realignSummary') }}
+              </button>
               
               <!-- Download Transcript PDF Button (show for transcript view) -->
               <button
@@ -2091,6 +2205,14 @@ const saveParagraph = async () => {
               >
                 <PrinterIcon class="h-4 w-4" />
                 {{ t('lessons.downloadPDF') }}
+              </button>
+              <button
+                v-if="activeView === 'edited' && canEditLesson && !isProcessing"
+                @click="startEditEditedMarkdown"
+                class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors print:hidden"
+              >
+                <PencilIcon class="h-4 w-4" />
+                {{ t('lessons.modify') }}
               </button>
               <button
                 v-if="activeView === 'edited' && !isEditingSummary && canEditLesson && isEditedAlignmentStale"
@@ -2198,7 +2320,63 @@ const saveParagraph = async () => {
         <div class="p-6">
           <!-- Summary View -->
           <div v-if="activeView === 'summary'">
-            <div 
+            <div
+              v-if="isSummaryAlignmentStale"
+              class="mb-4 inline-flex items-center gap-2 px-3 py-2 text-xs text-amber-800 dark:text-amber-200 bg-amber-100 dark:bg-amber-900/30 rounded-md"
+            >
+              <ExclamationTriangleIcon class="h-4 w-4" />
+              <span>{{ t('lessons.summaryAlignmentOutdated') }}</span>
+              <button
+                v-if="canEditLesson"
+                @click="realignSummaryAlignment"
+                :disabled="isRealigningSummary || isProcessing"
+                class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-amber-900 dark:text-amber-100 bg-amber-200 dark:bg-amber-800/60 hover:bg-amber-300 dark:hover:bg-amber-700/60 disabled:opacity-60 disabled:cursor-not-allowed rounded transition-colors"
+              >
+                <CogIcon class="h-3.5 w-3.5" />
+                {{ isRealigningSummary ? t('lessons.realigning') : t('lessons.realignSummarySmall') }}
+              </button>
+            </div>
+            <div class="flex items-center justify-end mb-4 print:hidden">
+              <label class="inline-flex items-center gap-2 cursor-pointer select-none">
+                <span class="text-sm text-gray-600 dark:text-gray-400">{{ t('lessons.showEditedVersion') }}</span>
+                <button
+                  type="button"
+                  role="switch"
+                  :aria-checked="showSummaryWithEdited"
+                  @click="showSummaryWithEdited = !showSummaryWithEdited"
+                  :class="[
+                    showSummaryWithEdited ? 'bg-indigo-600' : 'bg-gray-300 dark:bg-gray-600',
+                    'relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800'
+                  ]"
+                >
+                  <span
+                    :class="[
+                      showSummaryWithEdited ? 'translate-x-4' : 'translate-x-0.5',
+                      'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out mt-0.5'
+                    ]"
+                  />
+                </button>
+              </label>
+            </div>
+
+            <div v-if="showSummaryWithEdited && summaryAlignedRows.length > 0" class="space-y-4">
+              <div
+                v-for="(row, idx) in summaryAlignedRows"
+                :key="`summary-aligned-${idx}`"
+                class="grid grid-cols-2 gap-4 py-1.5 rounded-lg"
+              >
+                <div class="prose prose-sm dark:prose-invert max-w-none">
+                  <div class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">{{ t('lessons.summary') }}</div>
+                  <div class="text-gray-900 dark:text-gray-100 leading-relaxed" v-html="renderMarkdown(row.summaryText)"></div>
+                </div>
+                <div class="prose prose-sm dark:prose-invert max-w-none">
+                  <div class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">{{ t('lessons.editedTranscript') }}</div>
+                  <div v-if="row.editedText" class="text-gray-900 dark:text-gray-100 leading-relaxed" v-html="renderMarkdown(row.editedText)"></div>
+                  <div v-else class="text-sm italic text-gray-500 dark:text-gray-400">{{ t('lessons.noAlignedEditedParagraph') }}</div>
+                </div>
+              </div>
+            </div>
+            <div v-else 
               class="prose prose-indigo dark:prose-invert max-w-none"
               v-html="renderMarkdown(lesson.summary)"
             ></div>
@@ -3136,6 +3314,13 @@ const saveParagraph = async () => {
             </button>
           </div>
 
+          <div
+            v-if="isSavingSummary"
+            class="mx-6 mt-4 px-3 py-2 text-sm text-indigo-800 dark:text-indigo-200 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800 rounded-md"
+          >
+            {{ t('lessons.savingAndRealigningSummary') }}
+          </div>
+
           <div class="flex-1 overflow-y-auto p-6">
             <MilkdownEditor
               v-model="editedSummary"
@@ -3161,6 +3346,67 @@ const saveParagraph = async () => {
               >
                 <CheckIcon class="h-4 w-4" />
                 {{ isSavingSummary ? t('lessons.saving') : t('lessons.save') }}
+              </button>
+            </div>
+          </div>
+        </DialogPanel>
+      </div>
+    </Dialog>
+
+    <!-- Edited Markdown Editor Modal -->
+    <Dialog
+      :open="isEditingEditedMarkdown"
+      @close="closeEditedMarkdownEditorModal"
+      class="relative z-50"
+    >
+      <div class="fixed inset-0 bg-black/40" aria-hidden="true" />
+      <div class="fixed inset-0 flex items-center justify-center p-4">
+        <DialogPanel class="w-full max-w-7xl h-[90vh] bg-white dark:bg-gray-800 rounded-xl shadow-2xl overflow-hidden flex flex-col">
+          <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+            <DialogTitle class="text-lg font-semibold text-gray-900 dark:text-white">
+              {{ t('lessons.modify') }} - {{ t('lessons.editedTranscript') }}
+            </DialogTitle>
+            <button
+              @click="closeEditedMarkdownEditorModal"
+              :disabled="isSavingEditedMarkdown"
+              class="inline-flex items-center justify-center p-2 rounded-md text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 disabled:opacity-50"
+            >
+              <XMarkIcon class="h-5 w-5" />
+            </button>
+          </div>
+
+          <div
+            v-if="isSavingEditedMarkdown"
+            class="mx-6 mt-4 px-3 py-2 text-sm text-indigo-800 dark:text-indigo-200 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800 rounded-md"
+          >
+            {{ t('lessons.savingAndRealigning') }}
+          </div>
+
+          <div class="flex-1 overflow-y-auto p-6">
+            <MilkdownEditor
+              v-model="editedMarkdownDraft"
+              placeholder="Enter edited transcript in markdown format..."
+              :disabled="isSavingEditedMarkdown"
+            />
+          </div>
+
+          <div class="sticky bottom-0 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-6 py-4">
+            <div class="flex items-center justify-end gap-3">
+              <button
+                @click="cancelEditEditedMarkdown"
+                :disabled="isSavingEditedMarkdown"
+                class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 rounded-md transition-colors"
+              >
+                <XMarkIcon class="h-4 w-4" />
+                {{ t('lessons.cancel') }}
+              </button>
+              <button
+                @click="saveEditedMarkdown"
+                :disabled="isSavingEditedMarkdown"
+                class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 rounded-md transition-colors"
+              >
+                <CheckIcon class="h-4 w-4" />
+                {{ isSavingEditedMarkdown ? t('lessons.saving') : t('lessons.save') }}
               </button>
             </div>
           </div>
