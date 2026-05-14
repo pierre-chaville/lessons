@@ -1,9 +1,8 @@
 """Lesson transcript edition using LLM - rewrite in written style with sources"""
 
 import asyncio
-import json
-from typing import List, Optional, Any
-from pydantic import BaseModel, Field, ValidationError
+from datetime import datetime
+from typing import List, Optional
 from sqlmodel import Session
 import sys
 from pathlib import Path
@@ -13,11 +12,15 @@ import time
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from database import engine
 from models import Lesson, ModelPreset
-from schemas import Segment, EditedParagraph, Source, Metadata
+from schemas import Segment, Metadata
 from config import load_config
 from .llm_utils import get_llm_model
 from models.versioning import ContentType, VersionSource
 from services.versioning import update_content
+from services.edited_transcript import (
+    build_edited_transcript_payload,
+    markdown_to_paragraphs,
+)
 import logging
 
 logger = logging.getLogger(__name__)
@@ -28,51 +31,12 @@ INITIAL_RETRY_DELAY = 1  # seconds
 MAX_RETRY_DELAY = 60  # seconds
 
 
-# Input/Output models for structured output
-class SegmentInput(BaseModel):
-    """Input segment with timing for edition"""
-
-    segment_number: int = Field(description="Segment number (0-indexed or 1-indexed, consistent within a group)")
-    start: float = Field(description="Start time in seconds")
-    end: float = Field(description="End time in seconds")
-    text: str = Field(description="Original transcript text")
-
-
-class EditedParagraphOutput(BaseModel):
-    """Output: Edited paragraph with segment numbers"""
-
-    start_segment: int = Field(
-        description="Starting segment number (INCLUSIVE, 0-indexed within the group). "
-        "This segment IS included in this edited part."
-    )
-    end_segment: int = Field(
-        description="Ending segment number (INCLUSIVE, 0-indexed within the group). "
-        "This segment IS included in this edited part. Must be >= start_segment."
-    )
-    text: str = Field(description="Rewritten text as a paragraph in clear, written style")
-
-
-class TranscriptGroupInput(BaseModel):
-    """Input: Group of segments to edit"""
-
-    segments: List[SegmentInput] = Field(description="List of transcript segments")
-
-
-class EditedTranscriptGroupOutput(BaseModel):
-    """Output: Group of edited paragraphs"""
-
-    parts: List[EditedParagraphOutput] = Field(
-        description="List of edited paragraphs (can combine multiple segments into one paragraph)"
-    )
-
-
 async def edit_segment_group_with_retry(
     group: List[Segment],
-    llm_with_structure,
+    llm,
     edition_prompt: str,
-    llm_fallback=None,
     max_retries: int = MAX_RETRIES,
-) -> List[EditedParagraphOutput]:
+) -> str:
     """
     Edit a group of segments with retry logic for rate limits.
 
@@ -90,7 +54,7 @@ async def edit_segment_group_with_retry(
     for attempt in range(max_retries):
         try:
             return await edit_segment_group(
-                group, llm_with_structure, edition_prompt, llm_fallback
+                group, llm, edition_prompt
             )
 
         except Exception as e:
@@ -109,19 +73,19 @@ async def edit_segment_group_with_retry(
                     )
                     first = await edit_segment_group_with_retry(
                         group[:mid],
-                        llm_with_structure,
+                        llm,
                         edition_prompt,
-                        llm_fallback=llm_fallback,
                         max_retries=max_retries,
                     )
                     second = await edit_segment_group_with_retry(
                         group[mid:],
-                        llm_with_structure,
+                        llm,
                         edition_prompt,
-                        llm_fallback=llm_fallback,
                         max_retries=max_retries,
                     )
-                    return first + second
+                    return "\n\n".join(
+                        [part for part in [first.strip(), second.strip()] if part]
+                    )
 
             # Check if it's a rate limit error
             is_rate_limit = (
@@ -159,55 +123,11 @@ async def edit_segment_group_with_retry(
     raise last_error if last_error else Exception("Unknown error in retry logic")
 
 
-def _extract_json_from_text(text: str) -> Optional[Any]:
-    """Extract JSON object from LLM output."""
-    if not text:
-        return None
-    start = text.find("{")
-    end = text.rfind("}")
-    if start == -1 or end == -1 or end <= start:
-        return None
-    try:
-        return json.loads(text[start : end + 1])
-    except json.JSONDecodeError:
-        return None
-
-
-def _coerce_structured_result(result: Any) -> Optional[EditedTranscriptGroupOutput]:
-    """Coerce structured output or tool calls into a validated output model."""
-    if result is None:
-        return None
-
-    if isinstance(result, EditedTranscriptGroupOutput):
-        return result
-
-    if isinstance(result, dict):
-        parsed = result.get("parsed")
-        if isinstance(parsed, EditedTranscriptGroupOutput):
-            return parsed
-        if isinstance(parsed, dict):
-            return EditedTranscriptGroupOutput.model_validate(parsed)
-
-        raw = result.get("raw")
-        tool_calls = getattr(raw, "tool_calls", None) if raw else None
-        if tool_calls:
-            args = tool_calls[0].get("args")
-            if isinstance(args, dict):
-                return EditedTranscriptGroupOutput.model_validate(args)
-            if isinstance(args, str):
-                parsed_args = _extract_json_from_text(args)
-                if parsed_args is not None:
-                    return EditedTranscriptGroupOutput.model_validate(parsed_args)
-
-    return None
-
-
 async def edit_segment_group(
     group: List[Segment],
-    llm_with_structure,
+    llm,
     edition_prompt: str,
-    llm_fallback=None,
-) -> List[EditedParagraphOutput]:
+) -> str:
     """
     Edit a group of segments using the LLM with structured output.
 
@@ -220,158 +140,36 @@ async def edit_segment_group(
         List of EditedPartOutput objects
     """
     try:
-        # Prepare input data - handle both Segment objects and dicts
-        # Include segment numbers (0-indexed within the group)
-        input_segments = []
-        for idx, segment in enumerate(group):
-            if isinstance(segment, dict):
-                input_segments.append(
-                    SegmentInput(
-                        segment_number=idx,
-                        start=segment["start"],
-                        end=segment["end"],
-                        text=segment["text"]
-                    )
-                )
-            else:
-                input_segments.append(
-                    SegmentInput(
-                        segment_number=idx,
-                        start=segment.start,
-                        end=segment.end,
-                        text=segment.text
-                    )
-                )
-
-        input_data = TranscriptGroupInput(segments=input_segments)
-
-        # Create the prompt with the segments, including segment numbers
+        # Create prompt with transcript segments.
         segments_text = "\n".join(
             [
-                f"Segment {seg.segment_number}: [{seg.start:.1f}s - {seg.end:.1f}s] {seg.text}"
-                for seg in input_segments
+                (
+                    f"[{segment['start']:.1f}s - {segment['end']:.1f}s] {segment['text']}"
+                    if isinstance(segment, dict)
+                    else f"[{segment.start:.1f}s - {segment.end:.1f}s] {segment.text}"
+                )
+                for segment in group
             ]
         )
-
-        # Add clear instructions about segment numbering
-        num_segments = len(input_segments)
-        segment_instructions = (
-            f"\n\nIMPORTANT - Segment Numbering Rules:\n"
-            f"- Segment numbers are 0-indexed (first segment is 0, last segment is {num_segments - 1})\n"
-            f"- start_segment and end_segment are INCLUSIVE (both boundaries are included)\n"
-            f"- You MUST cover ALL segments from 0 to {num_segments - 1} without gaps\n"
-            f"- Each segment can only appear in ONE edited paragraph (no overlaps)\n"
-            f"- Example: If you have segments 0-4, valid ranges are: [0,0], [1,2], [3,4] or [0,4] etc.\n"
-        )
-
         full_prompt = (
             f"{edition_prompt}\n\n"
-            f"Transcript to edit (use segment numbers for start_segment and end_segment):\n"
+            "Transcript to edit:\n"
             f"{segments_text}"
-            f"{segment_instructions}"
         )
 
-        # Call LLM with structured output
-        result = None
-        structured_error = None
-        try:
-            result = await llm_with_structure.ainvoke(full_prompt)
-        except Exception as e:
-            structured_error = e
-
-        structured_output = _coerce_structured_result(result)
-        if structured_output is None or not structured_output.parts:
-            if llm_fallback is None:
-                raise structured_error or ValueError(
-                    "Structured output missing 'parts'"
-                )
-
-            # Fallback: ask for plain JSON and parse manually
-            fallback_prompt = (
-                f"{full_prompt}\n\n"
-                "Return ONLY valid JSON with this schema:\n"
-                '{"parts":[{"start_segment":0,"end_segment":0,"text":"..."}]}'
-            )
-            raw = await llm_fallback.ainvoke(fallback_prompt)
-            raw_text = raw.content if hasattr(raw, "content") else str(raw)
-            parsed = _extract_json_from_text(raw_text)
-            if parsed is None:
-                raise ValueError("Failed to parse JSON from fallback response")
-            try:
-                structured_output = EditedTranscriptGroupOutput.model_validate(parsed)
-            except ValidationError as e:
-                raise ValueError(f"Invalid fallback JSON: {e}") from e
-        result = structured_output
-
-        # Validate that there are no gaps or overlaps in segment numbers and convert to timestamps
-        used_segments = set()
-        parts_with_timestamps = []
-        
-        for part_idx, part in enumerate(result.parts):
-            # Validate segment range
-            if part.start_segment < 0 or part.end_segment >= len(group):
-                raise ValueError(
-                    f"Invalid segment range in part {part_idx}: start_segment={part.start_segment}, "
-                    f"end_segment={part.end_segment} (valid range: 0-{len(group)-1})"
-                )
-            if part.start_segment > part.end_segment:
-                raise ValueError(
-                    f"Invalid range in part {part_idx}: start_segment ({part.start_segment}) must be <= end_segment ({part.end_segment})"
-                )
-            
-            # Check for overlaps (segments already used by another part)
-            part_segments = set(range(part.start_segment, part.end_segment + 1))
-            overlap = part_segments & used_segments
-            if overlap:
-                raise ValueError(
-                    f"Overlap detected in part {part_idx}: segments {sorted(overlap)} are already covered by another part. "
-                    f"This part covers segments {part.start_segment}-{part.end_segment}."
-                )
-            
-            # Track used segments
-            used_segments.update(part_segments)
-            
-            # Convert segment numbers to timestamps
-            start_seg = input_segments[part.start_segment]
-            end_seg = input_segments[part.end_segment]
-            
-            # Store timestamps separately (Pydantic models don't allow arbitrary attributes)
-            # We'll return a tuple: (EditedParagraphOutput, start_time, end_time)
-            parts_with_timestamps.append((part, start_seg.start, end_seg.end))
-        
-        # Check for gaps (missing segments)
-        expected_segments = set(range(len(group)))
-        missing_segments = expected_segments - used_segments
-        if missing_segments:
-            raise ValueError(
-                f"Gap in segment coverage: segments {sorted(missing_segments)} are not covered by any edited part. "
-                f"All segments from 0 to {len(group)-1} must be covered exactly once."
-            )
-
-        # Log statistics
-        logger.info(
-            f"Processed group: {len(group)} segments -> {len(parts_with_timestamps)} edited parts"
-        )
-
-        return parts_with_timestamps
+        response = await llm.ainvoke(full_prompt)
+        markdown = response.content if hasattr(response, "content") else str(response)
+        markdown = markdown.strip()
+        if not markdown:
+            raise ValueError("Edition output is empty")
+        return markdown
 
     except Exception as e:
         logger.error(f"Error editing segment group: {e}", exc_info=True)
-        # Return single part with original text concatenated on error
-        # Cover all segments (0 to len(group)-1)
-        start_time = group[0]["start"] if isinstance(group[0], dict) else group[0].start
-        end_time = group[-1]["end"] if isinstance(group[-1], dict) else group[-1].end
-        combined_text = " ".join(
+        # Return original text concatenated on error.
+        return " ".join(
             [seg["text"] if isinstance(seg, dict) else seg.text for seg in group]
         )
-
-        part = EditedParagraphOutput(
-            start_segment=0,
-            end_segment=len(group) - 1,
-            text=combined_text
-        )
-        # Return tuple with timestamps
-        return [(part, start_time, end_time)]
 
 
 async def edit_transcript_async(
@@ -438,12 +236,9 @@ async def edit_transcript_async(
 
         if not edition_prompt:
             edition_prompt = (
-                "Please rewrite the following transcript in a clear, written style while maintaining the original meaning and flow. "
-                "For each edited part, specify start_segment and end_segment (segment numbers, 0-indexed, INCLUSIVE boundaries) "
-                "to indicate which segments are covered by that part. "
-                "IMPORTANT: All segments must be covered exactly once without gaps or overlaps. "
-                "Each segment number can only appear in one edited part. "
-                "Focus only on rewriting the text - do not extract or mention sources."
+                "Rewrite the transcript in clean written language while preserving meaning. "
+                "Return only the edited text in Markdown format. "
+                "Do not include JSON, metadata, timestamps, or source extraction."
             )
 
         edition_prompt_max_tokens = (
@@ -487,17 +282,6 @@ async def edit_transcript_async(
         else:
             llm = get_llm_model(task_name="edition", max_tokens=edition_prompt_max_tokens)
 
-        # Add structured output (include_raw helps recover tool calls for Anthropic)
-        edition_provider = (
-            edition_model_preset.provider
-            if edition_model_preset
-            else edition_config.get("provider", "")
-        )
-        include_raw = edition_provider.lower() == "anthropic"
-        llm_with_structure = llm.with_structured_output(
-            EditedTranscriptGroupOutput, include_raw=include_raw
-        )
-
         if words_per_group <= 0:
             raise ValueError("words_per_group must be a positive integer")
 
@@ -534,30 +318,26 @@ async def edit_transcript_async(
         async def process_with_semaphore(group):
             async with semaphore:
                 return await edit_segment_group_with_retry(
-                    group, llm_with_structure, edition_prompt, llm_fallback=llm
+                    group, llm, edition_prompt
                 )
 
         # Process all groups in parallel (with concurrency limit)
         tasks = [process_with_semaphore(group) for group in segment_groups]
         results = await asyncio.gather(*tasks)
 
-        # Flatten results - each result is a list of tuples: (EditedParagraphOutput, start_time, end_time)
-        all_edited_parts = []
-        for group_result in results:
-            all_edited_parts.extend(group_result)
-        # Convert to EditedParagraph model objects (without sources - they will be extracted separately)
-        edited_parts = []
-        for part_tuple in all_edited_parts:
-            # Unpack the tuple: (EditedParagraphOutput, start_time, end_time)
-            part, start_time, end_time = part_tuple
+        markdown = "\n\n".join(part.strip() for part in results if isinstance(part, str) and part.strip()).strip()
+        if not markdown:
+            raise ValueError("Edited transcript markdown is empty")
 
-            edited_parts.append(
-                EditedParagraph(
-                    start=start_time, end=end_time, text=part.text, sources=[]
-                )
-            )
-
-        edited_data = [part.model_dump() for part in edited_parts]
+        edited_paragraphs = markdown_to_paragraphs(markdown)
+        if not edited_paragraphs:
+            edited_paragraphs = [markdown]
+        edited_data = build_edited_transcript_payload(
+            markdown=markdown,
+            transcript=segments,
+            sources=[[] for _ in edited_paragraphs],
+            aligned_at_iso=datetime.utcnow().isoformat(),
+        )
 
         # Save edition metadata
         edition_provider = (
@@ -598,7 +378,7 @@ async def edit_transcript_async(
 
         logger.info(
             f"Successfully edited lesson {lesson_id} transcript: "
-            f"{len(segments)} segments -> {len(edited_parts)} edited parts"
+            f"{len(segments)} segments -> {len(edited_paragraphs)} edited paragraphs"
         )
         return True
 

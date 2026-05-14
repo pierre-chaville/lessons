@@ -16,6 +16,7 @@ from config import load_config
 from .llm_utils import get_llm_model
 from models.versioning import ContentType, VersionSource
 from services.versioning import update_content
+from services.edited_transcript import edited_transcript_markdown
 import logging
 
 logger = logging.getLogger(__name__)
@@ -136,15 +137,7 @@ async def generate_summary_async(
             logger.error(f"Lesson {lesson_id} has no edited transcript to summarize")
             return False
 
-        # Combine all edited part texts into one string
-        edited_text = ""
-        for part in lesson.edited_transcript:
-            if isinstance(part, dict):
-                edited_text += part.get("text", "") + " "
-            else:
-                edited_text += part.text + " "
-
-        edited_text = edited_text.strip()
+        edited_text = edited_transcript_markdown(lesson.edited_transcript).strip()
 
         if not edited_text:
             logger.error(f"Lesson {lesson_id} has empty edited transcript")
@@ -152,7 +145,7 @@ async def generate_summary_async(
 
         logger.info(
             f"Generating summary for lesson {lesson_id} "
-            f"({len(edited_text)} characters, {len(lesson.edited_transcript)} parts)"
+            f"({len(edited_text)} characters)"
         )
 
         # Load config

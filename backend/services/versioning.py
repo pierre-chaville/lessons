@@ -15,7 +15,8 @@ from sqlmodel import Session, select
 
 from models.lesson import Lesson
 from models.versioning import ContentType, ContentVersion, VersionSource
-from schemas.lesson import EditedParagraph, Segment
+from schemas.lesson import Segment
+from services.edited_transcript import normalize_edited_transcript_payload
 from services.audit import log_event
 
 logger = logging.getLogger(__name__)
@@ -77,13 +78,7 @@ def _normalize_content(content_type: ContentType, value: Any) -> Any:
         return cleaned
 
     if content_type == ContentType.EDITED_TRANSCRIPT:
-        if isinstance(value, str):
-            value = json.loads(value)
-        if not isinstance(value, list):
-            raise ValueError("edited_transcript must be a list")
-        cleaned, removed = _strip_nul_bytes(
-            [EditedParagraph.model_validate(v).model_dump() for v in value]
-        )
+        cleaned, removed = _strip_nul_bytes(normalize_edited_transcript_payload(value))
         if removed:
             logger.warning(
                 "Removed %s NUL character(s) from %s before persistence",
@@ -451,6 +446,27 @@ def compute_diff(version_a: ContentVersion, version_b: ContentVersion) -> dict[s
             unified_diff(
                 a_text.splitlines(),
                 b_text.splitlines(),
+                fromfile=f"v{version_a.version_number}",
+                tofile=f"v{version_b.version_number}",
+                lineterm="",
+            )
+        )
+        return {"type": "text", "diff": "\n".join(lines)}
+
+    if content_type == ContentType.EDITED_TRANSCRIPT:
+        try:
+            left_payload = normalize_edited_transcript_payload(version_a.content or {})
+            right_payload = normalize_edited_transcript_payload(version_b.content or {})
+        except ValueError:
+            left_payload = version_a.content or {}
+            right_payload = version_b.content or {}
+
+        left_md = str(left_payload.get("markdown", ""))
+        right_md = str(right_payload.get("markdown", ""))
+        lines = list(
+            unified_diff(
+                left_md.splitlines(),
+                right_md.splitlines(),
                 fromfile=f"v{version_a.version_number}",
                 tofile=f"v{version_b.version_number}",
                 lineterm="",

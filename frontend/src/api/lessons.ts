@@ -25,6 +25,9 @@ export const lessonsApi = {
   update: (hashid: string, data: LessonUpdate) =>
     apiClient.patch<LessonDetail>(`/lessons/${hashid}`, data).then((r) => r.data),
 
+  realignEdited: (hashid: string) =>
+    apiClient.post<LessonDetail>(`/lessons/${hashid}/edited/realign`).then((r) => r.data),
+
   delete: (hashid: string) => apiClient.delete(`/lessons/${hashid}`),
 
   updateStatus: (hashid: string, status: LessonStatus) =>

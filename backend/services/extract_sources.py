@@ -13,9 +13,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from database import engine
 from models import Lesson
 from models.model_preset import ModelPreset
-from schemas import EditedParagraph, Source, Metadata
+from schemas import Metadata
 from config import load_config
 from .llm_utils import get_llm_model
+from services.edited_transcript import edited_transcript_markdown, markdown_to_paragraphs
 import crud
 import logging
 
@@ -391,17 +392,19 @@ async def extract_sources_async(
         # Add structured output with the config-based model
         llm_with_structure = llm.with_structured_output(SourceExtractionOutputModel)
 
-        # Convert edited_transcript to EditedParagraph objects
-        edited_parts = [
-            EditedParagraph(**part_dict) for part_dict in lesson.edited_transcript
-        ]
+        # Build paragraph list from edited markdown payload.
+        edited_markdown = edited_transcript_markdown(lesson.edited_transcript)
+        paragraph_texts = markdown_to_paragraphs(edited_markdown)
+        if not paragraph_texts:
+            logger.error(f"Lesson {lesson_id} has empty edited markdown to extract sources from")
+            return False
 
         # Group paragraphs by word count
         words_per_group = extraction_config.get("words_per_group", 1000)
         paragraph_inputs: List[EditedParagraphInput] = []
-        for idx, part in enumerate(edited_parts):
+        for idx, text in enumerate(paragraph_texts):
             paragraph_inputs.append(
-                EditedParagraphInput(paragraph_number=idx, text=part.text)
+                EditedParagraphInput(paragraph_number=idx, text=text)
             )
 
         paragraph_groups: List[List[EditedParagraphInput]] = []
@@ -419,7 +422,7 @@ async def extract_sources_async(
             paragraph_groups.append(current_group)
 
         logger.info(
-            f"Extracting sources from lesson {lesson_id}: {len(edited_parts)} edited paragraphs "
+            f"Extracting sources from lesson {lesson_id}: {len(paragraph_texts)} edited paragraphs "
             f"in {len(paragraph_groups)} groups (~{words_per_group} words/group) "
             f"with max concurrency {max_concurrency}"
         )
@@ -444,7 +447,7 @@ async def extract_sources_async(
         total_sources = 0
         for group_sources in results:
             for src in group_sources:
-                if src.paragraph_number < 0 or src.paragraph_number >= len(edited_parts):
+                if src.paragraph_number < 0 or src.paragraph_number >= len(paragraph_texts):
                     logger.warning(
                         "Skipping source with invalid paragraph_number %s",
                         src.paragraph_number,
@@ -481,7 +484,7 @@ async def extract_sources_async(
 
         logger.info(
             f"Successfully extracted sources from lesson {lesson_id}: "
-            f"{total_sources} sources found across {len(edited_parts)} edited paragraphs"
+            f"{total_sources} sources found across {len(paragraph_texts)} edited paragraphs"
         )
         return True
 

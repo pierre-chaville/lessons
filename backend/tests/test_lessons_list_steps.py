@@ -36,7 +36,14 @@ def test_step_flags_are_computed_independently_from_data() -> None:
     with _session() as session:
         lesson = _lesson(
             session,
-            edited_transcript=[{"start": 0.0, "end": 5.0, "text": "Edited"}],
+            edited_transcript={
+                "markdown": "Edited",
+                "sources": [[]],
+                "alignment": [],
+                "transcript_hash": None,
+                "markdown_hash": None,
+                "aligned_at": None,
+            },
             summary="Final summary",
             process_status="edition",
         )

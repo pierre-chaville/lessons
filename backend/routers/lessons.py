@@ -17,6 +17,7 @@ from schemas.lesson import (
 )
 from services import lessons as lesson_service
 from services import pdf as pdf_service
+from services.edited_transcript import edited_transcript_markdown
 from services.audit import get_lesson_audit_log
 from services.versioning import (
     ContentType,
@@ -177,6 +178,22 @@ def update_lesson(
     _require_lesson_access(lesson_id, claims, session)
     return lesson_service.update_lesson_data(
         lesson_id, lesson_data, session, assigned_by=claims.get("sub"),
+    )
+
+
+@router.post("/{lesson_hashid}/edited/realign", response_model=LessonResponse)
+def realign_lesson_edited_markdown(
+    lesson_hashid: str,
+    session: Session = Depends(get_session),
+    claims: Dict[str, Any] = Depends(require_roles(["editor", "publisher", "admin"])),
+):
+    """Refresh edited markdown alignment from the current transcript."""
+    lesson_id = decode_id(lesson_hashid)
+    _require_lesson_access(lesson_id, claims, session)
+    return lesson_service.realign_edited_markdown(
+        lesson_id=lesson_id,
+        session=session,
+        actor={"sub": claims.get("sub"), "role": _extract_role(claims)},
     )
 
 
@@ -426,7 +443,7 @@ def get_lesson_edited_transcript_pdf(
     lesson = crud.get_lesson(session, lesson_id)
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
-    if not lesson.edited_transcript or len(lesson.edited_transcript) == 0:
+    if not edited_transcript_markdown(lesson.edited_transcript).strip():
         raise HTTPException(status_code=404, detail="No edited transcript available")
 
     pdf_bytes, filename = pdf_service.generate_edited_pdf(lesson, session)
@@ -444,7 +461,7 @@ def get_lesson_sources_pdf(lesson_hashid: str, session: Session = Depends(get_se
     lesson = crud.get_lesson(session, lesson_id)
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
-    if not lesson.edited_transcript or len(lesson.edited_transcript) == 0:
+    if not edited_transcript_markdown(lesson.edited_transcript).strip():
         raise HTTPException(status_code=404, detail="No sources available")
 
     pdf_bytes, filename = pdf_service.generate_sources_pdf(lesson, session)
@@ -464,7 +481,7 @@ def get_lesson_detailed_sources_pdf(
     lesson = crud.get_lesson(session, lesson_id)
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
-    if not lesson.edited_transcript or len(lesson.edited_transcript) == 0:
+    if not edited_transcript_markdown(lesson.edited_transcript).strip():
         raise HTTPException(status_code=404, detail="No sources available")
 
     pdf_bytes, filename = pdf_service.generate_detailed_sources_pdf(lesson, session)

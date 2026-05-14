@@ -206,7 +206,16 @@ def test_pipeline_update_handles_legacy_string_edited_transcript() -> None:
             session=session,
             lesson_id=lesson.id,
             content_type=ContentType.EDITED_TRANSCRIPT,
-            new_content=[{"start": 0.0, "end": 1.0, "text": "new", "sources": []}],
+            new_content={
+                "markdown": "new",
+                "sources": [[]],
+                "alignment": [
+                    {"start": 0.0, "end": 1.0, "match_score": 1.0, "start_index": 0, "end_index": 0}
+                ],
+                "transcript_hash": "abc",
+                "markdown_hash": "def",
+                "aligned_at": datetime.utcnow().isoformat(),
+            },
             actor=None,
             source=VersionSource.PIPELINE,
             change_summary="pipeline rerun",
@@ -218,8 +227,8 @@ def test_pipeline_update_handles_legacy_string_edited_transcript() -> None:
         assert legacy.sealed_reason == "pipeline_rerun"
         assert updated.version_number == 2
         assert updated.is_current is True
-        assert isinstance(updated.content, list)
-        assert updated.content[0]["text"] == "new"
+        assert isinstance(updated.content, dict)
+        assert updated.content["markdown"] == "new"
 
 
 def test_update_content_strips_nul_bytes_from_edited_transcript() -> None:
@@ -229,15 +238,22 @@ def test_update_content_strips_nul_bytes_from_edited_transcript() -> None:
             session=session,
             lesson_id=lesson.id,
             content_type=ContentType.EDITED_TRANSCRIPT,
-            new_content=[
-                {"start": 0.0, "end": 1.0, "text": "abc\x00def", "sources": []}
-            ],
+            new_content={
+                "markdown": "abc\x00def",
+                "sources": [[]],
+                "alignment": [
+                    {"start": 0.0, "end": 1.0, "match_score": 1.0, "start_index": 0, "end_index": 0}
+                ],
+                "transcript_hash": None,
+                "markdown_hash": None,
+                "aligned_at": None,
+            },
             actor=None,
             source=VersionSource.PIPELINE,
             change_summary="sanitize nul bytes",
         )
         session.commit()
 
-        assert updated.content[0]["text"] == "abcdef"
+        assert updated.content["markdown"] == "abcdef"
         session.refresh(lesson)
-        assert lesson.edited_transcript[0]["text"] == "abcdef"
+        assert lesson.edited_transcript["markdown"] == "abcdef"

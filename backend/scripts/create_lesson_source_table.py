@@ -12,6 +12,7 @@ from sqlalchemy import create_engine, text
 from sqlmodel import SQLModel, Session, select
 from database import DATABASE_URL
 from models import LessonSource, Lesson
+from services.edited_transcript import normalize_edited_transcript_payload
 
 engine = create_engine(DATABASE_URL)
 
@@ -51,9 +52,12 @@ def migrate_existing_sources():
                 print(f"  Lesson {lesson.id}: already has sources in table, skipping.")
                 continue
 
+            payload = normalize_edited_transcript_payload(edited_parts)
+            sources_rows = payload.get("sources", []) or []
+
             lesson_source_count = 0
-            for para_idx, part in enumerate(edited_parts):
-                sources = part.get("sources", []) if isinstance(part, dict) else []
+            for para_idx, para_sources in enumerate(sources_rows):
+                sources = para_sources if isinstance(para_sources, list) else []
                 for src in sources:
                     ls = LessonSource(
                         lesson_id=lesson.id,

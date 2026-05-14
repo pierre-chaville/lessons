@@ -260,6 +260,9 @@ def _booklet_pdf_language() -> str:
 
 
 def _stringify_transcript_like(raw: Any) -> str:
+    if isinstance(raw, dict):
+        markdown = str(raw.get("markdown", "")).strip()
+        return markdown or "-"
     if not isinstance(raw, list):
         return "-"
     lines: List[str] = []

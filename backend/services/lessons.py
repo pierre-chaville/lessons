@@ -20,6 +20,11 @@ from storage import rename_audio_object, s3_enabled
 from hashid_utils import encode_id
 from models.versioning import ContentType, VersionSource
 from services.audit import log_event
+from services.edited_transcript import (
+    build_edited_transcript_payload,
+    edited_transcript_markdown,
+    normalize_edited_transcript_payload,
+)
 from services.versioning import seal_all_current_versions, update_content
 
 
@@ -60,6 +65,12 @@ def build_lesson_response(lesson: Lesson, session: Session) -> LessonResponse:
     themes = crud.get_themes_by_ids(session, theme_ids) if theme_ids else []
     db_sources = crud.get_lesson_sources(session, lesson.id)
     db_editors = crud.get_lesson_editors(session, lesson.id)
+    edited_payload = None
+    if lesson.edited_transcript:
+        try:
+            edited_payload = normalize_edited_transcript_payload(lesson.edited_transcript)
+        except ValueError:
+            edited_payload = None
     return LessonResponse(
         id=lesson.id,
         hashid=encode_id(lesson.id),
@@ -70,7 +81,7 @@ def build_lesson_response(lesson: Lesson, session: Session) -> LessonResponse:
         duration=lesson.duration,
         transcript=lesson.transcript,
         corrected_transcript=lesson.corrected_transcript,
-        edited_transcript=lesson.edited_transcript,
+        edited_transcript=edited_payload,
         brief=lesson.brief,
         summary=lesson.summary,
         status=lesson.status or "draft",
@@ -96,7 +107,7 @@ def build_lesson_list_item(lesson: Lesson, session: Session) -> LessonListRespon
 
     process_status = (lesson.process_status or "").strip()
     edition_done = bool(
-        (lesson.edited_transcript and len(lesson.edited_transcript) > 0)
+        edited_transcript_markdown(lesson.edited_transcript).strip()
         or process_status in {"edition", "sources_extraction", "sources_checking", "summary"}
     )
     sources_done = bool(
@@ -235,10 +246,11 @@ def update_lesson_data(
 
     edited_transcript_data = None
     if lesson_data.edited_transcript is not None:
-        edited_transcript_data = [
-            part.model_dump() if hasattr(part, "model_dump") else part
-            for part in lesson_data.edited_transcript
-        ]
+        edited_transcript_data = (
+            lesson_data.edited_transcript.model_dump(mode="json")
+            if hasattr(lesson_data.edited_transcript, "model_dump")
+            else lesson_data.edited_transcript
+        )
 
     lesson = crud.update_lesson(
         session,
@@ -340,3 +352,41 @@ def change_status(
     session.commit()
     session.refresh(lesson)
     return lesson
+
+
+def realign_edited_markdown(
+    lesson_id: int, session: Session, actor: Optional[dict] = None
+) -> LessonResponse:
+    """Recompute edited transcript alignment from current markdown + transcript."""
+    lesson = crud.get_lesson(session, lesson_id)
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+    if not lesson.edited_transcript:
+        raise HTTPException(status_code=404, detail="No edited transcript available")
+
+    payload = normalize_edited_transcript_payload(lesson.edited_transcript)
+    markdown = str(payload.get("markdown", "")).strip()
+    if not markdown:
+        raise HTTPException(status_code=400, detail="Edited transcript markdown is empty")
+
+    transcript = lesson.corrected_transcript or lesson.transcript
+    if not transcript:
+        raise HTTPException(status_code=400, detail="No transcript available for alignment")
+
+    refreshed_payload = build_edited_transcript_payload(
+        markdown=markdown,
+        transcript=transcript,
+        sources=payload.get("sources"),
+    )
+    update_content(
+        session=session,
+        lesson_id=lesson_id,
+        content_type=ContentType.EDITED_TRANSCRIPT,
+        new_content=refreshed_payload,
+        actor=actor,
+        source=VersionSource.HUMAN if actor else VersionSource.PIPELINE,
+        change_summary="Edited transcript alignment refreshed",
+    )
+    session.commit()
+    session.refresh(lesson)
+    return build_lesson_response(lesson, session)

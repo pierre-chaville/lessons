@@ -4,6 +4,7 @@ from typing import List
 from sqlmodel import Session
 from models import Lesson
 import crud
+from services.edited_transcript import markdown_to_paragraphs, normalize_edited_transcript_payload
 
 
 def _safe_filename(title: str) -> str:
@@ -18,6 +19,12 @@ def _edited_with_sources(lesson: Lesson, session: Session) -> List[dict]:
     parts = []
     if not lesson.edited_transcript:
         return parts
+    try:
+        payload = normalize_edited_transcript_payload(lesson.edited_transcript)
+    except ValueError:
+        return parts
+    paragraphs = markdown_to_paragraphs(payload.get("markdown", ""))
+    alignment = payload.get("alignment", []) or []
 
     db_sources = crud.get_lesson_sources(session, lesson.id)
     # Group DB sources by paragraph_index
@@ -39,12 +46,14 @@ def _edited_with_sources(lesson: Lesson, session: Session) -> List[dict]:
             "matched_text": s.matched_text,
         })
 
-    for idx, part in enumerate(lesson.edited_transcript):
-        if isinstance(part, dict):
-            p = part.copy()
-        else:
-            p = part.model_dump() if hasattr(part, "model_dump") else dict(part)
-        p["sources"] = sources_by_para.get(idx, [])
+    for idx, text in enumerate(paragraphs):
+        row = alignment[idx] if idx < len(alignment) and isinstance(alignment[idx], dict) else {}
+        p = {
+            "start": row.get("start"),
+            "end": row.get("end"),
+            "text": text,
+            "sources": sources_by_para.get(idx, []),
+        }
         parts.append(p)
 
     return parts

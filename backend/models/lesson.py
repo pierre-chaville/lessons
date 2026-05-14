@@ -8,7 +8,7 @@ import json
 
 from models.course import Course
 from schemas.common import Metadata, TranscriptMetadata
-from schemas.lesson import Segment, EditedParagraph
+from schemas.lesson import Segment
 
 
 class Lesson(SQLModel, table=True):
@@ -28,7 +28,7 @@ class Lesson(SQLModel, table=True):
     corrected_transcript: Optional[List[Segment]] = Field(
         default=None, sa_column=Column(JSON)
     )  # Mirrored from current ContentVersion. Do not write directly. Use services.versioning.update_content.
-    edited_transcript: Optional[List[EditedParagraph]] = Field(
+    edited_transcript: Optional[Dict[str, Any]] = Field(
         default=None, sa_column=Column(JSON)
     )  # Mirrored from current ContentVersion. Do not write directly. Use services.versioning.update_content.
     brief: Optional[str] = None  # Mirrored from current ContentVersion. Do not write directly. Use services.versioning.update_content.

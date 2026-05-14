@@ -2,7 +2,7 @@
 
 from enum import Enum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 from datetime import datetime
@@ -41,7 +41,28 @@ class EditedParagraph(BaseModel):
     start: float  # Start time in seconds
     end: float  # End time in seconds
     text: str  # Original text
-    sources: List[Source] = []  # kept for backward compat with JSON storage during edition
+    sources: List[Source] = Field(default_factory=list)  # kept for backward compat with legacy JSON payloads
+
+
+class EditedAlignment(BaseModel):
+    """Alignment row mapping one edited paragraph to transcript segments."""
+
+    start: Optional[float] = None
+    end: Optional[float] = None
+    match_score: float = 0.0
+    start_index: Optional[int] = None
+    end_index: Optional[int] = None
+
+
+class EditedTranscript(BaseModel):
+    """Edited transcript payload stored in lesson/content_version JSON."""
+
+    markdown: str
+    sources: List[List[Source]] = Field(default_factory=list)
+    alignment: List[EditedAlignment] = Field(default_factory=list)
+    transcript_hash: Optional[str] = None
+    markdown_hash: Optional[str] = None
+    aligned_at: Optional[datetime] = None
 
 
 class LessonCreate(BaseModel):
@@ -69,7 +90,7 @@ class LessonUpdate(BaseModel):
     duration: Optional[float] = None
     transcript: Optional[List[Segment]] = None
     corrected_transcript: Optional[List[Segment]] = None
-    edited_transcript: Optional[List[EditedParagraph]] = None
+    edited_transcript: Optional[EditedTranscript | List[EditedParagraph]] = None
     brief: Optional[str] = None
     summary: Optional[str] = None
     process_status: Optional[str] = None
@@ -191,7 +212,7 @@ class LessonResponse(BaseModel):
     duration: Optional[float]
     transcript: Optional[List[Segment]]
     corrected_transcript: Optional[List[Segment]]
-    edited_transcript: Optional[List[EditedParagraph]]
+    edited_transcript: Optional[EditedTranscript]
     brief: Optional[str]
     summary: Optional[str]
     status: str = "draft"

@@ -47,6 +47,23 @@ export interface EditedParagraph {
   sources?: Source[]  // kept for backward compat but may be empty
 }
 
+export interface EditedAlignment {
+  start: number | null
+  end: number | null
+  match_score: number
+  start_index: number | null
+  end_index: number | null
+}
+
+export interface EditedTranscript {
+  markdown: string
+  sources: Source[][]
+  alignment: EditedAlignment[]
+  transcript_hash: string | null
+  markdown_hash: string | null
+  aligned_at: string | null
+}
+
 // ── Course ────────────────────────────────────────────────────────────────────
 
 export interface Course {
@@ -138,7 +155,7 @@ export interface LessonDetail {
   duration: number | null
   transcript: Segment[] | null
   corrected_transcript: Segment[] | null
-  edited_transcript: EditedParagraph[] | null
+  edited_transcript: EditedTranscript | null
   brief: string | null
   summary: string | null
   status: LessonStatus
@@ -172,7 +189,7 @@ export interface LessonUpdate {
   duration?: number | null
   transcript?: Segment[] | null
   corrected_transcript?: Segment[] | null
-  edited_transcript?: EditedParagraph[] | null
+  edited_transcript?: EditedTranscript | null
   brief?: string | null
   summary?: string | null
   process_status?: string | null

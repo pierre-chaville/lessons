@@ -2,7 +2,16 @@
 
 from schemas.common import Metadata, TranscriptMetadata
 from schemas.source import Source, LessonSourceResponse
-from schemas.lesson import Segment, EditedParagraph, LessonCreate, LessonUpdate, LessonListResponse, LessonResponse
+from schemas.lesson import (
+    Segment,
+    EditedParagraph,
+    EditedAlignment,
+    EditedTranscript,
+    LessonCreate,
+    LessonUpdate,
+    LessonListResponse,
+    LessonResponse,
+)
 from schemas.course import CourseCreate, CourseUpdate
 from schemas.theme import ThemeCreate, ThemeUpdate
 from schemas.task import TaskCreate, TaskResponse
@@ -18,6 +27,8 @@ __all__ = [
     "LessonSourceResponse",
     "Segment",
     "EditedParagraph",
+    "EditedAlignment",
+    "EditedTranscript",
     "LessonCreate",
     "LessonUpdate",
     "LessonListResponse",

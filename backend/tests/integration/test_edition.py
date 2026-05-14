@@ -8,7 +8,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from sqlmodel import Session
 from database import engine
 from models import Lesson
-from schemas import Segment, EditedParagraph, Source
 from services import edit_transcript
 import crud
 

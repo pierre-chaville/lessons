@@ -237,6 +237,47 @@ const renderMarkdown = (markdown: string | null | undefined): string => {
   return marked(markdown) as string
 }
 
+type EditedPart = { start: number; end: number; text: string }
+
+const splitMarkdownParagraphs = (markdown: string | null | undefined): string[] => {
+  if (!markdown) return []
+  return markdown
+    .split(/\n\s*\n+/)
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0)
+}
+
+const editedParts = computed<EditedPart[]>(() => {
+  const payload = props.lesson.edited_transcript
+  if (!payload?.markdown) return []
+  const paragraphs = splitMarkdownParagraphs(payload.markdown)
+  const alignment = Array.isArray(payload.alignment) ? payload.alignment : []
+  return paragraphs.map((text, index) => {
+    const row = alignment[index]
+    return {
+      start: typeof row?.start === 'number' ? row.start : 0,
+      end: typeof row?.end === 'number' ? row.end : 0,
+      text,
+    }
+  })
+})
+
+const isEditedAlignmentStale = computed(() => {
+  const payload = props.lesson.edited_transcript
+  if (!payload?.markdown) return false
+  const paragraphs = splitMarkdownParagraphs(payload.markdown)
+  const alignment = Array.isArray(payload.alignment) ? payload.alignment : []
+  if (paragraphs.length === 0) return false
+  if (!payload.aligned_at || !payload.markdown_hash || !payload.transcript_hash) return true
+  if (alignment.length !== paragraphs.length) return true
+  return alignment.some((row) => {
+    if (!row) return true
+    const hasIndexes = typeof row.start_index === 'number' && typeof row.end_index === 'number'
+    const hasTimes = typeof row.start === 'number' && typeof row.end === 'number'
+    return !hasIndexes || !hasTimes
+  })
+})
+
 // Format seconds to MM:SS format
 const formatTimestamp = (seconds: number | null | undefined): string => {
   if (!seconds && seconds !== 0) return '00:00'
@@ -463,7 +504,7 @@ const allSources = computed(() => {
   if (!props.lesson.sources || props.lesson.sources.length === 0) return [];
   
   const typeMap = new Map();
-  const editedParts = props.lesson.edited_transcript ?? [];
+  const edited = editedParts.value;
   
   props.lesson.sources.forEach((source) => {
     const type = source.type || 'Unknown';
@@ -473,7 +514,7 @@ const allSources = computed(() => {
     }
     
     // Attach the corresponding edited paragraph for context
-    const editedPart = editedParts[source.paragraph_index] ?? null;
+    const editedPart = edited[source.paragraph_index] ?? null;
     typeMap.get(type).push({
       ...source,
       editedPart
@@ -732,7 +773,7 @@ const isEditedPartPlaying = (part: { start: number; end: number }): boolean =>
 // Get currently active edited paragraph index (for auto-scroll)
 const activeEditedParagraphIndex = computed(() => {
   if (activeView.value !== 'edited' || !isPlaying.value) return -1
-  const parts = props.lesson.edited_transcript
+  const parts = editedParts.value
   if (!parts) return -1
   return parts.findIndex(
     (part) => currentTime.value >= part.start && currentTime.value < part.end,
@@ -798,6 +839,21 @@ const downloadEditedPDF = async () => {
     triggerDownload(blob, `${props.lesson.title}_edited.pdf`)
   } catch {
     toast.error(t('lessons.downloadFailed'))
+  }
+}
+
+const isRealigningEdited = ref(false)
+const realignEditedMarkdown = async () => {
+  if (isRealigningEdited.value || !canEditLesson.value || isProcessing.value) return
+  try {
+    isRealigningEdited.value = true
+    const updated = await lessonsApi.realignEdited(props.lesson.hashid)
+    Object.assign(props.lesson, updated)
+    toast.success(t('lessons.realignSuccess'))
+  } catch {
+    toast.error(t('lessons.realignFailed'))
+  } finally {
+    isRealigningEdited.value = false
   }
 }
 
@@ -1044,7 +1100,7 @@ const deleteLesson = async () => {
 // Process option availability: depends on existing data + selected options
 const hasTranscript = computed(() => !!(props.lesson.transcript && props.lesson.transcript.length > 0))
 const hasCorrectedTranscript = computed(() => !!(props.lesson.corrected_transcript && props.lesson.corrected_transcript.length > 0))
-const hasEditedTranscript = computed(() => !!(props.lesson.edited_transcript && props.lesson.edited_transcript.length > 0))
+const hasEditedTranscript = computed(() => editedParts.value.length > 0)
 const hasSourcesExtracted = computed(() => {
   return !!(props.lesson.sources && props.lesson.sources.length > 0)
 })
@@ -1251,14 +1307,20 @@ const saveParagraph = async () => {
   if (!props.lesson.edited_transcript) return
   try {
     isSavingParagraph.value = true
-    const paragraphs = [...props.lesson.edited_transcript]
+    const paragraphs = [...editedParts.value]
     if (editingParagraphIndex.value < paragraphs.length) {
       paragraphs[editingParagraphIndex.value] = {
         ...paragraphs[editingParagraphIndex.value],
         text: editedParagraphText.value,
       }
+      const markdown = paragraphs.map((p) => p.text.trim()).filter(Boolean).join('\n\n')
       const updated = await lessonsApi.update(props.lesson.hashid, {
-        edited_transcript: paragraphs,
+        edited_transcript: {
+          ...props.lesson.edited_transcript,
+          markdown,
+          markdown_hash: null,
+          aligned_at: null,
+        },
       })
       Object.assign(props.lesson, updated)
       editingParagraphIndex.value = null
@@ -2030,6 +2092,15 @@ const saveParagraph = async () => {
                 <PrinterIcon class="h-4 w-4" />
                 {{ t('lessons.downloadPDF') }}
               </button>
+              <button
+                v-if="activeView === 'edited' && !isEditingSummary && canEditLesson && isEditedAlignmentStale"
+                @click="realignEditedMarkdown"
+                :disabled="isRealigningEdited || isProcessing"
+                class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-md transition-colors"
+              >
+                <CogIcon class="h-4 w-4" />
+                {{ isRealigningEdited ? t('lessons.realigning') : t('lessons.realignEdited') }}
+              </button>
               
               <!-- Download Sources PDF Buttons and Stats (show for sources view) -->
               <button
@@ -2381,8 +2452,26 @@ const saveParagraph = async () => {
           <div v-else-if="activeView === 'edited'">
             <!-- Toggle for side-by-side transcript -->
             <div class="flex items-center justify-end mb-4 print:hidden">
+              <div
+                v-if="isEditedAlignmentStale"
+                class="inline-flex items-center gap-2 mr-3 px-2.5 py-1 text-xs text-amber-800 dark:text-amber-200 bg-amber-100 dark:bg-amber-900/30 rounded-md"
+              >
+                <ExclamationTriangleIcon class="h-4 w-4" />
+                <span>{{ t('lessons.alignmentOutdated') }}</span>
+                <button
+                  v-if="canEditLesson"
+                  @click="realignEditedMarkdown"
+                  :disabled="isRealigningEdited || isProcessing"
+                  class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-amber-900 dark:text-amber-100 bg-amber-200 dark:bg-amber-800/60 hover:bg-amber-300 dark:hover:bg-amber-700/60 disabled:opacity-60 disabled:cursor-not-allowed rounded transition-colors"
+                >
+                  <CogIcon class="h-3.5 w-3.5" />
+                  {{ isRealigningEdited ? t('lessons.realigning') : t('lessons.realignEditedSmall') }}
+                </button>
+              </div>
               <label class="inline-flex items-center gap-2 cursor-pointer select-none">
-                <span class="text-sm text-gray-600 dark:text-gray-400">{{ t('lessons.sideBySideTranscript') }}</span>
+                <span
+                  class="text-sm text-gray-600 dark:text-gray-400"
+                >{{ t('lessons.sideBySideTranscript') }}</span>
                 <button
                   type="button"
                   role="switch"
@@ -2403,7 +2492,7 @@ const saveParagraph = async () => {
               </label>
             </div>
 
-            <div v-if="lesson.edited_transcript && lesson.edited_transcript.length > 0" class="max-h-[600px] overflow-auto scroll-smooth print:max-h-none relative">
+            <div v-if="editedParts.length > 0" class="max-h-[600px] overflow-auto scroll-smooth print:max-h-none relative">
               <!-- Sticky Now-Playing bar -->
               <div
                 v-if="isPlaying"
@@ -2434,7 +2523,7 @@ const saveParagraph = async () => {
               <!-- Side-by-side layout: one row per paragraph -->
               <div v-if="showSideBySideTranscript">
                 <div
-                  v-for="(part, index) in lesson.edited_transcript"
+                  v-for="(part, index) in editedParts"
                   :key="'sbs-' + index"
                   :data-paragraph-index="index"
                   :class="[
@@ -2579,7 +2668,7 @@ const saveParagraph = async () => {
               <!-- Standard layout (no side-by-side) -->
               <div v-else>
                 <div
-                  v-for="(part, index) in lesson.edited_transcript"
+                  v-for="(part, index) in editedParts"
                   :key="index"
                   :data-paragraph-index="index"
                   :class="[
