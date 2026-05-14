@@ -114,6 +114,7 @@ const expanded = ref<Set<number>>(new Set())
 const selectedCourseId = ref<number | null>(null)
 const panelWidth = ref(288)
 const isResizing = ref(false)
+const lessonsFetchSeq = ref(0)
 
 const MIN_PANEL_WIDTH = 240
 const MAX_PANEL_WIDTH = 560
@@ -323,17 +324,32 @@ const fetchTree = async () => {
 }
 
 const fetchLessons = async () => {
+  const requestSeq = ++lessonsFetchSeq.value
+  const selectedId = selectedCourseId.value
+  const selectedNode =
+    selectedId !== null ? findNodeById(tree.value, selectedId) : null
+
+  // If a course is selected but tree is not loaded yet, wait for tree before fetching.
+  if (selectedId !== null && !selectedNode) {
+    return
+  }
+
   try {
     loading.value = true
-    const selectedNode = selectedCourseNode.value
     if (selectedNode) {
       const ids = collectDescendantIds(selectedNode)
-      lessons.value = await lessonsApi.list({ course_ids: ids.join(',') })
+      const nextLessons = await lessonsApi.list({ course_ids: ids.join(',') })
+      if (requestSeq !== lessonsFetchSeq.value) return
+      lessons.value = nextLessons
     } else {
-      lessons.value = await lessonsApi.list()
+      const nextLessons = await lessonsApi.list()
+      if (requestSeq !== lessonsFetchSeq.value) return
+      lessons.value = nextLessons
     }
   } catch { /* silent */ } finally {
-    loading.value = false
+    if (requestSeq === lessonsFetchSeq.value) {
+      loading.value = false
+    }
   }
 }
 
