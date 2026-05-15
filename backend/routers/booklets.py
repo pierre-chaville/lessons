@@ -30,6 +30,7 @@ from schemas.booklet import (
     BookletUpdate,
 )
 from services import booklet as booklet_service
+from services import exports as export_service
 
 router = APIRouter(prefix="/booklets", tags=["Booklets"])
 
@@ -371,13 +372,23 @@ def generate_booklet(
 @router.get("/{booklet_id}/download-pdf")
 def download_booklet_pdf(
     booklet_id: int,
+    include_table_of_contents: bool = Query(True),
+    lesson_fields: Optional[List[str]] = Query(None),
+    lang: Optional[str] = Query(None),
     session: Session = Depends(get_session),
     _: Dict[str, Any] = Depends(require_roles(["editor", "publisher", "admin"])),
 ):
-    pdf_bytes, filename = booklet_service.generate_booklet_pdf(session, booklet_id)
+    pdf_bytes, filename, media_type = export_service.generate_booklet_export(
+        session=session,
+        booklet_id=booklet_id,
+        export_format="pdf",
+        include_table_of_contents=include_table_of_contents,
+        lesson_fields=lesson_fields,
+        language=lang,
+    )
     return Response(
         content=pdf_bytes,
-        media_type="application/pdf",
+        media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
@@ -385,13 +396,23 @@ def download_booklet_pdf(
 @router.get("/{booklet_id}/download-markdown")
 def download_booklet_markdown(
     booklet_id: int,
+    include_table_of_contents: bool = Query(True),
+    lesson_fields: Optional[List[str]] = Query(None),
+    lang: Optional[str] = Query(None),
     session: Session = Depends(get_session),
     _: Dict[str, Any] = Depends(require_roles(["editor", "publisher", "admin"])),
 ):
-    markdown_bytes, filename = booklet_service.generate_booklet_markdown(session, booklet_id)
+    markdown_bytes, filename, media_type = export_service.generate_booklet_export(
+        session=session,
+        booklet_id=booklet_id,
+        export_format="md",
+        include_table_of_contents=include_table_of_contents,
+        lesson_fields=lesson_fields,
+        language=lang,
+    )
     return Response(
         content=markdown_bytes,
-        media_type="text/markdown; charset=utf-8",
+        media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
@@ -399,13 +420,52 @@ def download_booklet_markdown(
 @router.get("/{booklet_id}/download-docx")
 def download_booklet_docx(
     booklet_id: int,
+    include_table_of_contents: bool = Query(True),
+    lesson_fields: Optional[List[str]] = Query(None),
+    lang: Optional[str] = Query(None),
     session: Session = Depends(get_session),
     _: Dict[str, Any] = Depends(require_roles(["editor", "publisher", "admin"])),
 ):
-    docx_bytes, filename = booklet_service.generate_booklet_docx(session, booklet_id)
+    docx_bytes, filename, media_type = export_service.generate_booklet_export(
+        session=session,
+        booklet_id=booklet_id,
+        export_format="docx",
+        include_table_of_contents=include_table_of_contents,
+        lesson_fields=lesson_fields,
+        language=lang,
+    )
     return Response(
         content=docx_bytes,
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/{booklet_id}/exports/{format}")
+def export_booklet(
+    booklet_id: int,
+    format: str,
+    include_table_of_contents: bool = Query(True),
+    lesson_fields: Optional[List[str]] = Query(None),
+    lang: Optional[str] = Query(None),
+    session: Session = Depends(get_session),
+    _: Dict[str, Any] = Depends(require_roles(["editor", "publisher", "admin"])),
+):
+    """Generate booklet export in md/docx/pdf."""
+    if format not in {"md", "docx", "pdf"}:
+        raise HTTPException(status_code=400, detail="format must be one of: md, docx, pdf")
+
+    payload, filename, media_type = export_service.generate_booklet_export(
+        session=session,
+        booklet_id=booklet_id,
+        export_format=format,  # type: ignore[arg-type]
+        include_table_of_contents=include_table_of_contents,
+        lesson_fields=lesson_fields,
+        language=lang,
+    )
+    return Response(
+        content=payload,
+        media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 

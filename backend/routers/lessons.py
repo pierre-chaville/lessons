@@ -5,7 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlmodel import Session, select
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Literal
 
 import crud
 from auth import require_auth, require_roles, _extract_roles, _extract_role
@@ -16,8 +16,7 @@ from schemas.lesson import (
     VersionResponse, RestoreVersionRequest, CheckpointRequest, AuditLogResponse,
 )
 from services import lessons as lesson_service
-from services import pdf as pdf_service
-from services.edited_transcript import edited_transcript_markdown
+from services import exports as export_service
 from services.audit import get_lesson_audit_log
 from services.versioning import (
     ContentType,
@@ -399,22 +398,69 @@ def get_lesson_audio_url(lesson_hashid: str, session: Session = Depends(get_sess
     return {"url": presigned_url}
 
 
-# ── PDF exports ───────────────────────────────────────────────────────────────
+# ── Exports ───────────────────────────────────────────────────────────────────
+
+@router.get("/{lesson_hashid}/exports/{export_type}")
+def export_lesson(
+    lesson_hashid: str,
+    export_type: str,
+    format: str = Query("pdf", regex="^(md|docx|pdf)$"),  # noqa: A002
+    include_fields: Optional[List[str]] = Query(None),
+    transcript_type: Literal["corrected", "initial"] = Query("corrected"),
+    lang: Optional[str] = Query(None),
+    session: Session = Depends(get_session),
+):
+    """Generate lesson export (summary, edited, transcript) in md/docx/pdf."""
+    lesson_id = decode_id(lesson_hashid)
+    lesson = crud.get_lesson(session, lesson_id)
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+
+    if export_type not in {"summary", "edited", "transcript", "sources", "sources_detailed"}:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Unsupported export_type. Allowed values: "
+                "summary, edited, transcript, sources, sources_detailed"
+            ),
+        )
+
+    payload, filename, media_type = export_service.generate_lesson_export(
+        session=session,
+        lesson=lesson,
+        export_type=export_type,
+        export_format=format,  # type: ignore[arg-type]
+        include_fields=include_fields,
+        transcript_type=transcript_type,
+        language=lang,
+    )
+    return Response(
+        content=payload,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 @router.get("/{lesson_hashid}/pdf/summary")
-def get_lesson_summary_pdf(lesson_hashid: str, session: Session = Depends(get_session)):
+def get_lesson_summary_pdf(
+    lesson_hashid: str,
+    include_fields: Optional[List[str]] = Query(None),
+    session: Session = Depends(get_session),
+):
     """Generate and download PDF of the lesson summary."""
     lesson_id = decode_id(lesson_hashid)
     lesson = crud.get_lesson(session, lesson_id)
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
-    if not lesson.summary:
-        raise HTTPException(status_code=404, detail="No summary available")
-
-    pdf_bytes, filename = pdf_service.generate_summary_pdf(lesson)
+    pdf_bytes, filename, media_type = export_service.generate_lesson_export(
+        session=session,
+        lesson=lesson,
+        export_type="summary",
+        export_format="pdf",
+        include_fields=include_fields,
+    )
     return Response(
         content=pdf_bytes,
-        media_type="application/pdf",
+        media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
@@ -423,6 +469,7 @@ def get_lesson_summary_pdf(lesson_hashid: str, session: Session = Depends(get_se
 def get_lesson_transcript_pdf(
     lesson_hashid: str,
     transcript_type: str = Query("corrected", regex="^(corrected|initial)$"),
+    include_fields: Optional[List[str]] = Query(None),
     session: Session = Depends(get_session),
 ):
     """Generate and download PDF of the lesson transcript (without timestamps)."""
@@ -431,58 +478,62 @@ def get_lesson_transcript_pdf(
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
 
-    transcript = (
-        lesson.corrected_transcript
-        if transcript_type == "corrected"
-        else lesson.transcript
+    pdf_bytes, filename, media_type = export_service.generate_lesson_export(
+        session=session,
+        lesson=lesson,
+        export_type="transcript",
+        export_format="pdf",
+        include_fields=include_fields,
+        transcript_type=transcript_type,  # type: ignore[arg-type]
     )
-    if not transcript or len(transcript) == 0:
-        raise HTTPException(
-            status_code=404, detail=f"No {transcript_type} transcript available"
-        )
-
-    pdf_bytes, filename = pdf_service.generate_transcript_pdf(lesson, transcript_type)
     return Response(
         content=pdf_bytes,
-        media_type="application/pdf",
+        media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
 @router.get("/{lesson_hashid}/pdf/edited")
 def get_lesson_edited_transcript_pdf(
-    lesson_hashid: str, session: Session = Depends(get_session)
+    lesson_hashid: str,
+    include_fields: Optional[List[str]] = Query(None),
+    session: Session = Depends(get_session),
 ):
     """Generate and download PDF of the edited transcript with sources."""
     lesson_id = decode_id(lesson_hashid)
     lesson = crud.get_lesson(session, lesson_id)
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
-    if not edited_transcript_markdown(lesson.edited_transcript).strip():
-        raise HTTPException(status_code=404, detail="No edited transcript available")
-
-    pdf_bytes, filename = pdf_service.generate_edited_pdf(lesson, session)
+    pdf_bytes, filename, media_type = export_service.generate_lesson_export(
+        session=session,
+        lesson=lesson,
+        export_type="edited",
+        export_format="pdf",
+        include_fields=include_fields,
+    )
     return Response(
         content=pdf_bytes,
-        media_type="application/pdf",
+        media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
 @router.get("/{lesson_hashid}/pdf/sources")
 def get_lesson_sources_pdf(lesson_hashid: str, session: Session = Depends(get_session)):
-    """Generate and download PDF of all sources grouped by author."""
+    """Generate and download PDF of all sources grouped by source type."""
     lesson_id = decode_id(lesson_hashid)
     lesson = crud.get_lesson(session, lesson_id)
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
-    if not edited_transcript_markdown(lesson.edited_transcript).strip():
-        raise HTTPException(status_code=404, detail="No sources available")
-
-    pdf_bytes, filename = pdf_service.generate_sources_pdf(lesson, session)
+    pdf_bytes, filename, media_type = export_service.generate_lesson_export(
+        session=session,
+        lesson=lesson,
+        export_type="sources",
+        export_format="pdf",
+    )
     return Response(
         content=pdf_bytes,
-        media_type="application/pdf",
+        media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
@@ -491,17 +542,19 @@ def get_lesson_sources_pdf(lesson_hashid: str, session: Session = Depends(get_se
 def get_lesson_detailed_sources_pdf(
     lesson_hashid: str, session: Session = Depends(get_session)
 ):
-    """Generate and download detailed PDF of all sources with full information."""
+    """Generate and download detailed PDF of all sources."""
     lesson_id = decode_id(lesson_hashid)
     lesson = crud.get_lesson(session, lesson_id)
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
-    if not edited_transcript_markdown(lesson.edited_transcript).strip():
-        raise HTTPException(status_code=404, detail="No sources available")
-
-    pdf_bytes, filename = pdf_service.generate_detailed_sources_pdf(lesson, session)
+    pdf_bytes, filename, media_type = export_service.generate_lesson_export(
+        session=session,
+        lesson=lesson,
+        export_type="sources_detailed",
+        export_format="pdf",
+    )
     return Response(
         content=pdf_bytes,
-        media_type="application/pdf",
+        media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

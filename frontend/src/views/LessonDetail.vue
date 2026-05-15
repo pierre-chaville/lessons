@@ -22,6 +22,8 @@ import {
   MagnifyingGlassIcon,
   ChartBarIcon,
   StopIcon,
+  ArrowDownTrayIcon,
+  ArrowUpTrayIcon,
   ClockIcon as HistoryIcon,
 } from '@heroicons/vue/24/outline'
 import { SpeakerWaveIcon } from '@heroicons/vue/24/solid'
@@ -38,6 +40,7 @@ import { usePermissions } from '@/composables/usePermissions'
 import { useAuth } from '@/composables/useAuth'
 import VersionHistoryPanel from '@/components/VersionHistoryPanel.vue'
 import MilkdownEditor from '@/components/MilkdownEditor.vue'
+import LessonDocumentModal from '@/components/LessonDocumentModal.vue'
 import type {
   LessonDetail as LessonDetailType,
   LessonSource,
@@ -63,7 +66,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{ (e: 'close'): void }>()
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const toast = useToast()
 const { can, role } = usePermissions()
 const { user } = useAuth()
@@ -88,6 +91,55 @@ const currentSegment = ref<{ start: number; end: number } | null>(null)
 const courses = ref<Course[]>([])
 const themes = ref<Theme[]>([])
 const users = ref<ClerkUser[]>([])
+
+type LessonTabExportView = 'summary' | 'edited' | 'transcript'
+type LessonExportFormat = 'pdf' | 'docx' | 'md'
+type DocumentModalMode = 'export' | 'import'
+type LessonExportPreferences = {
+  format: LessonExportFormat
+  includeFields: string[]
+}
+
+const EXPORT_PREFERENCES_STORAGE_KEY = 'lessonExportPreferences'
+const FALLBACK_EXPORT_FIELDS = ['title', 'date', 'duration', 'course_name', 'themes', 'brief']
+
+const isLessonExportFormat = (value: unknown): value is LessonExportFormat =>
+  value === 'pdf' || value === 'docx' || value === 'md'
+
+const loadLessonExportPreferences = (): LessonExportPreferences => {
+  if (typeof window === 'undefined') {
+    return { format: 'docx', includeFields: [...FALLBACK_EXPORT_FIELDS] }
+  }
+  try {
+    const raw = window.localStorage.getItem(EXPORT_PREFERENCES_STORAGE_KEY)
+    if (!raw) return { format: 'docx', includeFields: [...FALLBACK_EXPORT_FIELDS] }
+    const parsed = JSON.parse(raw) as Partial<LessonExportPreferences>
+    const format = isLessonExportFormat(parsed.format) ? parsed.format : 'docx'
+    const includeFields = Array.isArray(parsed.includeFields)
+      ? parsed.includeFields.filter((field): field is string => typeof field === 'string')
+      : [...FALLBACK_EXPORT_FIELDS]
+    return { format, includeFields: includeFields.length ? includeFields : [...FALLBACK_EXPORT_FIELDS] }
+  } catch {
+    return { format: 'docx', includeFields: [...FALLBACK_EXPORT_FIELDS] }
+  }
+}
+
+const saveLessonExportPreferences = (preferences: LessonExportPreferences) => {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(EXPORT_PREFERENCES_STORAGE_KEY, JSON.stringify(preferences))
+  } catch {
+    // Ignore storage errors (private mode / quota / browser restrictions).
+  }
+}
+
+const showLessonDocumentModal = ref(false)
+const lessonDocumentMode = ref<DocumentModalMode>('export')
+const lessonDocumentView = ref<LessonTabExportView>('summary')
+const isSubmittingLessonDocument = ref(false)
+const lessonExportPreferences = ref<LessonExportPreferences>(loadLessonExportPreferences())
+const defaultLessonExportFormat = computed<LessonExportFormat>(() => lessonExportPreferences.value.format)
+const defaultLessonExportFields = computed<string[]>(() => lessonExportPreferences.value.includeFields)
 
 // Toggle between summary, corrected transcript, and initial transcript
 const activeView = ref('summary')
@@ -910,32 +962,60 @@ const triggerDownload = (blob: Blob, filename: string) => {
   window.URL.revokeObjectURL(url)
 }
 
-const downloadSummaryPDF = async () => {
-  try {
-    const blob = await lessonsApi.getPdfSummary(props.lesson.hashid)
-    triggerDownload(blob, `${props.lesson.title}_summary.pdf`)
-  } catch {
-    toast.error(t('lessons.downloadFailed'))
-  }
+const openLessonDocumentModal = (mode: DocumentModalMode, view: LessonTabExportView) => {
+  lessonDocumentMode.value = mode
+  lessonDocumentView.value = view
+  showLessonDocumentModal.value = true
 }
 
-const downloadTranscriptPDF = async () => {
+const closeLessonDocumentModal = () => {
+  if (isSubmittingLessonDocument.value) return
+  showLessonDocumentModal.value = false
+}
+
+const tabExportType = computed(() => {
+  if (lessonDocumentView.value === 'summary') return 'summary' as const
+  if (lessonDocumentView.value === 'edited') return 'edited' as const
+  return 'transcript' as const
+})
+
+const tabExportFilenameSuffix = computed(() => {
+  if (lessonDocumentView.value === 'summary') return 'summary'
+  if (lessonDocumentView.value === 'edited') return 'edited_version'
+  return 'transcript'
+})
+
+const handleLessonExport = async (payload: { format: LessonExportFormat; includeFields: string[] }) => {
+  if (isSubmittingLessonDocument.value) return
   try {
+    isSubmittingLessonDocument.value = true
+    const updatedPreferences: LessonExportPreferences = {
+      format: payload.format,
+      includeFields: [...payload.includeFields],
+    }
+    lessonExportPreferences.value = updatedPreferences
+    saveLessonExportPreferences(updatedPreferences)
     const transcriptType = props.lesson.corrected_transcript ? 'corrected' : 'initial'
-    const blob = await lessonsApi.getPdfTranscript(props.lesson.hashid, transcriptType)
-    triggerDownload(blob, `${props.lesson.title}_transcript.pdf`)
+    const blob = await lessonsApi.exportDocument(props.lesson.hashid, tabExportType.value, {
+      format: payload.format,
+      include_fields: payload.includeFields,
+      transcript_type: transcriptType,
+      lang: locale.value,
+    })
+    const extension = payload.format
+    const filename = `${props.lesson.title}_${tabExportFilenameSuffix.value}.${extension}`
+    triggerDownload(blob, filename)
+    showLessonDocumentModal.value = false
   } catch {
-    toast.error(t('lessons.downloadFailed'))
+    toast.error(t('lessons.exportFailed'))
+  } finally {
+    isSubmittingLessonDocument.value = false
   }
 }
 
-const downloadEditedPDF = async () => {
-  try {
-    const blob = await lessonsApi.getPdfEdited(props.lesson.hashid)
-    triggerDownload(blob, `${props.lesson.title}_edited.pdf`)
-  } catch {
-    toast.error(t('lessons.downloadFailed'))
-  }
+const handleLessonImport = async (_payload: { file: File | null }) => {
+  toast.info(t('lessons.importNotImplementedYet'))
+  showLessonDocumentModal.value = false
 }
 
 const isRealigningEdited = ref(false)
@@ -2174,14 +2254,22 @@ const saveParagraph = async () => {
             </div>
             
             <div class="flex items-center gap-3">
-              <!-- Download PDF Button (show for summary view) -->
+              <!-- Export / Import buttons (summary tab) -->
               <button
                 v-if="activeView === 'summary' && !isEditingSummary"
-                @click="downloadSummaryPDF"
+                @click="openLessonDocumentModal('export', 'summary')"
                 class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
               >
-                <PrinterIcon class="h-4 w-4" />
-                {{ t('lessons.downloadPDF') }}
+                <ArrowDownTrayIcon class="h-4 w-4" />
+                {{ t('lessons.exportAction') }}
+              </button>
+              <button
+                v-if="activeView === 'summary' && !isEditingSummary"
+                @click="openLessonDocumentModal('import', 'summary')"
+                class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
+              >
+                <ArrowUpTrayIcon class="h-4 w-4" />
+                {{ t('lessons.importAction') }}
               </button>
               <button
                 v-if="activeView === 'summary' && canEditLesson && isSummaryAlignmentStale"
@@ -2193,24 +2281,40 @@ const saveParagraph = async () => {
                 {{ isRealigningSummary ? t('lessons.realigning') : t('lessons.realignSummary') }}
               </button>
               
-              <!-- Download Transcript PDF Button (show for transcript view) -->
+              <!-- Export / Import buttons (transcript tab) -->
               <button
                 v-if="activeView === 'transcript' && !isEditingSummary"
-                @click="downloadTranscriptPDF"
+                @click="openLessonDocumentModal('export', 'transcript')"
                 class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
               >
-                <PrinterIcon class="h-4 w-4" />
-                {{ t('lessons.downloadPDF') }}
+                <ArrowDownTrayIcon class="h-4 w-4" />
+                {{ t('lessons.exportAction') }}
+              </button>
+              <button
+                v-if="activeView === 'transcript' && !isEditingSummary"
+                @click="openLessonDocumentModal('import', 'transcript')"
+                class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
+              >
+                <ArrowUpTrayIcon class="h-4 w-4" />
+                {{ t('lessons.importAction') }}
               </button>
               
-              <!-- Download Edited PDF Button (show for edited view) -->
+              <!-- Export / Import buttons (edited tab) -->
               <button
                 v-if="activeView === 'edited' && !isEditingSummary"
-                @click="downloadEditedPDF"
+                @click="openLessonDocumentModal('export', 'edited')"
                 class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
               >
-                <PrinterIcon class="h-4 w-4" />
-                {{ t('lessons.downloadPDF') }}
+                <ArrowDownTrayIcon class="h-4 w-4" />
+                {{ t('lessons.exportAction') }}
+              </button>
+              <button
+                v-if="activeView === 'edited' && !isEditingSummary"
+                @click="openLessonDocumentModal('import', 'edited')"
+                class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
+              >
+                <ArrowUpTrayIcon class="h-4 w-4" />
+                {{ t('lessons.importAction') }}
               </button>
               <button
                 v-if="activeView === 'edited' && canEditLesson && !isProcessing"
@@ -3424,6 +3528,18 @@ const saveParagraph = async () => {
         </DialogPanel>
       </div>
     </Dialog>
+
+    <LessonDocumentModal
+      :is-open="showLessonDocumentModal"
+      :mode="lessonDocumentMode"
+      :view-type="lessonDocumentView"
+      :submitting="isSubmittingLessonDocument"
+      :default-format="defaultLessonExportFormat"
+      :default-fields="defaultLessonExportFields"
+      @close="closeLessonDocumentModal"
+      @export="handleLessonExport"
+      @import="handleLessonImport"
+    />
   </div>
 </template>
 

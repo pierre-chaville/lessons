@@ -75,6 +75,32 @@ export const lessonsApi = {
   getAudioUrl: (hashid: string) =>
     apiClient.get<AudioUrlResponse>(`/lessons/${hashid}/audio-url`).then((r) => r.data),
 
+  exportDocument: (
+    hashid: string,
+    exportType: 'summary' | 'edited' | 'transcript',
+    options: {
+      format: 'md' | 'docx' | 'pdf'
+      include_fields?: string[]
+      transcript_type?: 'initial' | 'corrected'
+      lang?: string
+    },
+  ) => {
+    const query = new URLSearchParams()
+    query.append('format', options.format)
+    ;(options.include_fields ?? []).forEach((field) => query.append('include_fields', field))
+    if (exportType === 'transcript' && options.transcript_type) {
+      query.append('transcript_type', options.transcript_type)
+    }
+    if (options.lang) {
+      query.append('lang', options.lang)
+    }
+    return apiClient
+      .get<Blob>(`/lessons/${hashid}/exports/${exportType}?${query.toString()}`, {
+        responseType: 'blob',
+      })
+      .then((r) => r.data)
+  },
+
   // ── PDF downloads — return raw Blob data ────────────────────────────────────
 
   getPdfSummary: (hashid: string) =>
