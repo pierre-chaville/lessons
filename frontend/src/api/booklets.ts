@@ -8,6 +8,8 @@ import type {
   BookletListResponse,
   BookletStatus,
   BookletUpdate,
+  BookletTasksLaunchRequest,
+  BookletTasksLaunchResponse,
 } from './types'
 
 export const bookletsApi = {
@@ -91,5 +93,10 @@ export const bookletsApi = {
   downloadDocx: (id: number, lang?: string) =>
     apiClient
       .get<Blob>(`/booklets/${id}/exports/docx`, { params: lang ? { lang } : undefined, responseType: 'blob' })
+      .then((r) => r.data),
+
+  launchTasks: (id: number, data: BookletTasksLaunchRequest) =>
+    apiClient
+      .post<BookletTasksLaunchResponse>(`/booklets/${id}/tasks`, data)
       .then((r) => r.data),
 }

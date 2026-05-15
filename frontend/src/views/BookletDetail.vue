@@ -6,6 +6,7 @@ import {
   ArrowUturnLeftIcon,
   CheckCircleIcon,
   ClockIcon,
+  CogIcon,
   DocumentTextIcon,
   PlusIcon,
   PencilIcon,
@@ -14,14 +15,18 @@ import {
 import { bookletsApi } from '@/api/booklets'
 import { lessonsApi } from '@/api/lessons'
 import { coursesApi } from '@/api/courses'
+import { configApi } from '@/api/config'
 import type {
   BookletDetail,
   LessonListItem,
   CourseTreeNode,
   BookletItem,
   BookletTemplateField,
+  NamedPrompt,
+  AppConfig,
 } from '@/api/types'
 import CourseTreeItem from '@/components/CourseTreeItem.vue'
+import { useToast } from '@/composables/useToast'
 import { usePermissions } from '@/composables/usePermissions'
 
 const props = defineProps<{
@@ -33,6 +38,7 @@ const emit = defineEmits<{
 }>()
 
 const { t, locale } = useI18n()
+const toast = useToast()
 const templateFieldOptions: BookletTemplateField[] = [
   'title',
   'date',
@@ -60,10 +66,33 @@ const expandedCourses = ref<Set<number>>(new Set())
 const showAddModal = ref(false)
 const showAddChapterModal = ref(false)
 const showEditBookletModal = ref(false)
+const showProcessModal = ref(false)
 const editingChapterItemId = ref<number | null>(null)
 const selectedCourseNode = ref<CourseTreeNode | null>(null)
 const draggingItemId = ref<number | null>(null)
 const dragOverItemId = ref<number | null>(null)
+const isLaunchingTasks = ref(false)
+
+const selectedProcesses = ref({
+  transcribe: false,
+  correct: false,
+  edition: false,
+  extraction: false,
+  sources: false,
+  summary: false,
+})
+
+const availableSummaryPrompts = ref<NamedPrompt[]>([])
+const availableCorrectionPrompts = ref<NamedPrompt[]>([])
+const availableEditionPrompts = ref<NamedPrompt[]>([])
+const availableExtractionPrompts = ref<NamedPrompt[]>([])
+const availableSourcesPrompts = ref<NamedPrompt[]>([])
+
+const selectedSummaryPrompt = ref('')
+const selectedCorrectionPrompt = ref('')
+const selectedEditionPrompt = ref('')
+const selectedExtractionPrompt = ref('')
+const selectedSourcesPrompt = ref('')
 const chapterForm = ref({
   chapter_title: '',
   chapter_subtitle: '',
@@ -363,6 +392,129 @@ const downloadSelectedBooklet = async () => {
   await downloadBookletPdf()
 }
 
+const loadPrompts = (
+  section: { prompts?: NamedPrompt[]; prompt?: string } | undefined,
+  availableRef: typeof availableSummaryPrompts,
+  selectedRef: typeof selectedSummaryPrompt,
+) => {
+  let prompts = section?.prompts ?? []
+  if (prompts.length === 0 && section?.prompt) {
+    prompts = [{ name: 'Default', text: section.prompt }]
+  }
+  availableRef.value = prompts
+  if (prompts.length > 0 && !selectedRef.value) {
+    selectedRef.value = prompts[0].name
+  }
+}
+
+const openProcessModal = async () => {
+  selectedProcesses.value = {
+    transcribe: false,
+    correct: false,
+    edition: false,
+    extraction: false,
+    sources: false,
+    summary: false,
+  }
+  showProcessModal.value = true
+  try {
+    const config = await configApi.get()
+    loadPrompts((config as AppConfig).summary, availableSummaryPrompts, selectedSummaryPrompt)
+    loadPrompts((config as AppConfig).correction, availableCorrectionPrompts, selectedCorrectionPrompt)
+    loadPrompts((config as AppConfig).edition, availableEditionPrompts, selectedEditionPrompt)
+    loadPrompts((config as AppConfig).extraction, availableExtractionPrompts, selectedExtractionPrompt)
+    loadPrompts((config as AppConfig).sources, availableSourcesPrompts, selectedSourcesPrompt)
+  } catch {
+    // Keep modal usable even if prompt config cannot be loaded.
+  }
+}
+
+const closeProcessModal = () => {
+  if (isLaunchingTasks.value) return
+  showProcessModal.value = false
+}
+
+const selectAllProcesses = () => {
+  selectedProcesses.value = {
+    transcribe: true,
+    correct: true,
+    edition: true,
+    extraction: true,
+    sources: true,
+    summary: true,
+  }
+}
+
+const launchBookletTasks = async () => {
+  if (!props.bookletId || !detail.value) return
+  const selected = Object.entries(selectedProcesses.value)
+    .filter(([, enabled]) => enabled)
+    .map(([key]) => key)
+  if (selected.length === 0) {
+    toast.error(t('lessons.selectAtLeastOneProcess'))
+    return
+  }
+
+  const taskTypeMap: Record<string, string> = {
+    transcribe: 'transcription',
+    correct: 'correction',
+    edition: 'edition',
+    extraction: 'extraction',
+    sources: 'sources',
+    summary: 'summary',
+  }
+  const taskParametersByType: Record<string, Record<string, unknown>> = {}
+  if (selected.includes('correct')) {
+    taskParametersByType.correction = {
+      segments_per_group: 100,
+      max_concurrency: 10,
+      prompt_type: selectedCorrectionPrompt.value,
+    }
+  }
+  if (selected.includes('edition')) {
+    taskParametersByType.edition = {
+      words_per_group: 1000,
+      max_concurrency: 10,
+      prompt_type: selectedEditionPrompt.value,
+    }
+  }
+  if (selected.includes('extraction')) {
+    taskParametersByType.extraction = {
+      max_concurrency: 10,
+      prompt_type: selectedExtractionPrompt.value,
+    }
+  }
+  if (selected.includes('sources')) {
+    taskParametersByType.sources = {
+      prompt_type: selectedSourcesPrompt.value,
+    }
+  }
+  if (selected.includes('summary')) {
+    taskParametersByType.summary = {
+      prompt_type: selectedSummaryPrompt.value,
+    }
+  }
+
+  try {
+    isLaunchingTasks.value = true
+    const response = await bookletsApi.launchTasks(props.bookletId, {
+      task_types: selected.map((key) => taskTypeMap[key]).filter(Boolean),
+      task_parameters_by_type: taskParametersByType,
+      only_included_lessons: true,
+    })
+    toast.success(t('lessons.tasksCreated', { count: response.created_count }))
+    showProcessModal.value = false
+  } catch (e: any) {
+    const detailMessage =
+      e?.response?.data?.detail?.message ||
+      e?.response?.data?.detail ||
+      t('lessons.tasksCreationFailed')
+    toast.error(String(detailMessage))
+  } finally {
+    isLaunchingTasks.value = false
+  }
+}
+
 const formatDate = (dateString: string | null | undefined): string => {
   if (!dateString) return ''
   const date = new Date(dateString)
@@ -515,6 +667,14 @@ watch(() => props.bookletId, loadDetail)
           </div>
           <div class="flex flex-col items-end gap-2">
             <div class="flex flex-wrap justify-end gap-2">
+              <button
+                class="flex-shrink-0 inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors text-white bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                :disabled="mutating || isLaunchingTasks || orderedItems.length === 0"
+                @click="openProcessModal"
+              >
+                <CogIcon class="h-4 w-4" />
+                {{ t('lessons.processLesson') }}
+              </button>
               <button
                 class="flex-shrink-0 inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
                 :disabled="mutating || !isDraft"
@@ -757,6 +917,231 @@ watch(() => props.bookletId, loadDetail)
                 {{ row.item_type === 'chapter' ? t('booklets.actions.removeChapter') : t('booklets.actions.removeLesson') }}
               </button>
             </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div
+      v-if="showProcessModal"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+      @click.self="closeProcessModal"
+    >
+      <div class="w-[min(96vw,1100px)] bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700">
+        <div class="p-5 md:p-6 max-h-[85vh] overflow-y-auto">
+          <div class="flex items-center gap-4 mb-6">
+            <div class="flex-shrink-0 w-12 h-12 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center">
+              <CogIcon class="h-6 w-6 text-indigo-600 dark:text-indigo-400" />
+            </div>
+            <div>
+              <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t('lessons.processLessonTitle') }}
+              </h3>
+              <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                {{ t('lessons.processLessonDescription') }}
+              </p>
+            </div>
+          </div>
+
+          <div class="flex justify-end mb-4">
+            <button
+              @click="selectAllProcesses"
+              class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 rounded-md transition-colors"
+            >
+              <CheckCircleIcon class="h-3.5 w-3.5" />
+              {{ t('lessons.selectAllRemaining') }}
+            </button>
+          </div>
+
+          <div class="space-y-2 mb-6">
+            <label class="flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors">
+              <input
+                type="checkbox"
+                v-model="selectedProcesses.transcribe"
+                class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+              />
+              <div>
+                <div class="text-sm font-medium text-gray-900 dark:text-white">
+                  {{ t('lessons.processTranscribe') }}
+                </div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('lessons.processTranscribeDesc') }}
+                </div>
+              </div>
+            </label>
+
+            <div class="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)] gap-3 items-start">
+              <label class="flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors">
+                <input
+                  type="checkbox"
+                  v-model="selectedProcesses.correct"
+                  class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                />
+                <div class="flex-1">
+                  <div class="text-sm font-medium text-gray-900 dark:text-white">
+                    {{ t('lessons.processCorrect') }}
+                  </div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('lessons.processCorrectDesc') }}
+                  </div>
+                </div>
+              </label>
+              <div v-if="selectedProcesses.correct && availableCorrectionPrompts.length > 0">
+                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  {{ t('lessons.correctionPromptType') }}
+                </label>
+                <select
+                  v-model="selectedCorrectionPrompt"
+                  class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option v-for="prompt in availableCorrectionPrompts" :key="prompt.name" :value="prompt.name">
+                    {{ prompt.name }}
+                  </option>
+                </select>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)] gap-3 items-start">
+              <label class="flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors">
+                <input
+                  type="checkbox"
+                  v-model="selectedProcesses.edition"
+                  class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                />
+                <div class="flex-1">
+                  <div class="text-sm font-medium text-gray-900 dark:text-white">
+                    {{ t('lessons.processEdition') }}
+                  </div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('lessons.processEditionDesc') }}
+                  </div>
+                </div>
+              </label>
+              <div v-if="selectedProcesses.edition && availableEditionPrompts.length > 0">
+                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  {{ t('lessons.editionPromptType') }}
+                </label>
+                <select
+                  v-model="selectedEditionPrompt"
+                  class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option v-for="prompt in availableEditionPrompts" :key="prompt.name" :value="prompt.name">
+                    {{ prompt.name }}
+                  </option>
+                </select>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)] gap-3 items-start">
+              <label class="flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors">
+                <input
+                  type="checkbox"
+                  v-model="selectedProcesses.extraction"
+                  class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                />
+                <div class="flex-1">
+                  <div class="text-sm font-medium text-gray-900 dark:text-white">
+                    {{ t('lessons.processExtraction') }}
+                  </div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('lessons.processExtractionDesc') }}
+                  </div>
+                </div>
+              </label>
+              <div v-if="selectedProcesses.extraction && availableExtractionPrompts.length > 0">
+                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  {{ t('lessons.extractionPromptType') }}
+                </label>
+                <select
+                  v-model="selectedExtractionPrompt"
+                  class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option v-for="prompt in availableExtractionPrompts" :key="prompt.name" :value="prompt.name">
+                    {{ prompt.name }}
+                  </option>
+                </select>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)] gap-3 items-start">
+              <label class="flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors">
+                <input
+                  type="checkbox"
+                  v-model="selectedProcesses.sources"
+                  class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                />
+                <div class="flex-1">
+                  <div class="text-sm font-medium text-gray-900 dark:text-white">
+                    {{ t('lessons.processSources') }}
+                  </div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('lessons.processSourcesDesc') }}
+                  </div>
+                </div>
+              </label>
+              <div v-if="selectedProcesses.sources && availableSourcesPrompts.length > 0">
+                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  {{ t('lessons.sourcesPromptType') }}
+                </label>
+                <select
+                  v-model="selectedSourcesPrompt"
+                  class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option v-for="prompt in availableSourcesPrompts" :key="prompt.name" :value="prompt.name">
+                    {{ prompt.name }}
+                  </option>
+                </select>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)] gap-3 items-start">
+              <label class="flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors">
+                <input
+                  type="checkbox"
+                  v-model="selectedProcesses.summary"
+                  class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                />
+                <div class="flex-1">
+                  <div class="text-sm font-medium text-gray-900 dark:text-white">
+                    {{ t('lessons.processSummary') }}
+                  </div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('lessons.processSummaryDesc') }}
+                  </div>
+                </div>
+              </label>
+              <div v-if="selectedProcesses.summary && availableSummaryPrompts.length > 0">
+                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  {{ t('lessons.summaryPromptType') }}
+                </label>
+                <select
+                  v-model="selectedSummaryPrompt"
+                  class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option v-for="prompt in availableSummaryPrompts" :key="prompt.name" :value="prompt.name">
+                    {{ prompt.name }}
+                  </option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex justify-end gap-3">
+            <button
+              @click="closeProcessModal"
+              :disabled="isLaunchingTasks"
+              class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md transition-colors disabled:opacity-50"
+            >
+              {{ t('lessons.cancel') }}
+            </button>
+            <button
+              @click="launchBookletTasks"
+              :disabled="isLaunchingTasks"
+              class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 rounded-md transition-colors"
+            >
+              <CogIcon class="h-4 w-4" />
+              {{ isLaunchingTasks ? t('lessons.creating') : t('lessons.createTasks') }}
+            </button>
           </div>
         </div>
       </div>

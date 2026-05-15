@@ -27,12 +27,31 @@ from schemas.booklet import (
     BookletReorderRequest,
     BookletResponse,
     BookletStatusChangeRequest,
+    BookletTaskLaunchItem,
+    BookletTasksLaunchRequest,
+    BookletTasksLaunchResponse,
     BookletUpdate,
 )
 from services import booklet as booklet_service
 from services import exports as export_service
+from services.audit import log_event
+import crud
 
 router = APIRouter(prefix="/booklets", tags=["Booklets"])
+
+_BOOKLET_TASK_ALIASES: Dict[str, str] = {
+    "transcribe": "transcription",
+    "transcription": "transcription",
+    "correct": "correction",
+    "correction": "correction",
+    "edited": "edition",
+    "edition": "edition",
+    "extract": "extraction",
+    "extraction": "extraction",
+    "sources": "sources",
+    "summary": "summary",
+}
+_SUPPORTED_BOOKLET_TASK_TYPES = {"transcription", "correction", "edition", "extraction", "sources", "summary"}
 
 
 def _actor_from_claims(claims: Dict[str, Any]) -> Dict[str, Any]:
@@ -395,6 +414,110 @@ def export_booklet(
         content=payload,
         media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/{booklet_id}/tasks", response_model=BookletTasksLaunchResponse, status_code=201)
+def launch_booklet_tasks(
+    booklet_id: int,
+    body: BookletTasksLaunchRequest,
+    session: Session = Depends(get_session),
+    claims: Dict[str, Any] = Depends(require_roles(["editor", "publisher", "admin"])),
+):
+    """Launch booklet processing by fanning out one task per lesson and per selected task type."""
+    booklet_service.get_booklet(session, booklet_id)
+    lesson_rows = booklet_service.get_booklet_lessons(session, booklet_id)
+    lesson_ids: List[int] = []
+    for row in lesson_rows:
+        if row.lesson_id is None:
+            continue
+        if body.only_included_lessons and not row.is_included:
+            continue
+        if row.lesson_id not in lesson_ids:
+            lesson_ids.append(row.lesson_id)
+    if not lesson_ids:
+        raise HTTPException(status_code=400, detail="No booklet lessons available for task launch")
+
+    canonical_task_types: List[str] = []
+    invalid_task_types: List[str] = []
+    for raw in body.task_types:
+        normalized = _BOOKLET_TASK_ALIASES.get(str(raw).strip().lower())
+        if not normalized or normalized not in _SUPPORTED_BOOKLET_TASK_TYPES:
+            invalid_task_types.append(raw)
+            continue
+        if normalized not in canonical_task_types:
+            canonical_task_types.append(normalized)
+
+    if invalid_task_types:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Unsupported task types",
+                "invalid_task_types": invalid_task_types,
+                "supported_task_types": sorted(_SUPPORTED_BOOKLET_TASK_TYPES),
+            },
+        )
+
+    role = _extract_role(claims)
+    if role not in ("publisher", "admin"):
+        user_id = claims.get("sub", "")
+        unauthorized_lesson_ids: List[int] = []
+        for lesson_id in lesson_ids:
+            editors = crud.get_lesson_editors(session, lesson_id)
+            if not any(e.user_id == user_id for e in editors):
+                unauthorized_lesson_ids.append(lesson_id)
+        if unauthorized_lesson_ids:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "message": "You are not assigned as an editor for all booklet lessons",
+                    "lesson_ids": unauthorized_lesson_ids,
+                },
+            )
+
+    created_items: List[BookletTaskLaunchItem] = []
+    actor = {"sub": claims.get("sub"), "role": role}
+    for task_type in canonical_task_types:
+        provided_params = body.task_parameters_by_type.get(task_type) or {}
+        if not provided_params:
+            # Also support alias keys from frontend payloads.
+            for alias, canonical in _BOOKLET_TASK_ALIASES.items():
+                if canonical == task_type and alias in body.task_parameters_by_type:
+                    maybe_params = body.task_parameters_by_type.get(alias) or {}
+                    if maybe_params:
+                        provided_params = maybe_params
+                        break
+        for lesson_id in lesson_ids:
+            task_parameters = {"lesson_id": lesson_id, **provided_params}
+            created = crud.create_task(
+                session=session,
+                task_type=task_type,
+                parameters=task_parameters,
+            )
+            created_items.append(
+                BookletTaskLaunchItem(task_id=created.id, lesson_id=lesson_id, task_type=task_type)
+            )
+            log_event(
+                session=session,
+                actor=actor,
+                entity_type="lesson",
+                entity_id=str(lesson_id),
+                action="pipeline.rerun_requested",
+                payload={
+                    "task_type": task_type,
+                    "task_id": created.id,
+                    "booklet_id": booklet_id,
+                    "origin": "booklet.bulk_launch",
+                },
+            )
+
+    session.commit()
+    return BookletTasksLaunchResponse(
+        booklet_id=booklet_id,
+        lesson_ids=lesson_ids,
+        task_types=canonical_task_types,
+        created_count=len(created_items),
+        tasks=created_items,
     )
 
 

@@ -85,6 +85,26 @@ class BookletGenerationCreate(BaseModel):
     parameters: Dict[str, Any] = Field(default_factory=dict)
 
 
+class BookletTasksLaunchRequest(BaseModel):
+    task_types: List[str] = Field(min_length=1)
+    task_parameters_by_type: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
+    only_included_lessons: bool = True
+
+
+class BookletTaskLaunchItem(BaseModel):
+    task_id: int
+    lesson_id: int
+    task_type: str
+
+
+class BookletTasksLaunchResponse(BaseModel):
+    booklet_id: int
+    lesson_ids: List[int]
+    task_types: List[str]
+    created_count: int
+    tasks: List[BookletTaskLaunchItem]
+
+
 class BookletItemResponse(BaseModel):
     id: int
     booklet_id: int

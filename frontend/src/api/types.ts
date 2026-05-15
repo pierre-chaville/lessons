@@ -396,6 +396,34 @@ export interface BookletUpdate {
   course_id?: number | null
 }
 
+export type BookletTaskType =
+  | 'transcription'
+  | 'correction'
+  | 'edition'
+  | 'extraction'
+  | 'sources'
+  | 'summary'
+
+export interface BookletTaskLaunchItem {
+  task_id: number
+  lesson_id: number
+  task_type: BookletTaskType
+}
+
+export interface BookletTasksLaunchRequest {
+  task_types: string[]
+  task_parameters_by_type?: Record<string, Record<string, unknown>>
+  only_included_lessons?: boolean
+}
+
+export interface BookletTasksLaunchResponse {
+  booklet_id: number
+  lesson_ids: number[]
+  task_types: BookletTaskType[]
+  created_count: number
+  tasks: BookletTaskLaunchItem[]
+}
+
 // ── Search ────────────────────────────────────────────────────────────────────
 
 export interface SearchMatchSegment {
