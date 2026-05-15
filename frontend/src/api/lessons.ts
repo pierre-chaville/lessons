@@ -77,7 +77,7 @@ export const lessonsApi = {
 
   exportDocument: (
     hashid: string,
-    exportType: 'summary' | 'edited' | 'transcript',
+    exportType: 'summary' | 'edited' | 'transcript' | 'sources' | 'sources_detailed',
     options: {
       format: 'md' | 'docx' | 'pdf'
       include_fields?: string[]
@@ -100,34 +100,4 @@ export const lessonsApi = {
       })
       .then((r) => r.data)
   },
-
-  // ── PDF downloads — return raw Blob data ────────────────────────────────────
-
-  getPdfSummary: (hashid: string) =>
-    apiClient
-      .get<Blob>(`/lessons/${hashid}/pdf/summary`, { responseType: 'blob' })
-      .then((r) => r.data),
-
-  getPdfTranscript: (hashid: string, transcript_type: 'initial' | 'corrected') =>
-    apiClient
-      .get<Blob>(`/lessons/${hashid}/pdf/transcript`, {
-        params: { transcript_type },
-        responseType: 'blob',
-      })
-      .then((r) => r.data),
-
-  getPdfEdited: (hashid: string) =>
-    apiClient
-      .get<Blob>(`/lessons/${hashid}/pdf/edited`, { responseType: 'blob' })
-      .then((r) => r.data),
-
-  getPdfSources: (hashid: string) =>
-    apiClient
-      .get<Blob>(`/lessons/${hashid}/pdf/sources`, { responseType: 'blob' })
-      .then((r) => r.data),
-
-  getPdfDetailedSources: (hashid: string) =>
-    apiClient
-      .get<Blob>(`/lessons/${hashid}/pdf/sources/detailed`, { responseType: 'blob' })
-      .then((r) => r.data),
 }

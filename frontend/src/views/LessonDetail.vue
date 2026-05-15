@@ -1050,7 +1050,10 @@ const realignSummaryAlignment = async () => {
 
 const downloadSourcesPDF = async () => {
   try {
-    const blob = await lessonsApi.getPdfSources(props.lesson.hashid)
+    const blob = await lessonsApi.exportDocument(props.lesson.hashid, 'sources', {
+      format: 'pdf',
+      lang: locale.value,
+    })
     triggerDownload(blob, `${props.lesson.title}_sources.pdf`)
   } catch {
     toast.error(t('lessons.downloadFailed'))
@@ -1059,7 +1062,10 @@ const downloadSourcesPDF = async () => {
 
 const downloadDetailedSourcesPDF = async () => {
   try {
-    const blob = await lessonsApi.getPdfDetailedSources(props.lesson.hashid)
+    const blob = await lessonsApi.exportDocument(props.lesson.hashid, 'sources_detailed', {
+      format: 'pdf',
+      lang: locale.value,
+    })
     triggerDownload(blob, `${props.lesson.title}_sources_detailed.pdf`)
   } catch {
     toast.error(t('lessons.downloadFailed'))
@@ -1531,8 +1537,8 @@ const saveParagraph = async () => {
     <div class="fixed inset-0 bg-black/30 backdrop-blur-sm" aria-hidden="true" />
     
     <div class="fixed inset-0 flex items-center justify-center p-4">
-      <DialogPanel class="mx-auto max-w-md w-full bg-white dark:bg-gray-800 rounded-lg shadow-xl">
-        <div class="p-6">
+      <DialogPanel class="mx-auto max-w-4xl w-full bg-white dark:bg-gray-800 rounded-lg shadow-xl">
+        <div class="p-6 max-h-[85vh] overflow-y-auto">
           <div class="flex items-center gap-4 mb-4">
             <div class="flex-shrink-0 w-12 h-12 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
               <ExclamationTriangleIcon class="h-6 w-6 text-red-600 dark:text-red-400" />
@@ -1578,8 +1584,8 @@ const saveParagraph = async () => {
     <div class="fixed inset-0 bg-black/30 backdrop-blur-sm" aria-hidden="true" />
     
     <div class="fixed inset-0 flex items-center justify-center p-4">
-      <DialogPanel class="mx-auto max-w-md w-full bg-white dark:bg-gray-800 rounded-lg shadow-xl">
-        <div class="p-6">
+      <DialogPanel class="w-[min(96vw,1100px)] bg-white dark:bg-gray-800 rounded-lg shadow-xl">
+        <div class="p-5 md:p-6 max-h-[85vh] overflow-y-auto">
           <div class="flex items-center gap-4 mb-6">
             <div class="flex-shrink-0 w-12 h-12 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center">
               <CogIcon class="h-6 w-6 text-indigo-600 dark:text-indigo-400" />
@@ -1606,7 +1612,7 @@ const saveParagraph = async () => {
           </div>
 
           <!-- Process Selection -->
-          <div class="space-y-3 mb-6">
+          <div class="space-y-2 mb-6">
             <!-- Transcribe (always available) -->
             <label class="flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors">
               <input
@@ -1625,214 +1631,213 @@ const saveParagraph = async () => {
             </label>
             
             <!-- Correct (needs transcript) -->
-            <label :class="[
-              'flex items-center gap-3 p-3 rounded-lg border transition-colors',
-              canCorrect
-                ? 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer'
-                : 'border-gray-100 dark:border-gray-800 opacity-50 cursor-not-allowed'
-            ]">
-              <input
-                type="checkbox"
-                v-model="selectedProcesses.correct"
-                :disabled="!canCorrect"
-                class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 disabled:opacity-50"
-              />
-              <div class="flex-1">
-                <div class="text-sm font-medium text-gray-900 dark:text-white">
-                  {{ t('lessons.processCorrect') }}
+            <div class="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)] gap-3 items-start">
+              <label :class="[
+                'flex items-center gap-3 p-3 rounded-lg border transition-colors',
+                canCorrect
+                  ? 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer'
+                  : 'border-gray-100 dark:border-gray-800 opacity-50 cursor-not-allowed'
+              ]">
+                <input
+                  type="checkbox"
+                  v-model="selectedProcesses.correct"
+                  :disabled="!canCorrect"
+                  class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 disabled:opacity-50"
+                />
+                <div class="flex-1">
+                  <div class="text-sm font-medium text-gray-900 dark:text-white">
+                    {{ t('lessons.processCorrect') }}
+                  </div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('lessons.processCorrectDesc') }}
+                  </div>
                 </div>
-                <div class="text-xs text-gray-500 dark:text-gray-400">
-                  {{ t('lessons.processCorrectDesc') }}
-                </div>
-              </div>
-            </label>
-            
-            <!-- Correction Prompt Type Selection -->
-            <div v-if="selectedProcesses.correct && availableCorrectionPrompts.length > 0" class="ml-7 -mt-1 mb-2">
-              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                {{ t('lessons.correctionPromptType') }}
               </label>
-              <select
-                v-model="selectedCorrectionPrompt"
-                class="w-full max-w-md px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-              >
-                <option
-                  v-for="prompt in availableCorrectionPrompts"
-                  :key="prompt.name"
-                  :value="prompt.name"
+              <div v-if="selectedProcesses.correct && availableCorrectionPrompts.length > 0">
+                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  {{ t('lessons.correctionPromptType') }}
+                </label>
+                <select
+                  v-model="selectedCorrectionPrompt"
+                  class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
                 >
-                  {{ prompt.name }}
-                </option>
-              </select>
+                  <option
+                    v-for="prompt in availableCorrectionPrompts"
+                    :key="prompt.name"
+                    :value="prompt.name"
+                  >
+                    {{ prompt.name }}
+                  </option>
+                </select>
+              </div>
             </div>
             
             <!-- Edition (needs corrected transcript) -->
-            <label :class="[
-              'flex items-center gap-3 p-3 rounded-lg border transition-colors',
-              canEdition
-                ? 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer'
-                : 'border-gray-100 dark:border-gray-800 opacity-50 cursor-not-allowed'
-            ]">
-              <input
-                type="checkbox"
-                v-model="selectedProcesses.edition"
-                :disabled="!canEdition"
-                class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 disabled:opacity-50"
-              />
-              <div class="flex-1">
-                <div class="text-sm font-medium text-gray-900 dark:text-white">
-                  {{ t('lessons.processEdition') }}
+            <div class="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)] gap-3 items-start">
+              <label :class="[
+                'flex items-center gap-3 p-3 rounded-lg border transition-colors',
+                canEdition
+                  ? 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer'
+                  : 'border-gray-100 dark:border-gray-800 opacity-50 cursor-not-allowed'
+              ]">
+                <input
+                  type="checkbox"
+                  v-model="selectedProcesses.edition"
+                  :disabled="!canEdition"
+                  class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 disabled:opacity-50"
+                />
+                <div class="flex-1">
+                  <div class="text-sm font-medium text-gray-900 dark:text-white">
+                    {{ t('lessons.processEdition') }}
+                  </div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('lessons.processEditionDesc') }}
+                  </div>
                 </div>
-                <div class="text-xs text-gray-500 dark:text-gray-400">
-                  {{ t('lessons.processEditionDesc') }}
-                </div>
-              </div>
-            </label>
-            
-            <!-- Edition Prompt Type Selection -->
-            <div v-if="selectedProcesses.edition && availableEditionPrompts.length > 0" class="ml-7 -mt-1 mb-2">
-              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                {{ t('lessons.editionPromptType') }}
               </label>
-              <select
-                v-model="selectedEditionPrompt"
-                class="w-full max-w-md px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-              >
-                <option
-                  v-for="prompt in availableEditionPrompts"
-                  :key="prompt.name"
-                  :value="prompt.name"
+              <div v-if="selectedProcesses.edition && availableEditionPrompts.length > 0">
+                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  {{ t('lessons.editionPromptType') }}
+                </label>
+                <select
+                  v-model="selectedEditionPrompt"
+                  class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
                 >
-                  {{ prompt.name }}
-                </option>
-              </select>
+                  <option
+                    v-for="prompt in availableEditionPrompts"
+                    :key="prompt.name"
+                    :value="prompt.name"
+                  >
+                    {{ prompt.name }}
+                  </option>
+                </select>
+              </div>
             </div>
             
             <!-- Extract sources (needs edited transcript) -->
-            <label :class="[
-              'flex items-center gap-3 p-3 rounded-lg border transition-colors',
-              canExtraction
-                ? 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer'
-                : 'border-gray-100 dark:border-gray-800 opacity-50 cursor-not-allowed'
-            ]">
-              <input
-                type="checkbox"
-                v-model="selectedProcesses.extraction"
-                :disabled="!canExtraction"
-                class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 disabled:opacity-50"
-              />
-              <div class="flex-1">
-                <div class="text-sm font-medium text-gray-900 dark:text-white">
-                  {{ t('lessons.processExtraction') }}
+            <div class="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)] gap-3 items-start">
+              <label :class="[
+                'flex items-center gap-3 p-3 rounded-lg border transition-colors',
+                canExtraction
+                  ? 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer'
+                  : 'border-gray-100 dark:border-gray-800 opacity-50 cursor-not-allowed'
+              ]">
+                <input
+                  type="checkbox"
+                  v-model="selectedProcesses.extraction"
+                  :disabled="!canExtraction"
+                  class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 disabled:opacity-50"
+                />
+                <div class="flex-1">
+                  <div class="text-sm font-medium text-gray-900 dark:text-white">
+                    {{ t('lessons.processExtraction') }}
+                  </div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('lessons.processExtractionDesc') }}
+                  </div>
                 </div>
-                <div class="text-xs text-gray-500 dark:text-gray-400">
-                  {{ t('lessons.processExtractionDesc') }}
-                </div>
-              </div>
-            </label>
-            
-            <!-- Extraction Prompt Type Selection -->
-            <div v-if="selectedProcesses.extraction && availableExtractionPrompts.length > 0" class="ml-7 -mt-1 mb-2">
-              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                {{ t('lessons.extractionPromptType') }}
               </label>
-              <select
-                v-model="selectedExtractionPrompt"
-                class="w-full max-w-md px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-              >
-                <option
-                  v-for="prompt in availableExtractionPrompts"
-                  :key="prompt.name"
-                  :value="prompt.name"
+              <div v-if="selectedProcesses.extraction && availableExtractionPrompts.length > 0">
+                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  {{ t('lessons.extractionPromptType') }}
+                </label>
+                <select
+                  v-model="selectedExtractionPrompt"
+                  class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
                 >
-                  {{ prompt.name }}
-                </option>
-              </select>
+                  <option
+                    v-for="prompt in availableExtractionPrompts"
+                    :key="prompt.name"
+                    :value="prompt.name"
+                  >
+                    {{ prompt.name }}
+                  </option>
+                </select>
+              </div>
             </div>
 
             <!-- Verify sources (needs sources extracted) -->
-            <label :class="[
-              'flex items-center gap-3 p-3 rounded-lg border transition-colors',
-              canSources
-                ? 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer'
-                : 'border-gray-100 dark:border-gray-800 opacity-50 cursor-not-allowed'
-            ]">
-              <input
-                type="checkbox"
-                v-model="selectedProcesses.sources"
-                :disabled="!canSources"
-                class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 disabled:opacity-50"
-              />
-              <div class="flex-1">
-                <div class="text-sm font-medium text-gray-900 dark:text-white">
-                  {{ t('lessons.processSources') }}
+            <div class="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)] gap-3 items-start">
+              <label :class="[
+                'flex items-center gap-3 p-3 rounded-lg border transition-colors',
+                canSources
+                  ? 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer'
+                  : 'border-gray-100 dark:border-gray-800 opacity-50 cursor-not-allowed'
+              ]">
+                <input
+                  type="checkbox"
+                  v-model="selectedProcesses.sources"
+                  :disabled="!canSources"
+                  class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 disabled:opacity-50"
+                />
+                <div class="flex-1">
+                  <div class="text-sm font-medium text-gray-900 dark:text-white">
+                    {{ t('lessons.processSources') }}
+                  </div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('lessons.processSourcesDesc') }}
+                  </div>
                 </div>
-                <div class="text-xs text-gray-500 dark:text-gray-400">
-                  {{ t('lessons.processSourcesDesc') }}
-                </div>
-              </div>
-            </label>
-            
-            <!-- Sources Prompt Type Selection -->
-            <div v-if="selectedProcesses.sources && availableSourcesPrompts.length > 0" class="ml-7 -mt-1 mb-2">
-              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                {{ t('lessons.sourcesPromptType') }}
               </label>
-              <select
-                v-model="selectedSourcesPrompt"
-                class="w-full max-w-md px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-              >
-                <option
-                  v-for="prompt in availableSourcesPrompts"
-                  :key="prompt.name"
-                  :value="prompt.name"
+              <div v-if="selectedProcesses.sources && availableSourcesPrompts.length > 0">
+                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  {{ t('lessons.sourcesPromptType') }}
+                </label>
+                <select
+                  v-model="selectedSourcesPrompt"
+                  class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
                 >
-                  {{ prompt.name }}
-                </option>
-              </select>
+                  <option
+                    v-for="prompt in availableSourcesPrompts"
+                    :key="prompt.name"
+                    :value="prompt.name"
+                  >
+                    {{ prompt.name }}
+                  </option>
+                </select>
+              </div>
             </div>
 
             <!-- Summary (needs edited transcript) -->
-            <label :class="[
-              'flex items-center gap-3 p-3 rounded-lg border transition-colors',
-              canSummary
-                ? 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer'
-                : 'border-gray-100 dark:border-gray-800 opacity-50 cursor-not-allowed'
-            ]">
-              <input
-                type="checkbox"
-                v-model="selectedProcesses.summary"
-                :disabled="!canSummary"
-                class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 disabled:opacity-50"
-              />
-              <div class="flex-1">
-                <div class="text-sm font-medium text-gray-900 dark:text-white">
-                  {{ t('lessons.processSummary') }}
+            <div class="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)] gap-3 items-start">
+              <label :class="[
+                'flex items-center gap-3 p-3 rounded-lg border transition-colors',
+                canSummary
+                  ? 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer'
+                  : 'border-gray-100 dark:border-gray-800 opacity-50 cursor-not-allowed'
+              ]">
+                <input
+                  type="checkbox"
+                  v-model="selectedProcesses.summary"
+                  :disabled="!canSummary"
+                  class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 disabled:opacity-50"
+                />
+                <div class="flex-1">
+                  <div class="text-sm font-medium text-gray-900 dark:text-white">
+                    {{ t('lessons.processSummary') }}
+                  </div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('lessons.processSummaryDesc') }}
+                  </div>
                 </div>
-                <div class="text-xs text-gray-500 dark:text-gray-400">
-                  {{ t('lessons.processSummaryDesc') }}
-                </div>
-              </div>
-            </label>
-            
-            
-            <!-- Summary Prompt Type Selection -->
-            <div v-if="selectedProcesses.summary && availableSummaryPrompts.length > 0" class="ml-7 -mt-1 mb-2">
-              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                {{ t('lessons.summaryPromptType') }}
               </label>
-              <select
-                v-model="selectedSummaryPrompt"
-                class="w-full max-w-md px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-              >
-                <option
-                  v-for="prompt in availableSummaryPrompts"
-                  :key="prompt.name"
-                  :value="prompt.name"
+              <div v-if="selectedProcesses.summary && availableSummaryPrompts.length > 0">
+                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  {{ t('lessons.summaryPromptType') }}
+                </label>
+                <select
+                  v-model="selectedSummaryPrompt"
+                  class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
                 >
-                  {{ prompt.name }}
-                </option>
-              </select>
+                  <option
+                    v-for="prompt in availableSummaryPrompts"
+                    :key="prompt.name"
+                    :value="prompt.name"
+                  >
+                    {{ prompt.name }}
+                  </option>
+                </select>
+              </div>
             </div>
           </div>
           

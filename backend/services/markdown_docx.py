@@ -13,6 +13,8 @@ _HEADING_RE = re.compile(r"^\s{0,3}(#{1,6})\s+(.+)$")
 _HORIZONTAL_RULE_RE = re.compile(r"^\s{0,3}((\*\s*){3,}|(-\s*){3,}|(_\s*){3,})\s*$")
 _UNORDERED_LIST_RE = re.compile(r"^(?P<indent>\s*)[-*+]\s+(?P<content>.+)$")
 _ORDERED_LIST_RE = re.compile(r"^(?P<indent>\s*)(?P<number>\d+)[.)]\s+(?P<content>.+)$")
+_BLOCKQUOTE_RE = re.compile(r"^\s{0,3}(?P<markers>(>\s*)+)(?P<content>.*)$")
+_HTML_COMMENT_LINE_RE = re.compile(r"^\s*<!--.*-->\s*$")
 _INLINE_TOKEN_RE = re.compile(r"(\*\*.+?\*\*|__.+?__|\*.+?\*|_.+?_)")
 
 
@@ -89,6 +91,29 @@ def _parse_list_item(line: str) -> tuple[int, str, str] | None:
     return None
 
 
+def _parse_blockquote_line(line: str) -> tuple[int, str] | None:
+    match = _BLOCKQUOTE_RE.match(line)
+    if not match:
+        return None
+    depth = match.group("markers").count(">")
+    content = match.group("content").strip()
+    return depth, content
+
+
+def _is_ignored_comment_line(line: str) -> bool:
+    return bool(_HTML_COMMENT_LINE_RE.match(line))
+
+
+def _add_blockquote_paragraph(doc: Document, *, depth: int, content: str) -> None:
+    paragraph = doc.add_paragraph()
+    paragraph_format = paragraph.paragraph_format
+    paragraph_format.left_indent = Pt(20 * max(depth, 1))
+    paragraph_format.first_line_indent = Pt(0)
+    paragraph_format.space_before = Pt(3)
+    paragraph_format.space_after = Pt(3)
+    _append_inline_runs(paragraph, content)
+
+
 def markdown_to_docx_bytes(markdown_text: str) -> bytes:
     """
     Convert a simple markdown string to DOCX bytes.
@@ -98,8 +123,10 @@ def markdown_to_docx_bytes(markdown_text: str) -> bytes:
     - Horizontal rules (---, ***, ___) as page breaks
     - Bulleted lists (-, *, +)
     - Numbered lists (1. / 1))
+    - Block quotes (> ...)
     - Paragraphs
     - Inline bold/italic (**text**, __text__, *text*, _text_)
+    - HTML comment markers on standalone lines are ignored
     """
     doc = Document()
     lines = str(markdown_text or "").splitlines()
@@ -110,6 +137,10 @@ def markdown_to_docx_bytes(markdown_text: str) -> bytes:
         stripped = raw.strip()
 
         if not stripped:
+            idx += 1
+            continue
+
+        if _is_ignored_comment_line(raw):
             idx += 1
             continue
 
@@ -128,9 +159,42 @@ def markdown_to_docx_bytes(markdown_text: str) -> bytes:
             idx += 1
             continue
 
+        if _parse_blockquote_line(raw):
+            quote_lines: list[str] = []
+            quote_depth = 1
+            while idx < len(lines):
+                line = lines[idx]
+                if _is_ignored_comment_line(line):
+                    idx += 1
+                    continue
+
+                line_stripped = line.strip()
+                if not line_stripped:
+                    idx += 1
+                    break
+
+                parsed_quote = _parse_blockquote_line(line)
+                if not parsed_quote:
+                    break
+
+                line_depth, quote_content = parsed_quote
+                quote_depth = max(quote_depth, line_depth)
+                if quote_content:
+                    quote_lines.append(quote_content)
+                idx += 1
+
+            quote_text = " ".join(quote_lines).strip()
+            if quote_text:
+                _add_blockquote_paragraph(doc, depth=quote_depth, content=quote_text)
+            continue
+
         if _parse_list_item(raw):
             while idx < len(lines):
                 line = lines[idx]
+                if _is_ignored_comment_line(line):
+                    idx += 1
+                    continue
+
                 line_stripped = line.strip()
                 if not line_stripped:
                     idx += 1
@@ -152,6 +216,10 @@ def markdown_to_docx_bytes(markdown_text: str) -> bytes:
         paragraph_lines: list[str] = []
         while idx < len(lines):
             line = lines[idx]
+            if _is_ignored_comment_line(line):
+                idx += 1
+                continue
+
             line_stripped = line.strip()
             if not line_stripped:
                 idx += 1
@@ -161,6 +229,7 @@ def markdown_to_docx_bytes(markdown_text: str) -> bytes:
                 or _UNORDERED_LIST_RE.match(line)
                 or _ORDERED_LIST_RE.match(line)
                 or _HORIZONTAL_RULE_RE.match(line)
+                or _BLOCKQUOTE_RE.match(line)
             ):
                 break
             paragraph_lines.append(line_stripped)

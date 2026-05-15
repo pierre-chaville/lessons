@@ -1567,7 +1567,7 @@ const savePromptEditor = () => {
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       @click.self="closePromptEditor"
     >
-      <div class="w-full max-w-5xl rounded-lg bg-white dark:bg-gray-800 shadow-xl border border-gray-200 dark:border-gray-700">
+      <div class="w-full max-w-5xl h-[90vh] rounded-lg bg-white dark:bg-gray-800 shadow-xl border border-gray-200 dark:border-gray-700 flex flex-col overflow-hidden">
         <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
           <h3 class="text-base font-semibold text-gray-900 dark:text-white">
             {{ promptEditorTitle }}
@@ -1608,7 +1608,8 @@ const savePromptEditor = () => {
             </button>
           </div>
         </div>
-        <div class="p-4">
+
+        <div class="flex-1 overflow-y-auto p-4">
           <MilkdownEditor
             v-if="promptEditorMode === 'visual'"
             v-model="promptEditorDraft"
@@ -1617,12 +1618,12 @@ const savePromptEditor = () => {
           <textarea
             v-else
             v-model="promptEditorDraft"
-            rows="16"
             :placeholder="t('preferences.promptText')"
-            class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
+            class="w-full h-full min-h-[24rem] px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
           ></textarea>
         </div>
-        <div class="flex justify-end gap-2 px-4 py-3 border-t border-gray-200 dark:border-gray-700">
+
+        <div class="flex justify-end gap-2 px-4 py-3 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
           <button
             type="button"
             @click="closePromptEditor"

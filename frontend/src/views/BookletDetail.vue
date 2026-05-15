@@ -32,7 +32,7 @@ const emit = defineEmits<{
   (e: 'back'): void
 }>()
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const templateFieldOptions: BookletTemplateField[] = [
   'title',
   'date',
@@ -298,7 +298,7 @@ const downloadBookletPdf = async () => {
   if (!props.bookletId || !detail.value) return
   try {
     downloadingPdf.value = true
-    const blob = await bookletsApi.downloadPdf(props.bookletId)
+    const blob = await bookletsApi.downloadPdf(props.bookletId, locale.value)
     const url = window.URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
@@ -317,7 +317,7 @@ const downloadBookletMarkdown = async () => {
   if (!props.bookletId || !detail.value) return
   try {
     downloadingMarkdown.value = true
-    const blob = await bookletsApi.downloadMarkdown(props.bookletId)
+    const blob = await bookletsApi.downloadMarkdown(props.bookletId, locale.value)
     const url = window.URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
@@ -336,7 +336,7 @@ const downloadBookletDocx = async () => {
   if (!props.bookletId || !detail.value) return
   try {
     downloadingDocx.value = true
-    const blob = await bookletsApi.downloadDocx(props.bookletId)
+    const blob = await bookletsApi.downloadDocx(props.bookletId, locale.value)
     const url = window.URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url

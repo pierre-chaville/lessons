@@ -54,6 +54,12 @@ const exportFieldOptions = computed(() => [
   { key: 'brief', label: t('lessons.brief') },
 ])
 
+const exportFormatOptions: Array<{ value: ExportFormat; label: string }> = [
+  { value: 'docx', label: 'WORD' },
+  { value: 'pdf', label: 'PDF' },
+  { value: 'md', label: 'MARKDOWN' },
+]
+
 const viewLabel = computed(() => {
   if (props.viewType === 'summary') return t('lessons.summary')
   if (props.viewType === 'edited') return t('lessons.editedTranscript')
@@ -93,18 +99,18 @@ const onConfirm = () => {
             </p>
             <div class="flex gap-2">
               <button
-                v-for="format in ['pdf', 'docx', 'md']"
-                :key="format"
+                v-for="formatOption in exportFormatOptions"
+                :key="formatOption.value"
                 type="button"
-                @click="selectedFormat = format as ExportFormat"
+                @click="selectedFormat = formatOption.value"
                 :class="[
                   'px-3 py-1.5 text-sm rounded-md border transition-colors',
-                  selectedFormat === format
+                  selectedFormat === formatOption.value
                     ? 'border-indigo-600 bg-indigo-50 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-900/40 dark:text-indigo-200'
                     : 'border-gray-300 text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700'
                 ]"
               >
-                {{ format.toUpperCase() }}
+                {{ formatOption.label }}
               </button>
             </div>
           </div>

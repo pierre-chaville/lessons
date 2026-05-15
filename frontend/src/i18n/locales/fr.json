@@ -116,7 +116,6 @@
     "realignSummarySuccess": "Alignement du résumé rafraîchi avec succès.",
     "realignSummaryFailed": "Échec du rafraîchissement de l'alignement du résumé. Veuillez réessayer.",
     "savingAndRealigningSummary": "Enregistrement du résumé et recalcul de son alignement en cours. Cela peut prendre 10 à 20 secondes...",
-    "downloadPDF": "Télécharger PDF",
     "exportAction": "Exporter",
     "importAction": "Importer",
     "exporting": "Export en cours...",

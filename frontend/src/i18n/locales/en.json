@@ -116,7 +116,6 @@
     "realignSummarySuccess": "Summary alignment refreshed successfully.",
     "realignSummaryFailed": "Failed to refresh summary alignment. Please try again.",
     "savingAndRealigningSummary": "Saving summary and recalculating summary alignment. This can take around 10-20 seconds...",
-    "downloadPDF": "Download PDF",
     "exportAction": "Export",
     "importAction": "Import",
     "exporting": "Exporting...",

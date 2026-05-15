@@ -78,18 +78,18 @@ export const bookletsApi = {
       .post<BookletItem[]>(`/booklets/${id}/reorder`, { item_ids })
       .then((r) => r.data),
 
-  downloadPdf: (id: number) =>
+  downloadPdf: (id: number, lang?: string) =>
     apiClient
-      .get<Blob>(`/booklets/${id}/download-pdf`, { responseType: 'blob' })
+      .get<Blob>(`/booklets/${id}/exports/pdf`, { params: lang ? { lang } : undefined, responseType: 'blob' })
       .then((r) => r.data),
 
-  downloadMarkdown: (id: number) =>
+  downloadMarkdown: (id: number, lang?: string) =>
     apiClient
-      .get<Blob>(`/booklets/${id}/download-markdown`, { responseType: 'blob' })
+      .get<Blob>(`/booklets/${id}/exports/md`, { params: lang ? { lang } : undefined, responseType: 'blob' })
       .then((r) => r.data),
 
-  downloadDocx: (id: number) =>
+  downloadDocx: (id: number, lang?: string) =>
     apiClient
-      .get<Blob>(`/booklets/${id}/download-docx`, { responseType: 'blob' })
+      .get<Blob>(`/booklets/${id}/exports/docx`, { params: lang ? { lang } : undefined, responseType: 'blob' })
       .then((r) => r.data),
 }

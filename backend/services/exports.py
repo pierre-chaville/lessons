@@ -206,22 +206,22 @@ def _render_lesson_metadata(
     if not include_fields:
         return []
     lines: List[str] = []
-    lines.append("---")
     if "title" in include_fields:
-        lines.append(f"## {lesson.title or '-'}")
-        lines.append(f"### {labels['lesson_details']}")
-    if "date" in include_fields:
-        lines.append(f"- **{labels['date_field']}:** {_format_date(lesson.date)}")
-    if "duration" in include_fields:
-        lines.append(f"- **{labels['duration_field']}:** {_format_duration(lesson.duration)}")
+        lines.append(f"# {lesson.title or '-'}\n")
+    if "date" in include_fields and "duration" in include_fields:
+        lines.append(f"**{_format_date(lesson.date)} - {_format_duration(lesson.duration)}**\n")
+    elif "date" in include_fields:
+        lines.append(f"**{_format_date(lesson.date)}**\n")
+    elif "duration" in include_fields:
+        lines.append(f"**{_format_duration(lesson.duration)}**\n")
     if "course_name" in include_fields:
-        lines.append(f"- **{labels['course_field']}:** {lesson.course.name if lesson.course else '-'}")
+        lines.append(f"*{lesson.course.name if lesson.course else '-'}*\n")
     if "themes" in include_fields:
-        lines.append(f"- **{labels['themes_field']}:**  {_lesson_themes(session, lesson)}")
+        lines.append(f"*{_lesson_themes(session, lesson)}*\n")
     if "brief" in include_fields:
-        lines.append(f"- **{labels['themes_field']}:**\n")
-        lines.append(f"  {(lesson.brief or '-').strip() or '-'}")
-    lines.append("---")
+        lines.append(f"\n")
+        lines.append(f">  {(lesson.brief or '-').strip() or '-'}\n")
+    lines.append(f"\n")
     return lines
 
 
@@ -334,12 +334,13 @@ def build_lesson_markdown_export(
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported lesson export type: {export_type}")
 
-    # lines: List[str] = [f"# {title}", ""]
     lines: List[str] = []
     if preface:
         lines.extend(preface)
-        lines.extend(["", "---", ""])
+        lines.extend(["", "<!-- MARKER:section-start -->", ""])
     lines.append(content)
+    lines.append("<!-- MARKER:section-end -->")
+
     markdown = "\n".join(lines).strip() + "\n"
     base_name = f"{_safe_filename(lesson.title, 'lesson')}_{suffix}"
     return markdown, base_name
