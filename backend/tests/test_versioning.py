@@ -7,6 +7,7 @@ import json
 
 from sqlmodel import Session, SQLModel, create_engine, select
 
+from crud import delete_lesson
 from models.audit import AuditLog
 from models.lesson import Lesson
 from models.versioning import ContentType, ContentVersion, VersionSource
@@ -295,3 +296,27 @@ def test_compute_diff_summary_ignores_blank_line_only_changes() -> None:
 
     assert diff["type"] == "text"
     assert diff["diff"] == ""
+
+
+def test_delete_lesson_removes_content_versions_before_lesson() -> None:
+    with _session() as session:
+        lesson = _lesson(session)
+        update_content(session, lesson.id, ContentType.SUMMARY, "v1", {"sub": "u1", "role": "editor"})
+        update_content(
+            session,
+            lesson.id,
+            ContentType.SUMMARY,
+            "v2",
+            {"sub": "u1", "role": "editor"},
+            coalesce_window_minutes=0,
+        )
+        session.commit()
+
+        deleted = delete_lesson(session, lesson.id)
+
+        remaining_versions = list(
+            session.exec(select(ContentVersion).where(ContentVersion.lesson_id == lesson.id)).all()
+        )
+        assert deleted is True
+        assert session.get(Lesson, lesson.id) is None
+        assert remaining_versions == []

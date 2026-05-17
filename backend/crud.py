@@ -1,5 +1,6 @@
 """CRUD operations for database models"""
 
+from sqlalchemy import delete
 from sqlmodel import Session, select, func
 from typing import List, Optional
 from datetime import datetime
@@ -347,11 +348,14 @@ def delete_lesson(session: Session, lesson_id: int) -> bool:
 
 def delete_content_versions(session: Session, lesson_id: int) -> int:
     """Delete all content versions for a lesson. Returns count deleted."""
-    statement = select(ContentVersion).where(ContentVersion.lesson_id == lesson_id)
-    versions = list(session.exec(statement).all())
-    for v in versions:
-        session.delete(v)
-    return len(versions)
+    count_statement = select(func.count()).select_from(ContentVersion).where(ContentVersion.lesson_id == lesson_id)
+    deleted_count = int(session.exec(count_statement).one() or 0)
+    if deleted_count == 0:
+        return 0
+    session.exec(delete(ContentVersion).where(ContentVersion.lesson_id == lesson_id))
+    # Ensure dependent rows are deleted before the lesson row is flushed.
+    session.flush()
+    return deleted_count
 
 
 # LessonEditor CRUD

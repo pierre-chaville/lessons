@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import os
+from functools import lru_cache
 from typing import Optional
 
 import boto3
+from boto3.s3.transfer import TransferConfig
 
 
 def _get_s3_env() -> dict:
@@ -22,6 +24,7 @@ def s3_enabled() -> bool:
     return all([env["access_key"], env["secret_key"], env["endpoint_url"], env["bucket"]])
 
 
+@lru_cache(maxsize=1)
 def create_s3_client():
     env = _get_s3_env()
     return boto3.client(
@@ -52,7 +55,15 @@ def create_presigned_audio_url(key: str, expires_seconds: int = 3600) -> Optiona
 def upload_audio_fileobj(fileobj, key: str) -> None:
     env = _get_s3_env()
     client = create_s3_client()
-    client.upload_fileobj(fileobj, env["bucket"], key)
+    # Keep memory usage predictable on small instances (Render starter plan).
+    # Lower concurrency means fewer multipart buffers retained concurrently.
+    transfer_config = TransferConfig(
+        multipart_threshold=8 * 1024 * 1024,
+        multipart_chunksize=8 * 1024 * 1024,
+        max_concurrency=2,
+        use_threads=True,
+    )
+    client.upload_fileobj(fileobj, env["bucket"], key, Config=transfer_config)
 
 
 def rename_audio_object(source_key: str, dest_key: str) -> None:

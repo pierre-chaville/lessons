@@ -101,7 +101,7 @@ type LessonExportPreferences = {
 }
 
 const EXPORT_PREFERENCES_STORAGE_KEY = 'lessonExportPreferences'
-const FALLBACK_EXPORT_FIELDS = ['title', 'date', 'duration', 'course_name', 'themes', 'brief']
+const FALLBACK_EXPORT_FIELDS = ['title', 'date']
 
 const isLessonExportFormat = (value: unknown): value is LessonExportFormat =>
   value === 'pdf' || value === 'docx' || value === 'md'
