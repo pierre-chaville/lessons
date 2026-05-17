@@ -58,9 +58,16 @@ _MD_MIME = "text/markdown; charset=utf-8"
 _SECTION_START_MARKER = "<!-- MARKER:section-start -->"
 _SECTION_END_MARKER = "<!-- MARKER:section-end -->"
 _TRANSCRIPT_TIMED_LINE_RE = re.compile(
-    r"^\s*[-*+]\s+\[(?P<start>[0-9:\.]+)\s*-\s*(?P<end>[0-9:\.]+)\]\s*(?P<text>.+?)\s*$"
+    r"^\s*(?:[-*+]\s+)?\[(?P<start>[^\]]+?)\s*-\s*(?P<end>[^\]]+?)\]\s*(?P<text>.+?)\s*$"
 )
 _TRANSCRIPT_BULLET_LINE_RE = re.compile(r"^\s*[-*+]\s+(?P<text>.+?)\s*$")
+_TIMESTAMP_UNITS_RE = re.compile(
+    r"^\s*"
+    r"(?:(?P<h>\d+(?:\.\d+)?)\s*h(?:ours?)?)?\s*"
+    r"(?:(?P<m>\d+(?:\.\d+)?)\s*m(?:in(?:ute)?s?)?)?\s*"
+    r"(?:(?P<s>\d+(?:\.\d+)?)\s*s(?:ec(?:ond)?s?)?)?\s*$",
+    re.IGNORECASE,
+)
 
 _I18N_LABELS = {
     "en": {
@@ -217,6 +224,14 @@ def _parse_timecode_to_seconds(token: str) -> float:
     value = str(token or "").strip()
     if not value:
         raise ValueError("Empty timestamp")
+
+    units_match = _TIMESTAMP_UNITS_RE.match(value)
+    if units_match and any(units_match.group(group) for group in ("h", "m", "s")):
+        hours = float(units_match.group("h") or 0.0)
+        minutes = float(units_match.group("m") or 0.0)
+        seconds = float(units_match.group("s") or 0.0)
+        return (hours * 3600.0) + (minutes * 60.0) + seconds
+
     parts = value.split(":")
     if not 1 <= len(parts) <= 3:
         raise ValueError(f"Unsupported timestamp format: {value}")

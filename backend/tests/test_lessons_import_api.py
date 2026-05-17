@@ -255,7 +255,7 @@ async def test_import_transcript_parses_lines_and_updates_corrected_transcript(m
     monkeypatch.setattr(
         lessons_router.export_service,
         "document_bytes_to_markdown",
-        lambda _bytes, filename=None: "- [00:01 - 00:03] First line\n- Plain fallback",
+        lambda _bytes, filename=None: "[00:01 - 00:03] First line\nPlain fallback",
     )
     monkeypatch.setattr(
         lessons_router.export_service,
