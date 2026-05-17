@@ -286,6 +286,8 @@
     "compositionLocked": "Booklet composition is locked when status is ready or archived.",
     "createTitle": "Create New Booklet",
     "editTitle": "Edit Booklet",
+    "exportModalTitle": "Export booklet",
+    "includeTableOfContents": "Include table of contents",
     "deleteConfirm": "Delete this booklet? This action cannot be undone.",
     "templateDataTitle": "Template fields",
     "templateDataEmpty": "No template fields selected.",
@@ -302,7 +304,8 @@
       "templateData": "Select fields to include in booklet template."
     },
     "validation": {
-      "invalidTemplateData": "Template fields must be valid JSON and must be an array of strings."
+      "invalidTemplateData": "Template fields must be valid JSON and must be an array of strings.",
+      "readyRequiresValidatedLessons": "All included lessons must be validated before setting booklet to Ready."
     },
     "templateFields": {
       "title": "Title",
@@ -344,6 +347,7 @@
       "addChapter": "Add chapter",
       "removeChapter": "Remove chapter",
       "viewEditChapter": "View / Edit",
+      "openLesson": "Open lesson",
       "saveChapter": "Save chapter",
       "download": "Download",
       "downloadFormatLabel": "Download format",

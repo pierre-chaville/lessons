@@ -80,6 +80,28 @@ export const bookletsApi = {
       .post<BookletItem[]>(`/booklets/${id}/reorder`, { item_ids })
       .then((r) => r.data),
 
+  exportDocument: (
+    id: number,
+    options: {
+      format: 'md' | 'docx' | 'pdf'
+      include_table_of_contents?: boolean
+      lesson_fields?: string[]
+      lang?: string
+    },
+  ) => {
+    const query = new URLSearchParams()
+    if (typeof options.include_table_of_contents === 'boolean') {
+      query.set('include_table_of_contents', String(options.include_table_of_contents))
+    }
+    if (options.lesson_fields?.length) {
+      options.lesson_fields.forEach((field) => query.append('lesson_fields', field))
+    }
+    if (options.lang) query.set('lang', options.lang)
+    return apiClient
+      .get<Blob>(`/booklets/${id}/exports/${options.format}?${query.toString()}`, { responseType: 'blob' })
+      .then((r) => r.data)
+  },
+
   downloadPdf: (id: number, lang?: string) =>
     apiClient
       .get<Blob>(`/booklets/${id}/exports/pdf`, { params: lang ? { lang } : undefined, responseType: 'blob' })

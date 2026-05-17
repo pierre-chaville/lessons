@@ -811,6 +811,8 @@ def change_status(
         allowed = role in {"publisher", "admin"}
     elif old == BookletStatus.READY and new_status == BookletStatus.DRAFT:
         allowed = role in {"publisher", "admin"}
+    elif old == BookletStatus.ARCHIVED and new_status in {BookletStatus.DRAFT, BookletStatus.READY}:
+        allowed = role in {"publisher", "admin"}
     elif new_status == BookletStatus.ARCHIVED:
         allowed = role == "admin"
 
@@ -820,7 +822,7 @@ def change_status(
             detail=f"Transition from {old_status} to {new_status_value} is not allowed for role {role}",
         )
 
-    if old == BookletStatus.DRAFT and new_status == BookletStatus.READY:
+    if old != BookletStatus.READY and new_status == BookletStatus.READY:
         offenders = list(
             session.exec(
                 select(BookletItem.lesson_id)

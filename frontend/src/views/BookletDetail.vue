@@ -2,8 +2,8 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
-  ArchiveBoxIcon,
-  ArrowUturnLeftIcon,
+  ArrowDownTrayIcon,
+  ArrowTopRightOnSquareIcon,
   CheckCircleIcon,
   ClockIcon,
   CogIcon,
@@ -18,14 +18,15 @@ import { coursesApi } from '@/api/courses'
 import { configApi } from '@/api/config'
 import type {
   BookletDetail,
+  BookletStatus,
   LessonListItem,
   CourseTreeNode,
   BookletItem,
-  BookletTemplateField,
   NamedPrompt,
   AppConfig,
 } from '@/api/types'
 import CourseTreeItem from '@/components/CourseTreeItem.vue'
+import BookletDocumentModal from '@/components/BookletDocumentModal.vue'
 import { useToast } from '@/composables/useToast'
 import { usePermissions } from '@/composables/usePermissions'
 
@@ -39,25 +40,11 @@ const emit = defineEmits<{
 
 const { t, locale } = useI18n()
 const toast = useToast()
-const templateFieldOptions: BookletTemplateField[] = [
-  'title',
-  'date',
-  'duration',
-  'corrected_transcript',
-  'edited_transcript',
-  'brief',
-  'summary',
-  'status',
-  'themes',
-  'course',
-]
 const { role } = usePermissions()
 const loading = ref(false)
 const mutating = ref(false)
-const downloadingPdf = ref(false)
-const downloadingMarkdown = ref(false)
-const downloadingDocx = ref(false)
-const selectedDownloadFormat = ref<'pdf' | 'markdown' | 'docx'>('pdf')
+const showBookletExportModal = ref(false)
+const isSubmittingBookletExport = ref(false)
 const detail = ref<BookletDetail | null>(null)
 const allLessons = ref<LessonListItem[]>([])
 const courseTree = ref<CourseTreeNode[]>([])
@@ -105,7 +92,7 @@ const bookletForm = ref({
   title: '',
   subtitle: '',
   description: '',
-  template_data: ['title', 'summary', 'brief'] as BookletTemplateField[],
+  status: 'draft' as BookletStatus,
 })
 
 const statusClass = (status: string) => {
@@ -175,9 +162,23 @@ const availableLessons = computed(() => {
 })
 
 const isDraft = computed(() => detail.value?.status === 'draft')
-const isReady = computed(() => detail.value?.status === 'ready')
 const isArchived = computed(() => detail.value?.status === 'archived')
+const canOpenEditBookletModal = computed(() => isDraft.value || isArchived.value)
+const canEditBookletMetadata = computed(() => isDraft.value)
 const isAdmin = computed(() => role.value === 'admin')
+const bookletStatusOptions = computed<BookletStatus[]>(() => {
+  if (isAdmin.value) return ['draft', 'ready', 'archived']
+  // Keep archived visible when currently selected, but non-admin users cannot set it.
+  if (detail.value?.status === 'archived') return ['archived', 'draft', 'ready']
+  return ['draft', 'ready']
+})
+const unvalidatedIncludedLessonIds = computed<number[]>(() =>
+  orderedItems.value
+    .filter((item) => item.item_type === 'lesson' && item.is_included && item.lesson_id != null)
+    .filter((item) => item.lesson_status !== 'validated')
+    .map((item) => item.lesson_id as number),
+)
+const canSetReady = computed(() => unvalidatedIncludedLessonIds.value.length === 0)
 
 const addLesson = async (lessonId: number) => {
   if (!props.bookletId) return
@@ -272,7 +273,7 @@ const openEditBookletModal = () => {
     title: detail.value.title || '',
     subtitle: detail.value.subtitle || '',
     description: detail.value.description || '',
-    template_data: [...(detail.value.template_data || [])],
+    status: (detail.value.status as BookletStatus) || 'draft',
   }
   showEditBookletModal.value = true
 }
@@ -285,27 +286,30 @@ const closeEditBookletModal = () => {
 const saveBookletMeta = async () => {
   if (!props.bookletId || !detail.value) return
   if (!bookletForm.value.title.trim()) return
+  if (bookletForm.value.status === 'ready' && !canSetReady.value) {
+    toast.error(t('booklets.validation.readyRequiresValidatedLessons'))
+    return
+  }
   try {
     mutating.value = true
-    await bookletsApi.update(props.bookletId, {
-      title: bookletForm.value.title.trim(),
-      subtitle: bookletForm.value.subtitle.trim() || null,
-      description: bookletForm.value.description.trim() || null,
-      template_data: [...bookletForm.value.template_data],
-    })
+    if (canEditBookletMetadata.value) {
+      await bookletsApi.update(props.bookletId, {
+        title: bookletForm.value.title.trim(),
+        subtitle: bookletForm.value.subtitle.trim() || null,
+        description: bookletForm.value.description.trim() || null,
+      })
+    }
+    if (bookletForm.value.status !== detail.value.status) {
+      await bookletsApi.changeStatus(props.bookletId, bookletForm.value.status)
+    }
     await loadDetail()
     showEditBookletModal.value = false
-  } finally {
-    mutating.value = false
-  }
-}
-
-const changeBookletStatus = async (newStatus: 'ready' | 'draft' | 'archived') => {
-  if (!props.bookletId) return
-  try {
-    mutating.value = true
-    await bookletsApi.changeStatus(props.bookletId, newStatus)
-    await loadDetail()
+  } catch (e: any) {
+    const detailMessage =
+      e?.response?.data?.detail?.message ||
+      e?.response?.data?.detail ||
+      t('lessons.tasksCreationFailed')
+    toast.error(String(detailMessage))
   } finally {
     mutating.value = false
   }
@@ -323,73 +327,128 @@ const deleteBooklet = async () => {
   }
 }
 
-const downloadBookletPdf = async () => {
-  if (!props.bookletId || !detail.value) return
+type BookletExportFormat = 'md' | 'docx' | 'pdf'
+type BookletExportField = 'date' | 'duration' | 'course_name' | 'themes' | 'brief' | 'summary' | 'edited_version'
+type BookletExportPreferences = {
+  format: BookletExportFormat
+  includeFields: BookletExportField[]
+  includeTableOfContents: boolean
+}
+
+const BOOKLET_EXPORT_PREFERENCES_STORAGE_KEY = 'booklet-export-preferences'
+
+const loadBookletExportPreferences = (): BookletExportPreferences => {
+  const fallback: BookletExportPreferences = {
+    format: 'docx',
+    includeFields: ['date', 'duration', 'course_name', 'themes', 'brief', 'summary'],
+    includeTableOfContents: true,
+  }
   try {
-    downloadingPdf.value = true
-    const blob = await bookletsApi.downloadPdf(props.bookletId, locale.value)
-    const url = window.URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    const safeTitle = (detail.value.title || 'booklet').replace(/[^\w\- ]+/g, '').trim() || 'booklet'
-    link.download = `${safeTitle}.pdf`
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    window.URL.revokeObjectURL(url)
-  } finally {
-    downloadingPdf.value = false
+    const raw = window.localStorage.getItem(BOOKLET_EXPORT_PREFERENCES_STORAGE_KEY)
+    if (!raw) return fallback
+    const parsed = JSON.parse(raw) as Partial<BookletExportPreferences>
+    const format = parsed.format === 'md' || parsed.format === 'docx' || parsed.format === 'pdf'
+      ? parsed.format
+      : fallback.format
+    const includeFields = Array.isArray(parsed.includeFields)
+      ? parsed.includeFields.filter(
+          (value): value is BookletExportField =>
+            value === 'date'
+            || value === 'duration'
+            || value === 'course_name'
+            || value === 'themes'
+            || value === 'brief'
+            || value === 'summary'
+            || value === 'edited_version',
+        )
+      : fallback.includeFields
+    const includeTableOfContents =
+      typeof parsed.includeTableOfContents === 'boolean'
+        ? parsed.includeTableOfContents
+        : fallback.includeTableOfContents
+    return { format, includeFields, includeTableOfContents }
+  } catch {
+    return fallback
   }
 }
 
-const downloadBookletMarkdown = async () => {
-  if (!props.bookletId || !detail.value) return
-  try {
-    downloadingMarkdown.value = true
-    const blob = await bookletsApi.downloadMarkdown(props.bookletId, locale.value)
-    const url = window.URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    const safeTitle = (detail.value.title || 'booklet').replace(/[^\w\- ]+/g, '').trim() || 'booklet'
-    link.download = `${safeTitle}.md`
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    window.URL.revokeObjectURL(url)
-  } finally {
-    downloadingMarkdown.value = false
-  }
+const saveBookletExportPreferences = (preferences: BookletExportPreferences) => {
+  window.localStorage.setItem(BOOKLET_EXPORT_PREFERENCES_STORAGE_KEY, JSON.stringify(preferences))
 }
 
-const downloadBookletDocx = async () => {
-  if (!props.bookletId || !detail.value) return
-  try {
-    downloadingDocx.value = true
-    const blob = await bookletsApi.downloadDocx(props.bookletId, locale.value)
-    const url = window.URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    const safeTitle = (detail.value.title || 'booklet').replace(/[^\w\- ]+/g, '').trim() || 'booklet'
-    link.download = `${safeTitle}.docx`
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    window.URL.revokeObjectURL(url)
-  } finally {
-    downloadingDocx.value = false
-  }
+const bookletExportPreferences = ref<BookletExportPreferences>(loadBookletExportPreferences())
+
+const triggerBookletDownload = (blob: Blob, filename: string) => {
+  const url = window.URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.URL.revokeObjectURL(url)
 }
 
-const downloadSelectedBooklet = async () => {
-  if (selectedDownloadFormat.value === 'markdown') {
-    await downloadBookletMarkdown()
-    return
+const slugifyFilenamePart = (value: string | null | undefined): string => {
+  const text = (value ?? '').trim().toLowerCase()
+  if (!text) return 'booklet'
+  const normalized = text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  return normalized || 'booklet'
+}
+
+const openBookletExportModal = () => {
+  showBookletExportModal.value = true
+}
+
+const closeBookletExportModal = () => {
+  if (isSubmittingBookletExport.value) return
+  showBookletExportModal.value = false
+}
+
+const handleBookletExport = async (payload: {
+  format: BookletExportFormat
+  includeFields: string[]
+  includeTableOfContents: boolean
+}) => {
+  if (!props.bookletId || !detail.value || isSubmittingBookletExport.value) return
+  try {
+    isSubmittingBookletExport.value = true
+    const normalizedFields = payload.includeFields.filter(
+      (value): value is BookletExportField =>
+        value === 'date'
+        || value === 'duration'
+        || value === 'course_name'
+        || value === 'themes'
+        || value === 'brief'
+        || value === 'summary'
+        || value === 'edited_version',
+    )
+    const updatedPreferences: BookletExportPreferences = {
+      format: payload.format,
+      includeFields: normalizedFields,
+      includeTableOfContents: payload.includeTableOfContents,
+    }
+    bookletExportPreferences.value = updatedPreferences
+    saveBookletExportPreferences(updatedPreferences)
+
+    const blob = await bookletsApi.exportDocument(props.bookletId, {
+      format: payload.format,
+      include_table_of_contents: payload.includeTableOfContents,
+      lesson_fields: normalizedFields,
+      lang: locale.value,
+    })
+    const safeTitle = slugifyFilenamePart(detail.value.title)
+    triggerBookletDownload(blob, `${safeTitle}.${payload.format}`)
+    showBookletExportModal.value = false
+  } catch {
+    toast.error(t('lessons.exportFailed'))
+  } finally {
+    isSubmittingBookletExport.value = false
   }
-  if (selectedDownloadFormat.value === 'docx') {
-    await downloadBookletDocx()
-    return
-  }
-  await downloadBookletPdf()
 }
 
 const loadPrompts = (
@@ -590,6 +649,13 @@ const removeItem = async (item: BookletItem) => {
   }
 }
 
+const openLessonFromItem = (item: BookletItem) => {
+  if (item.item_type !== 'lesson' || item.lesson_id == null) return
+  const lesson = allLessons.value.find((l) => l.id === item.lesson_id)
+  if (!lesson?.hashid) return
+  window.location.href = `/lessons/${lesson.hashid}`
+}
+
 const onDragStart = (itemId: number) => {
   draggingItemId.value = itemId
   dragOverItemId.value = itemId
@@ -677,112 +743,27 @@ watch(() => props.bookletId, loadDetail)
               </button>
               <button
                 class="flex-shrink-0 inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                :disabled="mutating || !isDraft"
+                :disabled="mutating || !canOpenEditBookletModal"
                 @click="openEditBookletModal"
               >
                 <PencilIcon class="h-4 w-4" />
                 {{ t('booklets.actions.edit') }}
               </button>
               <button
-                v-if="isDraft"
-                class="flex-shrink-0 inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/30 disabled:opacity-50 disabled:cursor-not-allowed"
-                :disabled="mutating"
-                @click="changeBookletStatus('ready')"
+                class="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors text-white bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                :disabled="mutating || isSubmittingBookletExport"
+                @click="openBookletExportModal"
               >
-                <CheckCircleIcon class="h-4 w-4" />
-                {{ t('booklets.actions.markReady') }}
-              </button>
-              <button
-                v-if="isReady"
-                class="flex-shrink-0 inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 dark:hover:bg-amber-900/30 disabled:opacity-50 disabled:cursor-not-allowed"
-                :disabled="mutating"
-                @click="changeBookletStatus('draft')"
-              >
-                <ArrowUturnLeftIcon class="h-4 w-4" />
-                {{ t('booklets.actions.markDraft') }}
-              </button>
-              <button
-                v-if="isAdmin && !isArchived"
-                class="flex-shrink-0 inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                :disabled="mutating"
-                @click="changeBookletStatus('archived')"
-              >
-                <ArchiveBoxIcon class="h-4 w-4" />
-                {{ t('booklets.actions.archive') }}
+                <ArrowDownTrayIcon class="h-4 w-4" />
+                {{ isSubmittingBookletExport ? t('lessons.exporting') : t('lessons.exportAction') }}
               </button>
               <button
                 class="flex-shrink-0 inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 disabled:opacity-50 disabled:cursor-not-allowed"
-                :disabled="mutating || downloadingPdf || downloadingMarkdown || downloadingDocx"
+                :disabled="mutating || isSubmittingBookletExport"
                 @click="deleteBooklet"
               >
                 <TrashIcon class="h-4 w-4" />
                 {{ t('booklets.actions.delete') }}
-              </button>
-            </div>
-            <div class="flex-shrink-0 flex items-center gap-2 mt-1 sm:mt-0">
-              <div
-                class="inline-flex rounded-md border border-gray-300 dark:border-gray-600 overflow-hidden"
-                role="group"
-                :aria-label="t('booklets.actions.downloadFormatLabel')"
-              >
-                <button
-                  type="button"
-                  class="px-3 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  :class="
-                    selectedDownloadFormat === 'pdf'
-                      ? 'bg-indigo-600 text-white'
-                      : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600'
-                  "
-                  :disabled="mutating || downloadingPdf || downloadingMarkdown || downloadingDocx"
-                  :aria-pressed="selectedDownloadFormat === 'pdf'"
-                  @click="selectedDownloadFormat = 'pdf'"
-                >
-                  {{ t('booklets.actions.formatPdf') }}
-                </button>
-                <button
-                  type="button"
-                  class="px-3 py-2 text-sm font-medium transition-colors border-l border-gray-300 dark:border-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                  :class="
-                    selectedDownloadFormat === 'markdown'
-                      ? 'bg-indigo-600 text-white'
-                      : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600'
-                  "
-                  :disabled="mutating || downloadingPdf || downloadingMarkdown || downloadingDocx"
-                  :aria-pressed="selectedDownloadFormat === 'markdown'"
-                  @click="selectedDownloadFormat = 'markdown'"
-                >
-                  {{ t('booklets.actions.formatMarkdown') }}
-                </button>
-                <button
-                  type="button"
-                  class="px-3 py-2 text-sm font-medium transition-colors border-l border-gray-300 dark:border-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                  :class="
-                    selectedDownloadFormat === 'docx'
-                      ? 'bg-indigo-600 text-white'
-                      : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600'
-                  "
-                  :disabled="mutating || downloadingPdf || downloadingMarkdown || downloadingDocx"
-                  :aria-pressed="selectedDownloadFormat === 'docx'"
-                  @click="selectedDownloadFormat = 'docx'"
-                >
-                  {{ t('booklets.actions.formatDocx') }}
-                </button>
-              </div>
-              <button
-                class="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors text-white bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                :disabled="mutating || downloadingPdf || downloadingMarkdown || downloadingDocx"
-                @click="downloadSelectedBooklet"
-              >
-                <DocumentTextIcon class="h-4 w-4" />
-                {{
-                  downloadingPdf
-                    ? t('booklets.actions.downloadingPdf')
-                    : downloadingMarkdown
-                      ? t('booklets.actions.downloadingMarkdown')
-                      : downloadingDocx
-                        ? t('booklets.actions.downloadingDocx')
-                      : t('booklets.actions.download')
-                }}
               </button>
             </div>
           </div>
@@ -794,26 +775,6 @@ watch(() => props.bookletId, loadDetail)
           <span :class="['inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium', statusClass(detail.status)]">
             {{ t(`booklets.status.${detail.status}`) }}
           </span>
-        </div>
-        <div class="mt-4">
-          <h4 class="text-sm font-semibold text-gray-900 dark:text-white mb-2">
-            {{ t('booklets.templateDataTitle') }}
-          </h4>
-          <div
-            v-if="detail.template_data && detail.template_data.length"
-            class="flex flex-wrap gap-2 rounded-md bg-gray-50 p-3 dark:bg-gray-900"
-          >
-            <span
-              v-for="fieldKey in detail.template_data"
-              :key="fieldKey"
-              class="inline-flex items-center rounded-full bg-indigo-100 px-2.5 py-1 text-xs font-medium text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300"
-            >
-              {{ t(`booklets.templateFields.${fieldKey}`) }}
-            </span>
-          </div>
-          <p v-else class="text-sm text-gray-500 dark:text-gray-400">
-            {{ t('booklets.templateDataEmpty') }}
-          </p>
         </div>
       </div>
 
@@ -887,6 +848,15 @@ watch(() => props.bookletId, loadDetail)
               {{ t('booklets.chapterBadge') }}
             </span>
             <div class="flex items-center gap-1 ml-2">
+              <button
+                v-if="row.item_type === 'lesson' && row.lesson_id != null"
+                class="p-1.5 text-xs rounded border border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 disabled:opacity-50"
+                :title="t('booklets.actions.openLesson')"
+                :disabled="mutating"
+                @click="openLessonFromItem(row)"
+              >
+                <ArrowTopRightOnSquareIcon class="h-4 w-4" />
+              </button>
               <button
                 v-if="row.item_type === 'chapter'"
                 class="px-2 py-1 text-xs rounded border border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20 disabled:opacity-50"
@@ -1166,6 +1136,7 @@ watch(() => props.bookletId, loadDetail)
             <input
               v-model="bookletForm.title"
               type="text"
+              :disabled="!canEditBookletMetadata"
               class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100"
               :placeholder="t('booklets.placeholders.title')"
             />
@@ -1177,6 +1148,7 @@ watch(() => props.bookletId, loadDetail)
             <input
               v-model="bookletForm.subtitle"
               type="text"
+              :disabled="!canEditBookletMetadata"
               class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100"
               :placeholder="t('booklets.placeholders.subtitle')"
             />
@@ -1188,29 +1160,31 @@ watch(() => props.bookletId, loadDetail)
             <textarea
               v-model="bookletForm.description"
               rows="3"
+              :disabled="!canEditBookletMetadata"
               class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100"
               :placeholder="t('booklets.placeholders.description')"
             />
           </div>
           <div>
             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {{ t('booklets.fields.templateData') }}
+              {{ t('booklets.templateFields.status') }}
             </label>
-            <div class="grid grid-cols-2 gap-2 rounded-md border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/30 p-3">
-              <label
-                v-for="fieldKey in templateFieldOptions"
-                :key="fieldKey"
-                class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300"
+            <select
+              v-model="bookletForm.status"
+              class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-gray-100"
+            >
+              <option
+                v-for="statusOption in bookletStatusOptions"
+                :key="statusOption"
+                :value="statusOption"
+                :disabled="statusOption === 'ready' && !canSetReady"
               >
-                <input
-                  v-model="bookletForm.template_data"
-                  type="checkbox"
-                  :value="fieldKey"
-                  class="rounded border-gray-300 dark:border-gray-600"
-                />
-                {{ t(`booklets.templateFields.${fieldKey}`) }}
-              </label>
-            </div>
+                {{ t(`booklets.status.${statusOption}`) }}
+              </option>
+            </select>
+            <p v-if="!canSetReady" class="mt-1 text-xs text-amber-700 dark:text-amber-400">
+              {{ t('booklets.validation.readyRequiresValidatedLessons') }}
+            </p>
           </div>
           <div class="flex justify-end gap-2 pt-2">
             <button
@@ -1231,6 +1205,16 @@ watch(() => props.bookletId, loadDetail)
         </form>
       </div>
     </div>
+
+    <BookletDocumentModal
+      :is-open="showBookletExportModal"
+      :submitting="isSubmittingBookletExport"
+      :default-format="bookletExportPreferences.format"
+      :default-fields="bookletExportPreferences.includeFields"
+      :default-include-table-of-contents="bookletExportPreferences.includeTableOfContents"
+      @close="closeBookletExportModal"
+      @export="handleBookletExport"
+    />
 
     <div
       v-if="showAddModal"

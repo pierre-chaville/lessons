@@ -286,6 +286,8 @@
     "compositionLocked": "La composition du livret est verrouillée lorsqu'il est prêt ou archivé.",
     "createTitle": "Créer un Nouveau Livret",
     "editTitle": "Modifier le Livret",
+    "exportModalTitle": "Exporter le livret",
+    "includeTableOfContents": "Inclure la table des matières",
     "deleteConfirm": "Supprimer ce livret ? Cette action est irréversible.",
     "templateDataTitle": "Champs du template",
     "templateDataEmpty": "Aucun champ de template sélectionné.",
@@ -302,7 +304,8 @@
       "templateData": "Sélectionnez les champs à inclure dans le template du livret."
     },
     "validation": {
-      "invalidTemplateData": "Les champs du template doivent être un JSON valide et un tableau de chaînes."
+      "invalidTemplateData": "Les champs du template doivent être un JSON valide et un tableau de chaînes.",
+      "readyRequiresValidatedLessons": "Toutes les sessions incluses doivent être validées avant de passer le livret en Prêt."
     },
     "templateFields": {
       "title": "Titre",
@@ -344,6 +347,7 @@
       "addChapter": "Ajouter un chapitre",
       "removeChapter": "Retirer le chapitre",
       "viewEditChapter": "Voir / Modifier",
+      "openLesson": "Ouvrir la session",
       "saveChapter": "Enregistrer le chapitre",
       "download": "Télécharger",
       "downloadFormatLabel": "Format de téléchargement",

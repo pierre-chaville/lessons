@@ -18,7 +18,10 @@ class BookletCreate(BaseModel):
     cover_metadata: Dict[str, Any] = Field(default_factory=dict)
     template: str = "default"
     course_id: Optional[int] = None
-    template_data: List[str] = Field(default_factory=list)
+    template_data: List[str] = Field(
+        default_factory=list,
+        description="DEPRECATED: export field selection is now stored in frontend preferences.",
+    )
 
 
 class BookletUpdate(BaseModel):
@@ -28,7 +31,10 @@ class BookletUpdate(BaseModel):
     cover_metadata: Optional[Dict[str, Any]] = None
     template: Optional[str] = None
     course_id: Optional[int] = None
-    template_data: Optional[List[str]] = None
+    template_data: Optional[List[str]] = Field(
+        default=None,
+        description="DEPRECATED: export field selection is now stored in frontend preferences.",
+    )
 
 
 class BookletItemAdd(BaseModel):
@@ -135,7 +141,10 @@ class BookletResponse(BaseModel):
     description: Optional[str]
     status: BookletStatus
     cover_metadata: Dict[str, Any]
-    template_data: List[str] = Field(default_factory=list)
+    template_data: List[str] = Field(
+        default_factory=list,
+        description="DEPRECATED: retained for backward compatibility.",
+    )
     template: str
     course_id: Optional[int]
     created_at: datetime

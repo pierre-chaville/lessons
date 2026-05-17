@@ -41,6 +41,16 @@ BOOKLET_LESSON_OPTIONAL_FIELDS = {
     "edited_version",
 }
 
+_BOOKLET_TEMPLATE_TO_EXPORT_FIELD = {
+    "date": "date",
+    "duration": "duration",
+    "course": "course_name",
+    "themes": "themes",
+    "brief": "brief",
+    "summary": "summary",
+    "edited_transcript": "edited_version",
+}
+
 _DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 _PDF_MIME = "application/pdf"
 _MD_MIME = "text/markdown; charset=utf-8"
@@ -193,6 +203,17 @@ def _sanitize_booklet_lesson_fields(include_fields: Optional[Sequence[str]]) -> 
             )
         if value not in result:
             result.append(value)
+    return result
+
+
+def _booklet_default_lesson_fields_from_template(booklet: Booklet) -> List[str]:
+    result: List[str] = []
+    for raw in (booklet.template_data or []):
+        mapped = _BOOKLET_TEMPLATE_TO_EXPORT_FIELD.get(str(raw).strip())
+        if not mapped:
+            continue
+        if mapped not in result:
+            result.append(mapped)
     return result
 
 
@@ -394,7 +415,10 @@ def build_booklet_markdown_export(
 ) -> Tuple[str, str]:
     labels = _I18N_LABELS[_normalize_language(language)]
     booklet = _get_booklet_or_404(session, booklet_id)
-    fields = _sanitize_booklet_lesson_fields(lesson_fields)
+    if lesson_fields is None:
+        fields = _booklet_default_lesson_fields_from_template(booklet)
+    else:
+        fields = _sanitize_booklet_lesson_fields(lesson_fields)
     items = _sorted_booklet_items(session, booklet_id)
     lessons, course_names, theme_names = _booklet_lessons_context(session, items)
 
