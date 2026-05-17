@@ -979,11 +979,34 @@ const tabExportType = computed(() => {
   return 'transcript' as const
 })
 
-const tabExportFilenameSuffix = computed(() => {
-  if (lessonDocumentView.value === 'summary') return 'summary'
-  if (lessonDocumentView.value === 'edited') return 'edited_version'
-  return 'transcript'
-})
+const slugifyFilenamePart = (value: string | null | undefined): string => {
+  const text = (value ?? '').trim().toLowerCase()
+  if (!text) return 'untitled'
+  const normalized = text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  return normalized || 'untitled'
+}
+
+const getExportTypeLabel = (exportType: 'summary' | 'edited' | 'transcript' | 'sources' | 'sources_detailed'): string => {
+  if (exportType === 'summary') return t('lessons.summary')
+  if (exportType === 'edited') return t('lessons.editedTranscript')
+  if (exportType === 'transcript') return t('lessons.transcript')
+  if (exportType === 'sources_detailed') return `${t('lessons.sources')} detailed`
+  return t('lessons.sources')
+}
+
+const buildLessonExportFilename = (
+  exportType: 'summary' | 'edited' | 'transcript' | 'sources' | 'sources_detailed',
+  extension: LessonExportFormat,
+): string => {
+  const datePart = formatDate(props.lesson.date) || 'undated'
+  const titlePart = slugifyFilenamePart(props.lesson.title)
+  const exportTypePart = slugifyFilenamePart(getExportTypeLabel(exportType))
+  return `${datePart}_${titlePart}_${exportTypePart}.${extension}`
+}
 
 const handleLessonExport = async (payload: { format: LessonExportFormat; includeFields: string[] }) => {
   if (isSubmittingLessonDocument.value) return
@@ -1002,8 +1025,7 @@ const handleLessonExport = async (payload: { format: LessonExportFormat; include
       transcript_type: transcriptType,
       lang: locale.value,
     })
-    const extension = payload.format
-    const filename = `${props.lesson.title}_${tabExportFilenameSuffix.value}.${extension}`
+    const filename = buildLessonExportFilename(tabExportType.value, payload.format)
     triggerDownload(blob, filename)
     showLessonDocumentModal.value = false
   } catch {
@@ -1054,7 +1076,7 @@ const downloadSourcesPDF = async () => {
       format: 'pdf',
       lang: locale.value,
     })
-    triggerDownload(blob, `${props.lesson.title}_sources.pdf`)
+    triggerDownload(blob, buildLessonExportFilename('sources', 'pdf'))
   } catch {
     toast.error(t('lessons.downloadFailed'))
   }
@@ -1066,7 +1088,7 @@ const downloadDetailedSourcesPDF = async () => {
       format: 'pdf',
       lang: locale.value,
     })
-    triggerDownload(blob, `${props.lesson.title}_sources_detailed.pdf`)
+    triggerDownload(blob, buildLessonExportFilename('sources_detailed', 'pdf'))
   } catch {
     toast.error(t('lessons.downloadFailed'))
   }
