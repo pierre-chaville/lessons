@@ -92,6 +92,41 @@ def _create_versioning_tables() -> None:
         """))
 
 
+def _ensure_content_version_lesson_fk_cascade() -> None:
+    """Ensure content_version.lesson_id FK is ON DELETE CASCADE (PostgreSQL)."""
+    if engine.dialect.name != "postgresql":
+        return
+    inspector = inspect(engine)
+    tables = inspector.get_table_names()
+    if "content_version" not in tables or "lesson" not in tables:
+        return
+
+    lesson_fks = [
+        fk for fk in inspector.get_foreign_keys("content_version")
+        if fk.get("referred_table") == "lesson" and fk.get("constrained_columns") == ["lesson_id"]
+    ]
+
+    has_cascade_fk = any(
+        (fk.get("options") or {}).get("ondelete", "").upper() == "CASCADE"
+        for fk in lesson_fks
+    )
+    if has_cascade_fk:
+        return
+
+    with engine.begin() as conn:
+        for fk in lesson_fks:
+            fk_name = fk.get("name")
+            if fk_name:
+                safe_name = fk_name.replace('"', '""')
+                conn.execute(text(f'ALTER TABLE content_version DROP CONSTRAINT IF EXISTS "{safe_name}"'))
+        conn.execute(text("""
+            ALTER TABLE content_version
+            ADD CONSTRAINT content_version_lesson_id_fkey
+            FOREIGN KEY (lesson_id) REFERENCES lesson(id) ON DELETE CASCADE
+        """))
+    logger.info("Migration: ensured ON DELETE CASCADE on content_version.lesson_id FK")
+
+
 def _backfill_content_versions() -> int:
     """Backfill initial v1 rows from existing lesson cached content."""
     inserted_rows = 0
@@ -190,6 +225,7 @@ def _run_migrations():
             had_content_version = "content_version" in tables
             had_audit_log = "audit_log" in tables
             _create_versioning_tables()
+            _ensure_content_version_lesson_fk_cascade()
             backfilled_count = _backfill_content_versions()
             if (not had_content_version) or (not had_audit_log) or backfilled_count > 0:
                 logger.info(
