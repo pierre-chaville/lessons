@@ -100,4 +100,18 @@ export const lessonsApi = {
       })
       .then((r) => r.data)
   },
+
+  importDocument: (
+    hashid: string,
+    importType: 'summary' | 'edited' | 'transcript',
+    file: File,
+  ) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return apiClient
+      .post<LessonDetail>(`/lessons/${hashid}/imports/${importType}`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      .then((r) => r.data)
+  },
 }

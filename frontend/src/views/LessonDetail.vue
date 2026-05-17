@@ -198,6 +198,7 @@ const workflowExpandedPayload = ref<Set<number>>(new Set())
 // Transcript expander state (for edited view)
 const expandedTranscriptIndex = ref<number | null>(null)
 const showSideBySideTranscript = ref(false)
+const showSourcesInEdited = ref(true)
 const showSummaryWithEdited = ref(false)
 
 const historyContentType = ref<ContentType | null>(props.initialHistoryContentType ?? null)
@@ -1035,9 +1036,23 @@ const handleLessonExport = async (payload: { format: LessonExportFormat; include
   }
 }
 
-const handleLessonImport = async (_payload: { file: File | null }) => {
-  toast.info(t('lessons.importNotImplementedYet'))
-  showLessonDocumentModal.value = false
+const handleLessonImport = async (payload: { file: File | null }) => {
+  if (isSubmittingLessonDocument.value || !payload.file) return
+  try {
+    isSubmittingLessonDocument.value = true
+    const updated = await lessonsApi.importDocument(
+      props.lesson.hashid,
+      tabExportType.value,
+      payload.file,
+    )
+    Object.assign(props.lesson, updated)
+    toast.success(t('lessons.importSuccess'))
+    showLessonDocumentModal.value = false
+  } catch {
+    toast.error(t('lessons.importFailed'))
+  } finally {
+    isSubmittingLessonDocument.value = false
+  }
 }
 
 const isRealigningEdited = ref(false)
@@ -2837,6 +2852,31 @@ const saveParagraph = async () => {
                   />
                 </button>
               </label>
+              <label
+                v-if="hasSourcesExtracted"
+                class="inline-flex items-center gap-2 cursor-pointer select-none ml-5"
+              >
+                <span
+                  class="text-sm text-gray-600 dark:text-gray-400"
+                >{{ t('lessons.showSources') }}</span>
+                <button
+                  type="button"
+                  role="switch"
+                  :aria-checked="showSourcesInEdited"
+                  @click="showSourcesInEdited = !showSourcesInEdited"
+                  :class="[
+                    showSourcesInEdited ? 'bg-indigo-600' : 'bg-gray-300 dark:bg-gray-600',
+                    'relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800'
+                  ]"
+                >
+                  <span
+                    :class="[
+                      showSourcesInEdited ? 'translate-x-4' : 'translate-x-0.5',
+                      'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out mt-0.5'
+                    ]"
+                  />
+                </button>
+              </label>
             </div>
 
             <div v-if="editedParts.length > 0" class="scroll-smooth relative">
@@ -2870,7 +2910,7 @@ const saveParagraph = async () => {
                         <div class="prose prose-sm dark:prose-invert max-w-none">
                           <div 
                             class="text-gray-900 dark:text-gray-100 leading-relaxed whitespace-pre-wrap print:text-black"
-                            v-html="renderMarkdown(addSourceMarkers(part.text, getSourcesForParagraph(index) as any, getGlobalSourceIndex(index)))"
+                            v-html="renderMarkdown(showSourcesInEdited ? addSourceMarkers(part.text, getSourcesForParagraph(index) as any, getGlobalSourceIndex(index)) : part.text)"
                           ></div>
                         </div>
                       </div>
@@ -2915,7 +2955,7 @@ const saveParagraph = async () => {
                     </div>
 
                     <!-- Sources -->
-                    <div v-if="getSourcesForParagraph(index).length > 0" class="space-y-2 mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 print:border-gray-300">
+                    <div v-if="showSourcesInEdited && getSourcesForParagraph(index).length > 0" class="space-y-2 mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 print:border-gray-300">
                       <div class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
                         {{ t('lessons.sources') }}
                       </div>
@@ -3014,7 +3054,7 @@ const saveParagraph = async () => {
                       <div class="prose prose-sm dark:prose-invert max-w-none">
                         <div 
                           class="text-gray-900 dark:text-gray-100 leading-normal whitespace-pre-wrap print:text-black"
-                          v-html="renderMarkdown(addSourceMarkers(part.text, getSourcesForParagraph(index) as any, getGlobalSourceIndex(index)))"
+                          v-html="renderMarkdown(showSourcesInEdited ? addSourceMarkers(part.text, getSourcesForParagraph(index) as any, getGlobalSourceIndex(index)) : part.text)"
                         ></div>
                       </div>
                     </div>
@@ -3059,7 +3099,7 @@ const saveParagraph = async () => {
                   </div>
                   
                   <!-- Sources -->
-                  <div v-if="getSourcesForParagraph(index).length > 0" class="space-y-2 mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 print:border-gray-300">
+                  <div v-if="showSourcesInEdited && getSourcesForParagraph(index).length > 0" class="space-y-2 mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 print:border-gray-300">
                     <div class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
                       {{ t('lessons.sources') }}
                     </div>

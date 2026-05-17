@@ -11,7 +11,7 @@ from models.audit import AuditLog
 from models.lesson import Lesson
 from models.versioning import ContentType, ContentVersion, VersionSource
 from services.lessons import change_status
-from services.versioning import seal_current_version, update_content, restore_version
+from services.versioning import compute_diff, seal_current_version, update_content, restore_version
 
 
 def _session() -> Session:
@@ -257,3 +257,41 @@ def test_update_content_strips_nul_bytes_from_edited_transcript() -> None:
         assert updated.content["markdown"] == "abcdef"
         session.refresh(lesson)
         assert lesson.edited_transcript["markdown"] == "abcdef"
+
+
+def test_compute_diff_summary_ignores_blank_line_only_changes() -> None:
+    version_a = ContentVersion(
+        lesson_id=1,
+        content_type=ContentType.SUMMARY.value,
+        content="# Title\nParagraph one.\nParagraph two.",
+        version_number=1,
+        version_source=VersionSource.HUMAN.value,
+        created_at=datetime.utcnow(),
+        last_edited_at=None,
+        edit_count=1,
+        is_sealed=False,
+        created_by_id="u1",
+        change_summary=None,
+        parent_version_id=None,
+        is_current=True,
+    )
+    version_b = ContentVersion(
+        lesson_id=1,
+        content_type=ContentType.SUMMARY.value,
+        content="# Title\n\nParagraph one.\n\nParagraph two.",
+        version_number=2,
+        version_source=VersionSource.HUMAN.value,
+        created_at=datetime.utcnow(),
+        last_edited_at=None,
+        edit_count=1,
+        is_sealed=False,
+        created_by_id="u1",
+        change_summary=None,
+        parent_version_id=None,
+        is_current=True,
+    )
+
+    diff = compute_diff(version_a, version_b)
+
+    assert diff["type"] == "text"
+    assert diff["diff"] == ""

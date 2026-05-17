@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import os
+import re
 import time
 from collections import defaultdict
 from datetime import datetime
@@ -16,7 +17,7 @@ from sqlmodel import Session, select
 import crud
 from models import Booklet, BookletItem, BookletItemType, Course, Lesson, Theme
 from services.edited_transcript import edited_transcript_markdown
-from services.markdown_docx import markdown_to_docx_bytes
+from services.markdown_docx import docx_bytes_to_markdown, markdown_to_docx_bytes
 
 LessonExportType = Literal["summary", "edited", "transcript", "sources", "sources_detailed"]
 BookletExportType = Literal["booklet"]
@@ -54,6 +55,12 @@ _BOOKLET_TEMPLATE_TO_EXPORT_FIELD = {
 _DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 _PDF_MIME = "application/pdf"
 _MD_MIME = "text/markdown; charset=utf-8"
+_SECTION_START_MARKER = "<!-- MARKER:section-start -->"
+_SECTION_END_MARKER = "<!-- MARKER:section-end -->"
+_TRANSCRIPT_TIMED_LINE_RE = re.compile(
+    r"^\s*[-*+]\s+\[(?P<start>[0-9:\.]+)\s*-\s*(?P<end>[0-9:\.]+)\]\s*(?P<text>.+?)\s*$"
+)
+_TRANSCRIPT_BULLET_LINE_RE = re.compile(r"^\s*[-*+]\s+(?P<text>.+?)\s*$")
 
 _I18N_LABELS = {
     "en": {
@@ -118,6 +125,158 @@ def _normalize_language(language: Optional[str]) -> str:
     if value.startswith("fr"):
         return "fr"
     return "en"
+
+
+def document_bytes_to_markdown(document_bytes: bytes, filename: str) -> str:
+    extension = os.path.splitext(str(filename or ""))[1].lower()
+    if extension in {".md", ".markdown"}:
+        try:
+            return document_bytes.decode("utf-8-sig")
+        except UnicodeDecodeError as exc:
+            raise HTTPException(status_code=400, detail="Markdown document must be UTF-8 encoded") from exc
+    if extension == ".docx":
+        try:
+            return docx_bytes_to_markdown(document_bytes)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=400, detail="Failed to read DOCX document") from exc
+    raise HTTPException(status_code=400, detail="Unsupported document format. Allowed: .md, .docx")
+
+
+def extract_markdown_main_section(markdown: str) -> str:
+    text = str(markdown or "")
+    start_index = text.find(_SECTION_START_MARKER)
+    end_index = text.find(_SECTION_END_MARKER)
+
+    if start_index != -1 and end_index != -1 and start_index < end_index:
+        body = text[start_index + len(_SECTION_START_MARKER):end_index]
+    elif start_index != -1:
+        body = text[start_index + len(_SECTION_START_MARKER):]
+    elif end_index != -1:
+        body = text[:end_index]
+    else:
+        body = text
+
+    cleaned_lines = []
+    for line in body.splitlines():
+        stripped = line.strip()
+        if stripped in {_SECTION_START_MARKER, _SECTION_END_MARKER}:
+            continue
+        cleaned_lines.append(line)
+    cleaned = "\n".join(cleaned_lines).strip()
+    if start_index == -1 and end_index == -1:
+        return _strip_exported_preface_fallback(cleaned)
+    return cleaned
+
+
+def _is_preface_meta_line(line: str) -> bool:
+    stripped = str(line or "").strip()
+    if not stripped:
+        return False
+    if stripped.startswith("# "):
+        return True
+    if re.match(r"^\*\*[^*].*[^*]\*\*$", stripped):
+        return True
+    if re.match(r"^\*[^*].*[^*]\*$", stripped):
+        return True
+    if stripped.startswith("> "):
+        return True
+    return False
+
+
+def _strip_exported_preface_fallback(markdown: str) -> str:
+    """
+    Best-effort fallback when explicit markers are missing (legacy DOCX exports).
+
+    We only strip the top block if it strongly resembles our generated lesson preface.
+    """
+    text = str(markdown or "").strip()
+    if not text:
+        return ""
+    lines = text.splitlines()
+    candidate_limit = min(len(lines), 12)
+    candidate = lines[:candidate_limit]
+
+    meta_count = 0
+    first_content_idx = 0
+    for idx, line in enumerate(candidate):
+        stripped = line.strip()
+        if not stripped:
+            first_content_idx = idx + 1
+            if meta_count >= 2:
+                return "\n".join(lines[first_content_idx:]).strip()
+            break
+        if _is_preface_meta_line(stripped):
+            meta_count += 1
+            first_content_idx = idx + 1
+            continue
+        break
+    return text
+
+
+def _parse_timecode_to_seconds(token: str) -> float:
+    value = str(token or "").strip()
+    if not value:
+        raise ValueError("Empty timestamp")
+    parts = value.split(":")
+    if not 1 <= len(parts) <= 3:
+        raise ValueError(f"Unsupported timestamp format: {value}")
+    try:
+        if len(parts) == 1:
+            return float(parts[0])
+        if len(parts) == 2:
+            minutes = int(parts[0])
+            seconds = float(parts[1])
+            return (minutes * 60.0) + seconds
+        hours = int(parts[0])
+        minutes = int(parts[1])
+        seconds = float(parts[2])
+        return (hours * 3600.0) + (minutes * 60.0) + seconds
+    except ValueError as exc:
+        raise ValueError(f"Invalid timestamp format: {value}") from exc
+
+
+def transcript_markdown_to_segments(markdown: str) -> List[Dict[str, Any]]:
+    content = extract_markdown_main_section(markdown)
+    if not content:
+        raise HTTPException(status_code=400, detail="Transcript document is empty")
+
+    segments: List[Dict[str, Any]] = []
+    fallback_cursor = 0.0
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("<!--"):
+            continue
+
+        timed_match = _TRANSCRIPT_TIMED_LINE_RE.match(line)
+        if timed_match:
+            try:
+                start = _parse_timecode_to_seconds(timed_match.group("start"))
+                end = _parse_timecode_to_seconds(timed_match.group("end"))
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            text = timed_match.group("text").strip()
+            if text:
+                if end < start:
+                    end = start
+                segments.append({"start": start, "end": end, "text": text})
+                fallback_cursor = max(fallback_cursor, end)
+            continue
+
+        bullet_match = _TRANSCRIPT_BULLET_LINE_RE.match(line)
+        if bullet_match:
+            text = bullet_match.group("text").strip()
+        elif line.startswith("#"):
+            continue
+        else:
+            text = line
+        if not text:
+            continue
+        segments.append({"start": fallback_cursor, "end": fallback_cursor + 1.0, "text": text})
+        fallback_cursor += 1.0
+
+    if not segments:
+        raise HTTPException(status_code=400, detail="No transcript lines found in imported document")
+    return segments
 
 
 def _safe_filename(value: str, default: str) -> str:

@@ -3,7 +3,7 @@ from io import BytesIO
 from docx import Document
 from docx.oxml.ns import qn
 
-from services.markdown_docx import markdown_to_docx_bytes
+from services.markdown_docx import docx_bytes_to_markdown, markdown_to_docx_bytes
 
 
 def _has_page_break(paragraph) -> bool:
@@ -76,3 +76,54 @@ def test_mixed_nested_lists_keep_order_and_indentation():
     assert indents[2] > indents[1]
     assert indents[3] == indents[1]
     assert indents[4] == indents[0]
+
+
+def test_docx_to_markdown_round_trip_supported_structure():
+    markdown = (
+        "# Report title\n\n"
+        "Intro with **bold** and *italic* text.\n\n"
+        "- Bullet root\n"
+        "  - Nested bullet\n"
+        "  1. Nested ordered\n\n"
+        "> A quoted thought\n\n"
+        "---\n\n"
+        "## After break\n"
+    )
+    docx_bytes = markdown_to_docx_bytes(markdown)
+
+    converted = docx_bytes_to_markdown(docx_bytes)
+
+    assert "# Report title" in converted
+    assert "Intro with **bold** and *italic* text." in converted
+    assert "- Bullet root" in converted
+    assert "  - Nested bullet" in converted
+    assert "  1. Nested ordered" in converted
+    assert "> A quoted thought" in converted
+    assert "---" in converted
+    assert "## After break" in converted
+
+
+def test_docx_to_markdown_keeps_list_indentation_from_exporter():
+    markdown = "- Root\n  - Child\n    - Grandchild\n"
+    docx_bytes = markdown_to_docx_bytes(markdown)
+
+    converted = docx_bytes_to_markdown(docx_bytes)
+
+    assert "- Root" in converted
+    assert "  - Child" in converted
+    assert "    - Grandchild" in converted
+
+
+def test_docx_round_trip_preserves_section_markers():
+    markdown = (
+        "# Meta\n\n"
+        "<!-- MARKER:section-start -->\n\n"
+        "Summary body\n\n"
+        "<!-- MARKER:section-end -->\n"
+    )
+    docx_bytes = markdown_to_docx_bytes(markdown)
+
+    converted = docx_bytes_to_markdown(docx_bytes)
+
+    assert "<!-- MARKER:section-start -->" in converted
+    assert "<!-- MARKER:section-end -->" in converted

@@ -7,6 +7,7 @@ from io import BytesIO
 
 from docx import Document
 from docx.enum.text import WD_BREAK
+from docx.oxml.ns import qn
 from docx.shared import Pt
 
 _HEADING_RE = re.compile(r"^\s{0,3}(#{1,6})\s+(.+)$")
@@ -16,6 +17,11 @@ _ORDERED_LIST_RE = re.compile(r"^(?P<indent>\s*)(?P<number>\d+)[.)]\s+(?P<conten
 _BLOCKQUOTE_RE = re.compile(r"^\s{0,3}(?P<markers>(>\s*)+)(?P<content>.*)$")
 _HTML_COMMENT_LINE_RE = re.compile(r"^\s*<!--.*-->\s*$")
 _INLINE_TOKEN_RE = re.compile(r"(\*\*.+?\*\*|__.+?__|\*.+?\*|_.+?_)")
+_DOCX_ORDERED_MARKER_RE = re.compile(r"^(?P<number>\d+)\.\s+(?P<content>.+)$")
+_SECTION_START_MARKER = "<!-- MARKER:section-start -->"
+_SECTION_END_MARKER = "<!-- MARKER:section-end -->"
+_DOCX_SECTION_START_SENTINEL = "[[LESSONS_SECTION_START]]"
+_DOCX_SECTION_END_SENTINEL = "[[LESSONS_SECTION_END]]"
 
 
 def _append_inline_runs(paragraph, text: str) -> None:
@@ -104,6 +110,19 @@ def _is_ignored_comment_line(line: str) -> bool:
     return bool(_HTML_COMMENT_LINE_RE.match(line))
 
 
+def _is_section_marker_line(line: str) -> bool:
+    return str(line or "").strip() in {_SECTION_START_MARKER, _SECTION_END_MARKER}
+
+
+def _section_sentinel_for_line(line: str) -> str:
+    stripped = str(line or "").strip()
+    if stripped == _SECTION_START_MARKER:
+        return _DOCX_SECTION_START_SENTINEL
+    if stripped == _SECTION_END_MARKER:
+        return _DOCX_SECTION_END_SENTINEL
+    return ""
+
+
 def _add_blockquote_paragraph(doc: Document, *, depth: int, content: str) -> None:
     paragraph = doc.add_paragraph()
     paragraph_format = paragraph.paragraph_format
@@ -137,6 +156,14 @@ def markdown_to_docx_bytes(markdown_text: str) -> bytes:
         stripped = raw.strip()
 
         if not stripped:
+            idx += 1
+            continue
+
+        if _is_section_marker_line(raw):
+            paragraph = doc.add_paragraph()
+            run = paragraph.add_run(_section_sentinel_for_line(raw))
+            # Keep section markers in DOCX for reliable round-trip, without visible noise.
+            run.font.hidden = True
             idx += 1
             continue
 
@@ -243,3 +270,128 @@ def markdown_to_docx_bytes(markdown_text: str) -> bytes:
     output = BytesIO()
     doc.save(output)
     return output.getvalue()
+
+
+def _is_page_break_paragraph(paragraph) -> bool:
+    for run in paragraph.runs:
+        for br in run._r.findall(qn("w:br")):
+            if br.get(qn("w:type")) == "page":
+                return True
+    return False
+
+
+def _inline_runs_to_markdown(paragraph) -> str:
+    parts: list[str] = []
+    for run in paragraph.runs:
+        text = (run.text or "").replace("\r", "")
+        if not text:
+            continue
+        if run.bold and run.italic:
+            parts.append(f"***{text}***")
+        elif run.bold:
+            parts.append(f"**{text}**")
+        elif run.italic:
+            parts.append(f"*{text}*")
+        else:
+            parts.append(text)
+    return "".join(parts).strip()
+
+
+def _docx_indent_level(paragraph, *, base_indent: int) -> int:
+    left_indent = paragraph.paragraph_format.left_indent
+    if not left_indent:
+        return 0
+    return max(0, round(left_indent.pt / base_indent) - 1)
+
+
+def _is_docx_blockquote(paragraph) -> bool:
+    left_indent = paragraph.paragraph_format.left_indent
+    if not left_indent or left_indent.pt < 20:
+        return False
+    first_line_indent = paragraph.paragraph_format.first_line_indent
+    if first_line_indent and abs(first_line_indent.pt) > 0.01:
+        return False
+    return True
+
+
+def docx_bytes_to_markdown(docx_bytes: bytes) -> str:
+    """
+    Convert DOCX bytes into simple markdown.
+
+    Supported DOCX features mirror markdown_to_docx_bytes:
+    - Headings
+    - Page breaks converted to horizontal rules (---)
+    - List paragraphs emitted by markdown_to_docx_bytes
+    - Block quote paragraphs emitted by markdown_to_docx_bytes
+    - Paragraphs
+    - Inline bold/italic
+    """
+    doc = Document(BytesIO(docx_bytes))
+    blocks: list[tuple[str, str]] = []
+
+    for paragraph in doc.paragraphs:
+        if _is_page_break_paragraph(paragraph):
+            blocks.append(("rule", "---"))
+            continue
+
+        inline_text = _inline_runs_to_markdown(paragraph)
+        raw_text = (paragraph.text or "").strip()
+        if not raw_text and not inline_text:
+            continue
+
+        style_name = ""
+        if paragraph.style is not None:
+            style_name = str(paragraph.style.name or "").strip().lower()
+
+        if raw_text in {_DOCX_SECTION_START_SENTINEL, _DOCX_SECTION_END_SENTINEL}:
+            marker = _SECTION_START_MARKER if raw_text == _DOCX_SECTION_START_SENTINEL else _SECTION_END_MARKER
+            blocks.append(("marker", marker))
+            continue
+
+        heading_match = re.match(r"heading\s+([1-6])$", style_name)
+        if heading_match:
+            level = int(heading_match.group(1))
+            blocks.append(("heading", f"{'#' * level} {inline_text or raw_text}"))
+            continue
+
+        list_level = _docx_indent_level(paragraph, base_indent=18)
+        if raw_text.startswith("• "):
+            content = (inline_text or raw_text)[2:].strip()
+            blocks.append(("list", f"{'  ' * list_level}- {content}"))
+            continue
+
+        ordered_match = _DOCX_ORDERED_MARKER_RE.match(raw_text)
+        if ordered_match:
+            marker = ordered_match.group("number")
+            content_text = ordered_match.group("content")
+            if inline_text:
+                inline_match = _DOCX_ORDERED_MARKER_RE.match(inline_text)
+                if inline_match:
+                    marker = inline_match.group("number")
+                    content_text = inline_match.group("content")
+            blocks.append(("list", f"{'  ' * list_level}{marker}. {content_text.strip()}"))
+            continue
+
+        if _is_docx_blockquote(paragraph):
+            quote_depth = max(1, round(paragraph.paragraph_format.left_indent.pt / 20))
+            blocks.append(("blockquote", f"{'> ' * quote_depth}{(inline_text or raw_text).strip()}"))
+            continue
+
+        blocks.append(("paragraph", inline_text or raw_text))
+
+    markdown_lines: list[str] = []
+    previous_kind: str | None = None
+    for kind, content in blocks:
+        if markdown_lines:
+            if previous_kind == "list" and kind == "list":
+                markdown_lines.append(content)
+            elif previous_kind == "blockquote" and kind == "blockquote":
+                markdown_lines.append(content)
+            else:
+                markdown_lines.append("")
+                markdown_lines.append(content)
+        else:
+            markdown_lines.append(content)
+        previous_kind = kind
+
+    return "\n".join(markdown_lines).strip()

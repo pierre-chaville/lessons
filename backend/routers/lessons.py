@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile
 from fastapi.responses import Response
 from sqlmodel import Session, select
 from typing import List, Dict, Any, Optional, Literal
@@ -439,4 +439,86 @@ def export_lesson(
         media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.post("/{lesson_hashid}/imports/{import_type}", response_model=LessonResponse)
+async def import_lesson_document(
+    lesson_hashid: str,
+    import_type: str,
+    file: UploadFile = File(...),
+    session: Session = Depends(get_session),
+    claims: Dict[str, Any] = Depends(require_roles(["editor", "publisher", "admin"])),
+):
+    """Import lesson content (summary, edited, transcript) from md/docx."""
+    lesson_id = decode_id(lesson_hashid)
+    lesson = crud.get_lesson(session, lesson_id)
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+    _require_lesson_access(lesson_id, claims, session)
+
+    if import_type not in {"summary", "edited", "transcript"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported import_type. Allowed values: summary, edited, transcript",
+        )
+
+    filename = str(file.filename or "").strip()
+    if not filename:
+        raise HTTPException(status_code=400, detail="Uploaded file must have a filename")
+    payload = await file.read()
+    if not payload:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+    markdown = export_service.document_bytes_to_markdown(payload, filename=filename)
+    imported_content = export_service.extract_markdown_main_section(markdown).strip()
+    if not imported_content:
+        raise HTTPException(status_code=400, detail="Imported document is empty")
+
+    actor_id = claims.get("sub")
+    if import_type == "summary":
+        updated = lesson_service.update_lesson_data(
+            lesson_id,
+            LessonUpdate(summary=imported_content),
+            session,
+            assigned_by=actor_id,
+        )
+        if updated.edited_transcript:
+            updated = lesson_service.realign_summary_alignment(lesson_id=lesson_id, session=session)
+        return updated
+
+    if import_type == "edited":
+        if not (lesson.corrected_transcript or lesson.transcript):
+            raise HTTPException(status_code=400, detail="Cannot import edited version without transcript")
+        lesson_service.update_lesson_data(
+            lesson_id,
+            LessonUpdate(edited_transcript={"markdown": imported_content}),
+            session,
+            assigned_by=actor_id,
+        )
+        updated = lesson_service.realign_edited_markdown(
+            lesson_id=lesson_id,
+            session=session,
+            actor={"sub": actor_id, "role": _extract_role(claims)},
+        )
+        if updated.summary:
+            updated = lesson_service.realign_summary_alignment(lesson_id=lesson_id, session=session)
+        return updated
+
+    # import_type == "transcript"
+    transcript_rows = export_service.transcript_markdown_to_segments(imported_content)
+    updated = lesson_service.update_lesson_data(
+        lesson_id,
+        LessonUpdate(corrected_transcript=transcript_rows),
+        session,
+        assigned_by=actor_id,
+    )
+    if updated.edited_transcript:
+        updated = lesson_service.realign_edited_markdown(
+            lesson_id=lesson_id,
+            session=session,
+            actor={"sub": actor_id, "role": _extract_role(claims)},
+        )
+        if updated.summary:
+            updated = lesson_service.realign_summary_alignment(lesson_id=lesson_id, session=session)
+    return updated
 

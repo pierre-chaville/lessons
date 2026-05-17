@@ -22,6 +22,15 @@ from services.audit import log_event
 logger = logging.getLogger(__name__)
 
 
+def _text_lines_for_diff(content_type: ContentType, text: str) -> list[str]:
+    lines = str(text or "").splitlines()
+    # DOCX round-trips can introduce formatting-only blank lines in markdown;
+    # ignore those for summary history diffs so meaningful edits stand out.
+    if content_type == ContentType.SUMMARY:
+        return [line for line in lines if line.strip()]
+    return lines
+
+
 def _strip_nul_bytes(value: Any) -> tuple[Any, int]:
     """Recursively remove NUL characters and return removal count."""
     if isinstance(value, str):
@@ -444,8 +453,8 @@ def compute_diff(version_a: ContentVersion, version_b: ContentVersion) -> dict[s
         b_text = str(version_b.content or "")
         lines = list(
             unified_diff(
-                a_text.splitlines(),
-                b_text.splitlines(),
+                _text_lines_for_diff(content_type, a_text),
+                _text_lines_for_diff(content_type, b_text),
                 fromfile=f"v{version_a.version_number}",
                 tofile=f"v{version_b.version_number}",
                 lineterm="",
