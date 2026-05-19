@@ -3,7 +3,13 @@ import { ref, onMounted, computed, watch, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   DocumentTextIcon,
+  FolderIcon,
+  CalendarDaysIcon,
   ClockIcon,
+  MagnifyingGlassIcon,
+  FunnelIcon,
+  CheckIcon,
+  XMarkIcon,
   BarsArrowDownIcon,
   BarsArrowUpIcon,
   ArrowsUpDownIcon,
@@ -14,7 +20,6 @@ import CreateLessonModal from '../components/CreateLessonModal.vue'
 import CourseTreeItem from '@/components/CourseTreeItem.vue'
 import { lessonsApi } from '@/api/lessons'
 import { coursesApi } from '@/api/courses'
-import { usersApi, type ClerkUser } from '@/api/users'
 import { useAuth } from '@/composables/useAuth'
 import type {
   ContentType,
@@ -45,17 +50,8 @@ const STATUS_COLORS: Record<string, string> = {
   validated:          'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
 }
 
-type PipelineStep = 'edition' | 'sources' | 'summary'
-
-const LESSON_CARD_STEPS: Array<{ key: PipelineStep; labelKey: string }> = [
-  { key: 'edition', labelKey: 'lessons.step_edition' },
-  { key: 'sources', labelKey: 'lessons.step_sources' },
-  { key: 'summary', labelKey: 'lessons.step_summary' },
-]
-
 const lessons = ref<LessonListItem[]>([])
 const tree = ref<CourseTreeNode[]>([])
-const users = ref<ClerkUser[]>([])
 const loading = ref(true)
 const loadingTree = ref(true)
 const selectedLesson = ref<LessonListItem | null>(null)
@@ -72,22 +68,84 @@ const selectedHistoryRoute = ref<{
 } | null>(null)
 const showCreateModal = ref(false)
 const sortMode = ref<SortMode>('date_desc')
+const titleQuery = ref('')
+const selectedHebrewYears = ref<Set<string>>(new Set())
+const selectedStatuses = ref<Set<LessonStatus>>(new Set())
+const selectedThemeIds = ref<Set<number>>(new Set())
 
-const fetchUsers = async () => {
-  try { users.value = await usersApi.list() } catch { /* silent */ }
-}
+const STATUS_FILTERS: LessonStatus[] = [
+  'draft',
+  'in_progress',
+  'review_requested',
+  'revision_requested',
+  'validated',
+]
 
-const getUserName = (userId: string): string => {
-  const u = users.value.find((u) => u.id === userId)
-  if (u) {
-    const name = [u.first_name, u.last_name].filter(Boolean).join(' ')
-    return name || u.email || userId
+const availableHebrewYears = computed<string[]>(() => {
+  const years = new Set<string>()
+  for (const lesson of lessons.value) {
+    const year = lesson.hebrew_date?.trim()
+    if (year) years.add(year)
   }
-  return userId
+  return [...years].sort((a, b) => Number(b) - Number(a))
+})
+
+const availableThemes = computed<Array<{ id: number; name: string }>>(() => {
+  const byId = new Map<number, string>()
+  for (const lesson of lessons.value) {
+    for (const theme of lesson.themes ?? []) {
+      if (!byId.has(theme.id)) byId.set(theme.id, theme.name)
+    }
+  }
+  return [...byId.entries()]
+    .map(([id, name]) => ({ id, name }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+})
+
+const toggleSetValue = <T,>(setRef: { value: Set<T> }, value: T) => {
+  const next = new Set(setRef.value)
+  if (next.has(value)) next.delete(value)
+  else next.add(value)
+  setRef.value = next
 }
+
+const toggleHebrewYear = (year: string) => toggleSetValue(selectedHebrewYears, year)
+const toggleStatusFilter = (status: LessonStatus) => toggleSetValue(selectedStatuses, status)
+const toggleThemeFilter = (themeId: number) => toggleSetValue(selectedThemeIds, themeId)
+
+const hasActiveFilters = computed(() =>
+  !!titleQuery.value.trim()
+  || selectedHebrewYears.value.size > 0
+  || selectedStatuses.value.size > 0
+  || selectedThemeIds.value.size > 0,
+)
+
+const clearAllFilters = () => {
+  titleQuery.value = ''
+  selectedHebrewYears.value = new Set()
+  selectedStatuses.value = new Set()
+  selectedThemeIds.value = new Set()
+}
+
+const filteredLessons = computed(() => {
+  const query = titleQuery.value.trim().toLowerCase()
+  return lessons.value.filter((lesson) => {
+    if (query && !lesson.title.toLowerCase().includes(query)) return false
+    if (selectedHebrewYears.value.size > 0) {
+      const year = lesson.hebrew_date?.trim() ?? ''
+      if (!selectedHebrewYears.value.has(year)) return false
+    }
+    if (selectedStatuses.value.size > 0 && !selectedStatuses.value.has(lesson.status)) return false
+    if (selectedThemeIds.value.size > 0) {
+      const hasMatchingTheme = (lesson.themes ?? []).some((theme) => selectedThemeIds.value.has(theme.id))
+      if (!hasMatchingTheme) return false
+    }
+    return true
+  })
+})
 
 const sortedLessons = computed(() => {
-  const list = [...lessons.value]
+  const list = [...filteredLessons.value]
   switch (sortMode.value) {
     case 'date_desc':
       return list.sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''))
@@ -142,10 +200,47 @@ const findNodeById = (nodes: CourseTreeNode[], id: number): CourseTreeNode | nul
   return null
 }
 
+const findPathToNode = (
+  nodes: CourseTreeNode[],
+  id: number,
+  path: CourseTreeNode[] = [],
+): CourseTreeNode[] | null => {
+  for (const node of nodes) {
+    const nextPath = [...path, node]
+    if (node.id === id) return nextPath
+    const nestedPath = findPathToNode(node.children, id, nextPath)
+    if (nestedPath) return nestedPath
+  }
+  return null
+}
+
 const selectedCourseNode = computed<CourseTreeNode | null>(() => {
   if (!selectedCourseId.value) return null
   return findNodeById(tree.value, selectedCourseId.value)
 })
+
+const selectedCoursePath = computed<string[]>(() => {
+  if (!selectedCourseId.value) return []
+  return findPathToNode(tree.value, selectedCourseId.value)?.map((node) => node.name) ?? []
+})
+
+const coursePathById = computed<Map<number, string>>(() => {
+  const map = new Map<number, string>()
+  const walk = (nodes: CourseTreeNode[], path: string[] = []) => {
+    for (const node of nodes) {
+      const nextPath = [...path, node.name]
+      map.set(node.id, nextPath.join(' / '))
+      walk(node.children, nextPath)
+    }
+  }
+  walk(tree.value)
+  return map
+})
+
+const getCoursePathLabel = (lesson: LessonListItem): string | null => {
+  if (!lesson.course) return null
+  return coursePathById.value.get(lesson.course.id) ?? lesson.course.name
+}
 
 const persistPanelState = () => {
   const payload = {
@@ -381,18 +476,21 @@ const formatDuration = (seconds: number | null | undefined): string => {
   return `${secs}s`
 }
 
-const isStepDone = (lesson: LessonListItem, step: PipelineStep): boolean => {
-  const status = lesson.process_status ?? ''
-  if (step === 'edition') {
-    if (typeof lesson.edition_done === 'boolean') return lesson.edition_done
-    return ['edition', 'sources_extraction', 'sources_checking', 'summary'].includes(status)
-  }
-  if (step === 'sources') {
-    if (typeof lesson.sources_done === 'boolean') return lesson.sources_done
-    return ['sources_extraction', 'sources_checking', 'summary'].includes(status)
-  }
-  if (typeof lesson.summary_done === 'boolean') return lesson.summary_done
-  return status === 'summary' || lesson.status === 'validated' || !!lesson.brief
+const stripMarkdown = (value: string | null | undefined): string => {
+  if (!value) return ''
+  return value
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`([^`]*)`/g, '$1')
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/^>\s?/gm, '')
+    .replace(/^[-*+]\s+/gm, '')
+    .replace(/^\d+\.\s+/gm, '')
+    .replace(/(\*\*|__|\*|_|~~)/g, '')
+    .replace(/&[a-zA-Z0-9#]+;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 const fetchLessonByHashid = async (
@@ -495,7 +593,7 @@ onMounted(async () => {
   window.addEventListener('popstate', handlePopState)
   restorePanelState()
   await fetchTree()
-  await Promise.all([fetchLessons(), fetchUsers()])
+  await fetchLessons()
   const parsedRoute = parseLessonRoute()
   const hashid = parsedRoute.hashid
   const historyRoute =
@@ -557,9 +655,6 @@ defineExpose({
         <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
           {{ t('courses.title') }}
         </h3>
-        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-          {{ t('courses.resizeHint') }}
-        </p>
       </div>
 
       <div v-if="loadingTree" class="p-4 text-center text-sm text-gray-400 dark:text-gray-500">
@@ -596,72 +691,178 @@ defineExpose({
       </div>
     </aside>
 
-    <div
-      class="mx-2 w-1.5 flex-shrink-0 cursor-col-resize rounded bg-transparent hover:bg-indigo-200 dark:hover:bg-indigo-700 transition-colors"
-      :class="{ 'bg-indigo-300 dark:bg-indigo-600': isResizing }"
-      @mousedown="startResize"
-    />
+    <div class="mx-2 w-3 flex-shrink-0 relative">
+      <div
+        class="absolute top-3 left-1/2 -translate-x-1/2 h-6 w-1.5 rounded-full bg-gray-300 dark:bg-gray-600 border border-gray-400/60 dark:border-gray-500/70"
+      />
+      <div
+        class="h-full w-full cursor-col-resize rounded bg-transparent hover:bg-indigo-200/60 dark:hover:bg-indigo-700/40 transition-colors"
+        :class="{ 'bg-indigo-300/70 dark:bg-indigo-600/60': isResizing }"
+        @mousedown="startResize"
+      />
+    </div>
 
     <!-- Right panel: Lessons list -->
     <div class="flex-1 min-w-0 pl-2">
-      <!-- Toolbar: breadcrumb + sort -->
-      <div class="mb-4 flex items-center gap-2">
-        <template v-if="selectedCourseNode">
-          <span class="text-sm text-gray-500 dark:text-gray-400">
-            {{ selectedCourseNode?.name }}
-          </span>
-          <span class="text-xs text-gray-400 dark:text-gray-500">
-            ({{ selectedCourseNode?.lesson_count ?? 0 }} {{ t('lessons.lessonsLabel') }})
-          </span>
-          <button
-            @click="selectedCourseId = null"
-            class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
-          >
-            {{ t('lessons.showAll') }}
-          </button>
-        </template>
+      <!-- Facets filters -->
+      <div class="mb-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3">
+        <div class="flex flex-wrap items-center gap-2">
+          <div class="relative flex-1 min-w-[220px]">
+            <MagnifyingGlassIcon class="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
+            <input
+              v-model="titleQuery"
+              type="text"
+              :placeholder="t('lessons.searchTitlePlaceholder')"
+              class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 pl-8 pr-3 py-1.5 text-sm text-gray-700 dark:text-gray-200 placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+            />
+          </div>
 
-        <!-- Sort dropdown (always visible, pushed to right) -->
-        <div class="ml-auto">
+          <button
+            v-if="hasActiveFilters"
+            @click="clearAllFilters"
+            class="inline-flex items-center gap-1 rounded-md border border-gray-300 dark:border-gray-600 px-2.5 py-1.5 text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+          >
+            <XMarkIcon class="h-3.5 w-3.5" />
+            Clear
+          </button>
+
+          <div class="ml-auto inline-flex items-center gap-2">
+            <span class="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
+              {{ t('lessons.sortedBy') }}
+            </span>
+            <Menu as="div" class="relative">
+              <MenuButton
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                :title="t('lessons.sort')"
+              >
+                <ArrowsUpDownIcon class="h-4 w-4" />
+                <span class="hidden sm:inline">{{ t(sortOptions.find(o => o.key === sortMode)!.labelKey) }}</span>
+              </MenuButton>
+              <transition
+                enter-active-class="transition ease-out duration-100"
+                enter-from-class="transform opacity-0 scale-95"
+                enter-to-class="transform opacity-100 scale-100"
+                leave-active-class="transition ease-in duration-75"
+                leave-from-class="transform opacity-100 scale-100"
+                leave-to-class="transform opacity-0 scale-95"
+              >
+                <MenuItems class="absolute right-0 z-10 mt-1 w-48 origin-top-right rounded-md bg-white dark:bg-gray-800 shadow-lg ring-1 ring-black ring-opacity-5 dark:ring-gray-700 focus:outline-none">
+                  <div class="py-1">
+                    <MenuItem v-for="opt in sortOptions" :key="opt.key" v-slot="{ active }">
+                      <button
+                        @click="sortMode = opt.key"
+                        :class="[
+                          'w-full text-left px-4 py-2 text-sm flex items-center gap-2',
+                          active ? 'bg-gray-100 dark:bg-gray-700' : '',
+                          sortMode === opt.key
+                            ? 'text-indigo-600 dark:text-indigo-400 font-medium'
+                            : 'text-gray-700 dark:text-gray-300',
+                        ]"
+                      >
+                        <BarsArrowDownIcon v-if="opt.key === 'date_desc'" class="h-4 w-4" />
+                        <BarsArrowUpIcon v-else-if="opt.key === 'date_asc'" class="h-4 w-4" />
+                        <ArrowsUpDownIcon v-else class="h-4 w-4" />
+                        {{ t(opt.labelKey) }}
+                      </button>
+                    </MenuItem>
+                  </div>
+                </MenuItems>
+              </transition>
+            </Menu>
+          </div>
+        </div>
+
+        <div class="mt-2 flex flex-wrap items-center gap-2">
           <Menu as="div" class="relative">
-            <MenuButton
-              class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-              :title="t('lessons.sort')"
-            >
-              <ArrowsUpDownIcon class="h-4 w-4" />
-              <span class="hidden sm:inline">{{ t(sortOptions.find(o => o.key === sortMode)!.labelKey) }}</span>
+            <MenuButton class="inline-flex items-center gap-1.5 rounded-md border border-gray-300 dark:border-gray-600 px-2.5 py-1.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700">
+              <FunnelIcon class="h-3.5 w-3.5" />
+              {{ t('lessons.hebrewYear') }}
+              <span v-if="selectedHebrewYears.size" class="rounded-full bg-indigo-100 dark:bg-indigo-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:text-indigo-300">
+                {{ selectedHebrewYears.size }}
+              </span>
             </MenuButton>
-            <transition
-              enter-active-class="transition ease-out duration-100"
-              enter-from-class="transform opacity-0 scale-95"
-              enter-to-class="transform opacity-100 scale-100"
-              leave-active-class="transition ease-in duration-75"
-              leave-from-class="transform opacity-100 scale-100"
-              leave-to-class="transform opacity-0 scale-95"
-            >
-              <MenuItems class="absolute right-0 z-10 mt-1 w-48 origin-top-right rounded-md bg-white dark:bg-gray-800 shadow-lg ring-1 ring-black ring-opacity-5 dark:ring-gray-700 focus:outline-none">
-                <div class="py-1">
-                  <MenuItem v-for="opt in sortOptions" :key="opt.key" v-slot="{ active }">
-                    <button
-                      @click="sortMode = opt.key"
-                      :class="[
-                        'w-full text-left px-4 py-2 text-sm flex items-center gap-2',
-                        active ? 'bg-gray-100 dark:bg-gray-700' : '',
-                        sortMode === opt.key
-                          ? 'text-indigo-600 dark:text-indigo-400 font-medium'
-                          : 'text-gray-700 dark:text-gray-300',
-                      ]"
-                    >
-                      <BarsArrowDownIcon v-if="opt.key === 'date_desc'" class="h-4 w-4" />
-                      <BarsArrowUpIcon v-else-if="opt.key === 'date_asc'" class="h-4 w-4" />
-                      <ArrowsUpDownIcon v-else class="h-4 w-4" />
-                      {{ t(opt.labelKey) }}
-                    </button>
-                  </MenuItem>
-                </div>
-              </MenuItems>
-            </transition>
+            <MenuItems class="absolute left-0 z-10 mt-1 min-w-[180px] rounded-md bg-white dark:bg-gray-800 shadow-lg ring-1 ring-black/5 dark:ring-gray-700 p-1">
+              <MenuItem v-for="year in availableHebrewYears" :key="year" v-slot="{ active }">
+                <button
+                  @click="toggleHebrewYear(year)"
+                  :class="[
+                    'w-full rounded px-2 py-1.5 text-left text-xs flex items-center justify-between',
+                    active ? 'bg-gray-100 dark:bg-gray-700' : '',
+                  ]"
+                >
+                  <span>{{ year }}</span>
+                  <CheckIcon v-if="selectedHebrewYears.has(year)" class="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+                </button>
+              </MenuItem>
+            </MenuItems>
           </Menu>
+
+          <Menu as="div" class="relative">
+            <MenuButton class="inline-flex items-center gap-1.5 rounded-md border border-gray-300 dark:border-gray-600 px-2.5 py-1.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700">
+              <FunnelIcon class="h-3.5 w-3.5" />
+              {{ t('lessons.status') }}
+              <span v-if="selectedStatuses.size" class="rounded-full bg-indigo-100 dark:bg-indigo-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:text-indigo-300">
+                {{ selectedStatuses.size }}
+              </span>
+            </MenuButton>
+            <MenuItems class="absolute left-0 z-10 mt-1 min-w-[220px] rounded-md bg-white dark:bg-gray-800 shadow-lg ring-1 ring-black/5 dark:ring-gray-700 p-1">
+              <MenuItem v-for="status in STATUS_FILTERS" :key="status" v-slot="{ active }">
+                <button
+                  @click="toggleStatusFilter(status)"
+                  :class="[
+                    'w-full rounded px-2 py-1.5 text-left text-xs flex items-center justify-between',
+                    active ? 'bg-gray-100 dark:bg-gray-700' : '',
+                  ]"
+                >
+                  <span>{{ t('lessons.status_' + status) }}</span>
+                  <CheckIcon v-if="selectedStatuses.has(status)" class="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+                </button>
+              </MenuItem>
+            </MenuItems>
+          </Menu>
+
+          <Menu as="div" class="relative">
+            <MenuButton class="inline-flex items-center gap-1.5 rounded-md border border-gray-300 dark:border-gray-600 px-2.5 py-1.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700">
+              <FunnelIcon class="h-3.5 w-3.5" />
+              {{ t('lessons.themes') }}
+              <span v-if="selectedThemeIds.size" class="rounded-full bg-indigo-100 dark:bg-indigo-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:text-indigo-300">
+                {{ selectedThemeIds.size }}
+              </span>
+            </MenuButton>
+            <MenuItems class="absolute left-0 z-10 mt-1 min-w-[220px] max-h-64 overflow-y-auto rounded-md bg-white dark:bg-gray-800 shadow-lg ring-1 ring-black/5 dark:ring-gray-700 p-1">
+              <MenuItem v-for="theme in availableThemes" :key="theme.id" v-slot="{ active }">
+                <button
+                  @click="toggleThemeFilter(theme.id)"
+                  :class="[
+                    'w-full rounded px-2 py-1.5 text-left text-xs flex items-center justify-between gap-2',
+                    active ? 'bg-gray-100 dark:bg-gray-700' : '',
+                  ]"
+                >
+                  <span class="truncate">{{ theme.name }}</span>
+                  <CheckIcon v-if="selectedThemeIds.has(theme.id)" class="h-3.5 w-3.5 flex-shrink-0 text-indigo-600 dark:text-indigo-400" />
+                </button>
+              </MenuItem>
+            </MenuItems>
+          </Menu>
+
+          <template v-if="selectedCourseNode">
+            <span class="text-xs text-gray-300 dark:text-gray-600">|</span>
+            <span class="inline-flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300 min-w-0">
+              <FolderIcon class="h-4 w-4 flex-shrink-0 text-violet-500 dark:text-violet-400" />
+              <span class="truncate max-w-[24rem]">
+                {{ selectedCoursePath.join(' / ') }}
+              </span>
+            </span>
+            <span class="text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap">
+              ({{ selectedCourseNode?.lesson_count ?? 0 }} {{ t('lessons.lessonsLabel') }})
+            </span>
+            <button
+              @click="selectedCourseId = null"
+              class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline whitespace-nowrap"
+            >
+              {{ t('lessons.showAll') }}
+            </button>
+          </template>
         </div>
       </div>
 
@@ -678,10 +879,10 @@ defineExpose({
           v-for="lesson in sortedLessons"
           :key="lesson.id"
           @click="openLesson(lesson)"
-          class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-5 hover:shadow-md dark:hover:shadow-gray-900/50 transition-all cursor-pointer border border-gray-200 dark:border-gray-700"
+          class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-4 hover:shadow-md dark:hover:shadow-gray-900/50 transition-all cursor-pointer border border-gray-200 dark:border-gray-700"
         >
           <div class="flex flex-col h-full">
-            <div class="flex items-start gap-2 mb-2">
+            <div class="flex items-start gap-2 mb-1.5">
               <DocumentTextIcon class="h-5 w-5 text-indigo-600 dark:text-indigo-400 flex-shrink-0 mt-0.5" />
               <h3 class="text-sm font-semibold text-gray-900 dark:text-white line-clamp-2">
                 {{ lesson.title }}
@@ -689,19 +890,24 @@ defineExpose({
             </div>
 
             <div class="flex-1">
-              <div class="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mb-2">
-                <ClockIcon class="h-3.5 w-3.5" />
-                <span>{{ formatDate(lesson.date) }}</span>
-                <span v-if="lesson.duration" class="text-gray-400 dark:text-gray-500">·</span>
-                <span v-if="lesson.duration">{{ formatDuration(lesson.duration) }}</span>
+              <div class="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500 dark:text-gray-400">
+                <span class="inline-flex items-center gap-1">
+                  <CalendarDaysIcon class="h-3.5 w-3.5" />
+                  <span>{{ formatDate(lesson.date) }}</span>
+                </span>
+                <span v-if="lesson.duration" class="inline-flex items-center gap-1">
+                  <ClockIcon class="h-3.5 w-3.5" />
+                  <span>{{ formatDuration(lesson.duration) }}</span>
+                </span>
+                <span
+                  v-if="lesson.hebrew_date"
+                  class="inline-flex items-center rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-700 dark:bg-violet-900/30 dark:text-violet-300"
+                >
+                  {{ lesson.hebrew_date }}
+                </span>
               </div>
 
-              <p v-if="lesson.brief" class="text-xs text-gray-600 dark:text-gray-400 mb-2 line-clamp-2">
-                {{ lesson.brief }}
-              </p>
-
-              <!-- Status + editors row -->
-              <div class="flex items-center gap-2 mb-2">
+              <div class="mb-2 flex items-center gap-2 min-w-0">
                 <span
                   :class="[
                     'inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium',
@@ -710,44 +916,18 @@ defineExpose({
                 >
                   {{ t('lessons.status_' + (lesson.status || 'draft')) }}
                 </span>
-                <template v-if="lesson.status !== 'validated' && lesson.editors?.length">
-                  <span class="text-gray-300 dark:text-gray-600">·</span>
-                  <span
-                    v-for="editor in lesson.editors"
-                    :key="editor.user_id"
-                    class="text-xs text-gray-500 dark:text-gray-400 truncate"
-                  >
-                    {{ getUserName(editor.user_id) }}
-                  </span>
-                </template>
-              </div>
-
-              <div class="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-                <span
-                  v-for="step in LESSON_CARD_STEPS"
-                  :key="step.key"
-                  :class="isStepDone(lesson, step.key) ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-400 dark:text-gray-500'"
+                <div
+                  v-if="lesson.course"
+                  class="min-w-0 inline-flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300"
                 >
-                  {{ isStepDone(lesson, step.key) ? '✓' : '○' }} {{ t(step.labelKey) }}
-                </span>
+                  <FolderIcon class="h-3.5 w-3.5 flex-shrink-0 text-violet-500 dark:text-violet-400" />
+                  <span class="truncate">{{ getCoursePathLabel(lesson) }}</span>
+                </div>
               </div>
 
-              <div v-if="lesson.course || (lesson.themes && lesson.themes.length > 0)" class="flex items-center gap-2">
-                <div v-if="lesson.course" class="flex-shrink-0">
-                  <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
-                    {{ lesson.course.name }}
-                  </span>
-                </div>
-                <div v-if="lesson.themes && lesson.themes.length > 0" class="flex flex-wrap items-center gap-1 ml-auto">
-                  <span
-                    v-for="theme in lesson.themes"
-                    :key="theme.id"
-                    class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 dark:bg-indigo-900/30 text-indigo-800 dark:text-indigo-300"
-                  >
-                    {{ theme.name }}
-                  </span>
-                </div>
-              </div>
+              <p v-if="lesson.brief" class="text-xs text-gray-600 dark:text-gray-400 mb-1 line-clamp-2">
+                {{ stripMarkdown(lesson.brief) }}
+              </p>
             </div>
           </div>
         </div>

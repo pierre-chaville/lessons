@@ -184,6 +184,7 @@ class LessonListResponse(BaseModel):
     hashid: str = ""
     title: str
     date: datetime
+    hebrew_date: Optional[str] = None
     duration: Optional[float]
     brief: Optional[str]
     status: str = "draft"
@@ -209,6 +210,7 @@ class LessonResponse(BaseModel):
     filename: str
     course_id: Optional[int]
     date: datetime
+    hebrew_date: Optional[str] = None
     duration: Optional[float]
     transcript: Optional[List[Segment]]
     corrected_transcript: Optional[List[Segment]]

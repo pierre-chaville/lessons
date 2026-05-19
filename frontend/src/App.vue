@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
-import { SignedIn, SignedOut, SignInButton, SignOutButton, UserButton } from '@clerk/vue';
+import { SignedIn, SignedOut, SignInButton, UserButton } from '@clerk/vue';
 import { useI18n } from 'vue-i18n';
 import { Menu, MenuButton, MenuItems, MenuItem } from '@headlessui/vue';
 import {
@@ -254,14 +254,7 @@ onBeforeUnmount(() => {
             </button>
             <!-- User Menu -->
             <SignedIn>
-              <div class="flex items-center gap-2">
-                <UserButton />
-                <SignOutButton>
-                  <button class="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors">
-                    {{ t('auth.signOut') }}
-                  </button>
-                </SignOutButton>
-              </div>
+              <UserButton />
             </SignedIn>
             
             <!-- Language Selector -->

@@ -3,6 +3,8 @@
 from sqlmodel import Session
 from fastapi import HTTPException
 from typing import List, Optional
+from datetime import datetime
+from convertdate import hebrew
 
 import crud
 from models import Lesson
@@ -61,6 +63,18 @@ def _build_editor_resps(db_editors) -> list[LessonEditorResponse]:
     return [LessonEditorResponse.model_validate(e) for e in db_editors]
 
 
+def _build_hebrew_date(date_value: datetime | None) -> str | None:
+    """Convert a Gregorian datetime to a Hebrew year string."""
+    if date_value is None:
+        return None
+    year, _month, _day = hebrew.from_gregorian(
+        date_value.year,
+        date_value.month,
+        date_value.day,
+    )
+    return str(year)
+
+
 def build_lesson_response(lesson: Lesson, session: Session) -> LessonResponse:
     """Build a full LessonResponse enriched with resolved themes, course, sources, and editors."""
     theme_ids = lesson.get_themes()
@@ -80,6 +94,7 @@ def build_lesson_response(lesson: Lesson, session: Session) -> LessonResponse:
         filename=lesson.filename,
         course_id=lesson.course_id,
         date=lesson.date,
+        hebrew_date=_build_hebrew_date(lesson.date),
         duration=lesson.duration,
         transcript=lesson.transcript,
         corrected_transcript=lesson.corrected_transcript,
@@ -127,6 +142,7 @@ def build_lesson_list_item(lesson: Lesson, session: Session) -> LessonListRespon
         hashid=encode_id(lesson.id),
         title=lesson.title,
         date=lesson.date,
+        hebrew_date=_build_hebrew_date(lesson.date),
         duration=lesson.duration,
         brief=lesson.brief,
         status=lesson.status or "draft",

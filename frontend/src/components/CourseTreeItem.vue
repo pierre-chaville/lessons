@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import {
   FolderIcon,
-  FolderOpenIcon,
-  DocumentTextIcon,
   ChevronRightIcon,
   ChevronDownIcon,
   ChevronUpIcon,
@@ -117,9 +115,9 @@ const handleDrop = (event: DragEvent) => {
       <span v-else class="w-5" />
 
       <!-- Icon -->
-      <FolderOpenIcon v-if="hasChildren() && isExpanded()" class="h-5 w-5 flex-shrink-0 text-amber-500 dark:text-amber-400" />
-      <FolderIcon v-else-if="hasChildren()" class="h-5 w-5 flex-shrink-0 text-amber-500 dark:text-amber-400" />
-      <DocumentTextIcon v-else class="h-5 w-5 flex-shrink-0 text-gray-400 dark:text-gray-500" />
+      <FolderIcon
+        class="h-5 w-5 flex-shrink-0 text-violet-500 dark:text-violet-400"
+      />
 
       <!-- Name -->
       <span

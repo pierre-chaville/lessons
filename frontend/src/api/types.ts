@@ -131,6 +131,7 @@ export interface LessonListItem {
   hashid: string
   title: string
   date: string
+  hebrew_date?: string | null
   duration: number | null
   brief: string | null
   status: LessonStatus
@@ -152,6 +153,7 @@ export interface LessonDetail {
   filename: string
   course_id: number | null
   date: string
+  hebrew_date?: string | null
   duration: number | null
   transcript: Segment[] | null
   corrected_transcript: Segment[] | null

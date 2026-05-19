@@ -61,6 +61,8 @@ def test_step_flags_are_computed_independently_from_data() -> None:
         assert row.edition_done is True
         assert row.sources_done is True
         assert row.summary_done is True
+        assert row.hebrew_date is not None
+        assert row.hebrew_date.isdigit()
 
 
 def test_step_flags_fallback_to_process_status_independently() -> None:
@@ -78,3 +80,5 @@ def test_step_flags_fallback_to_process_status_independently() -> None:
         assert row.edition_done is True
         assert row.sources_done is True
         assert row.summary_done is False
+        assert row.hebrew_date is not None
+        assert row.hebrew_date.isdigit()
