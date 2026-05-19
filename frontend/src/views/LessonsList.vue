@@ -127,6 +127,22 @@ const clearAllFilters = () => {
   selectedThemeIds.value = new Set()
 }
 
+const clearTitleQuery = () => {
+  titleQuery.value = ''
+}
+
+const clearHebrewYears = () => {
+  selectedHebrewYears.value = new Set()
+}
+
+const clearStatuses = () => {
+  selectedStatuses.value = new Set()
+}
+
+const clearThemes = () => {
+  selectedThemeIds.value = new Set()
+}
+
 const filteredLessons = computed(() => {
   const query = titleQuery.value.trim().toLowerCase()
   return lessons.value.filter((lesson) => {
@@ -713,8 +729,16 @@ defineExpose({
               v-model="titleQuery"
               type="text"
               :placeholder="t('lessons.searchTitlePlaceholder')"
-              class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 pl-8 pr-3 py-1.5 text-sm text-gray-700 dark:text-gray-200 placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+              class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 pl-8 pr-8 py-1.5 text-sm text-gray-700 dark:text-gray-200 placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
             />
+            <button
+              v-if="titleQuery.trim()"
+              @click="clearTitleQuery"
+              :title="t('lessons.clear')"
+              class="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
+            >
+              <XMarkIcon class="h-3.5 w-3.5" />
+            </button>
           </div>
 
           <button
@@ -723,7 +747,7 @@ defineExpose({
             class="inline-flex items-center gap-1 rounded-md border border-gray-300 dark:border-gray-600 px-2.5 py-1.5 text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
           >
             <XMarkIcon class="h-3.5 w-3.5" />
-            Clear
+            {{ t('lessons.clearAllFilters') }}
           </button>
 
           <div class="ml-auto inline-flex items-center gap-2">
@@ -773,77 +797,107 @@ defineExpose({
         </div>
 
         <div class="mt-2 flex flex-wrap items-center gap-2">
-          <Menu as="div" class="relative">
-            <MenuButton class="inline-flex items-center gap-1.5 rounded-md border border-gray-300 dark:border-gray-600 px-2.5 py-1.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700">
-              <FunnelIcon class="h-3.5 w-3.5" />
-              {{ t('lessons.hebrewYear') }}
-              <span v-if="selectedHebrewYears.size" class="rounded-full bg-indigo-100 dark:bg-indigo-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:text-indigo-300">
-                {{ selectedHebrewYears.size }}
-              </span>
-            </MenuButton>
-            <MenuItems class="absolute left-0 z-10 mt-1 min-w-[180px] rounded-md bg-white dark:bg-gray-800 shadow-lg ring-1 ring-black/5 dark:ring-gray-700 p-1">
-              <MenuItem v-for="year in availableHebrewYears" :key="year" v-slot="{ active }">
-                <button
-                  @click="toggleHebrewYear(year)"
-                  :class="[
-                    'w-full rounded px-2 py-1.5 text-left text-xs flex items-center justify-between',
-                    active ? 'bg-gray-100 dark:bg-gray-700' : '',
-                  ]"
-                >
-                  <span>{{ year }}</span>
-                  <CheckIcon v-if="selectedHebrewYears.has(year)" class="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
-                </button>
-              </MenuItem>
-            </MenuItems>
-          </Menu>
+          <div class="inline-flex items-center gap-1">
+            <Menu as="div" class="relative">
+              <MenuButton class="inline-flex items-center gap-1.5 rounded-md border border-gray-300 dark:border-gray-600 px-2.5 py-1.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700">
+                <FunnelIcon class="h-3.5 w-3.5" />
+                {{ t('lessons.hebrewYear') }}
+                <span v-if="selectedHebrewYears.size" class="rounded-full bg-indigo-100 dark:bg-indigo-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:text-indigo-300">
+                  {{ selectedHebrewYears.size }}
+                </span>
+              </MenuButton>
+              <MenuItems class="absolute left-0 z-10 mt-1 min-w-[180px] rounded-md bg-white dark:bg-gray-800 shadow-lg ring-1 ring-black/5 dark:ring-gray-700 p-1">
+                <MenuItem v-for="year in availableHebrewYears" :key="year" v-slot="{ active }">
+                  <button
+                    @click="toggleHebrewYear(year)"
+                    :class="[
+                      'w-full rounded px-2 py-1.5 text-left text-xs flex items-center justify-between',
+                      active ? 'bg-gray-100 dark:bg-gray-700' : '',
+                    ]"
+                  >
+                    <span>{{ year }}</span>
+                    <CheckIcon v-if="selectedHebrewYears.has(year)" class="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+                  </button>
+                </MenuItem>
+              </MenuItems>
+            </Menu>
+            <button
+              v-if="selectedHebrewYears.size"
+              @click="clearHebrewYears"
+              :title="t('lessons.clear')"
+              class="inline-flex items-center justify-center rounded-md border border-gray-300 dark:border-gray-600 p-1.5 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+            >
+              <XMarkIcon class="h-3.5 w-3.5" />
+            </button>
+          </div>
 
-          <Menu as="div" class="relative">
-            <MenuButton class="inline-flex items-center gap-1.5 rounded-md border border-gray-300 dark:border-gray-600 px-2.5 py-1.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700">
-              <FunnelIcon class="h-3.5 w-3.5" />
-              {{ t('lessons.status') }}
-              <span v-if="selectedStatuses.size" class="rounded-full bg-indigo-100 dark:bg-indigo-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:text-indigo-300">
-                {{ selectedStatuses.size }}
-              </span>
-            </MenuButton>
-            <MenuItems class="absolute left-0 z-10 mt-1 min-w-[220px] rounded-md bg-white dark:bg-gray-800 shadow-lg ring-1 ring-black/5 dark:ring-gray-700 p-1">
-              <MenuItem v-for="status in STATUS_FILTERS" :key="status" v-slot="{ active }">
-                <button
-                  @click="toggleStatusFilter(status)"
-                  :class="[
-                    'w-full rounded px-2 py-1.5 text-left text-xs flex items-center justify-between',
-                    active ? 'bg-gray-100 dark:bg-gray-700' : '',
-                  ]"
-                >
-                  <span>{{ t('lessons.status_' + status) }}</span>
-                  <CheckIcon v-if="selectedStatuses.has(status)" class="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
-                </button>
-              </MenuItem>
-            </MenuItems>
-          </Menu>
+          <div class="inline-flex items-center gap-1">
+            <Menu as="div" class="relative">
+              <MenuButton class="inline-flex items-center gap-1.5 rounded-md border border-gray-300 dark:border-gray-600 px-2.5 py-1.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700">
+                <FunnelIcon class="h-3.5 w-3.5" />
+                {{ t('lessons.status') }}
+                <span v-if="selectedStatuses.size" class="rounded-full bg-indigo-100 dark:bg-indigo-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:text-indigo-300">
+                  {{ selectedStatuses.size }}
+                </span>
+              </MenuButton>
+              <MenuItems class="absolute left-0 z-10 mt-1 min-w-[220px] rounded-md bg-white dark:bg-gray-800 shadow-lg ring-1 ring-black/5 dark:ring-gray-700 p-1">
+                <MenuItem v-for="status in STATUS_FILTERS" :key="status" v-slot="{ active }">
+                  <button
+                    @click="toggleStatusFilter(status)"
+                    :class="[
+                      'w-full rounded px-2 py-1.5 text-left text-xs flex items-center justify-between',
+                      active ? 'bg-gray-100 dark:bg-gray-700' : '',
+                    ]"
+                  >
+                    <span>{{ t('lessons.status_' + status) }}</span>
+                    <CheckIcon v-if="selectedStatuses.has(status)" class="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+                  </button>
+                </MenuItem>
+              </MenuItems>
+            </Menu>
+            <button
+              v-if="selectedStatuses.size"
+              @click="clearStatuses"
+              :title="t('lessons.clear')"
+              class="inline-flex items-center justify-center rounded-md border border-gray-300 dark:border-gray-600 p-1.5 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+            >
+              <XMarkIcon class="h-3.5 w-3.5" />
+            </button>
+          </div>
 
-          <Menu as="div" class="relative">
-            <MenuButton class="inline-flex items-center gap-1.5 rounded-md border border-gray-300 dark:border-gray-600 px-2.5 py-1.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700">
-              <FunnelIcon class="h-3.5 w-3.5" />
-              {{ t('lessons.themes') }}
-              <span v-if="selectedThemeIds.size" class="rounded-full bg-indigo-100 dark:bg-indigo-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:text-indigo-300">
-                {{ selectedThemeIds.size }}
-              </span>
-            </MenuButton>
-            <MenuItems class="absolute left-0 z-10 mt-1 min-w-[220px] max-h-64 overflow-y-auto rounded-md bg-white dark:bg-gray-800 shadow-lg ring-1 ring-black/5 dark:ring-gray-700 p-1">
-              <MenuItem v-for="theme in availableThemes" :key="theme.id" v-slot="{ active }">
-                <button
-                  @click="toggleThemeFilter(theme.id)"
-                  :class="[
-                    'w-full rounded px-2 py-1.5 text-left text-xs flex items-center justify-between gap-2',
-                    active ? 'bg-gray-100 dark:bg-gray-700' : '',
-                  ]"
-                >
-                  <span class="truncate">{{ theme.name }}</span>
-                  <CheckIcon v-if="selectedThemeIds.has(theme.id)" class="h-3.5 w-3.5 flex-shrink-0 text-indigo-600 dark:text-indigo-400" />
-                </button>
-              </MenuItem>
-            </MenuItems>
-          </Menu>
+          <div class="inline-flex items-center gap-1">
+            <Menu as="div" class="relative">
+              <MenuButton class="inline-flex items-center gap-1.5 rounded-md border border-gray-300 dark:border-gray-600 px-2.5 py-1.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700">
+                <FunnelIcon class="h-3.5 w-3.5" />
+                {{ t('lessons.themes') }}
+                <span v-if="selectedThemeIds.size" class="rounded-full bg-indigo-100 dark:bg-indigo-900/30 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:text-indigo-300">
+                  {{ selectedThemeIds.size }}
+                </span>
+              </MenuButton>
+              <MenuItems class="absolute left-0 z-10 mt-1 min-w-[220px] max-h-64 overflow-y-auto rounded-md bg-white dark:bg-gray-800 shadow-lg ring-1 ring-black/5 dark:ring-gray-700 p-1">
+                <MenuItem v-for="theme in availableThemes" :key="theme.id" v-slot="{ active }">
+                  <button
+                    @click="toggleThemeFilter(theme.id)"
+                    :class="[
+                      'w-full rounded px-2 py-1.5 text-left text-xs flex items-center justify-between gap-2',
+                      active ? 'bg-gray-100 dark:bg-gray-700' : '',
+                    ]"
+                  >
+                    <span class="truncate">{{ theme.name }}</span>
+                    <CheckIcon v-if="selectedThemeIds.has(theme.id)" class="h-3.5 w-3.5 flex-shrink-0 text-indigo-600 dark:text-indigo-400" />
+                  </button>
+                </MenuItem>
+              </MenuItems>
+            </Menu>
+            <button
+              v-if="selectedThemeIds.size"
+              @click="clearThemes"
+              :title="t('lessons.clear')"
+              class="inline-flex items-center justify-center rounded-md border border-gray-300 dark:border-gray-600 p-1.5 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+            >
+              <XMarkIcon class="h-3.5 w-3.5" />
+            </button>
+          </div>
 
           <template v-if="selectedCourseNode">
             <span class="text-xs text-gray-300 dark:text-gray-600">|</span>
@@ -853,16 +907,17 @@ defineExpose({
                 {{ selectedCoursePath.join(' / ') }}
               </span>
             </span>
-            <span class="text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap">
-              ({{ selectedCourseNode?.lesson_count ?? 0 }} {{ t('lessons.lessonsLabel') }})
-            </span>
             <button
               @click="selectedCourseId = null"
-              class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline whitespace-nowrap"
+              :title="t('lessons.clear')"
+              class="inline-flex items-center justify-center rounded-md border border-gray-300 dark:border-gray-600 p-1.5 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
             >
-              {{ t('lessons.showAll') }}
+              <XMarkIcon class="h-3.5 w-3.5" />
             </button>
           </template>
+          <span class="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
+            {{ t('lessons.displayedLessonsCount', { count: sortedLessons.length }) }}
+          </span>
         </div>
       </div>
 
