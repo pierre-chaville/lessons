@@ -42,14 +42,6 @@ const STATUS_ORDER: Record<LessonStatus, number> = {
   validated: 4,
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  draft:              'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300',
-  in_progress:        'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-  review_requested:   'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
-  revision_requested: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
-  validated:          'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-}
-
 const lessons = ref<LessonListItem[]>([])
 const tree = ref<CourseTreeNode[]>([])
 const loading = ref(true)
@@ -962,14 +954,6 @@ defineExpose({
               </div>
 
               <div class="mb-2 flex items-center gap-2 min-w-0">
-                <span
-                  :class="[
-                    'inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium',
-                    STATUS_COLORS[lesson.status || 'draft'],
-                  ]"
-                >
-                  {{ t('lessons.status_' + (lesson.status || 'draft')) }}
-                </span>
                 <div
                   v-if="lesson.course"
                   class="min-w-0 inline-flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300"
