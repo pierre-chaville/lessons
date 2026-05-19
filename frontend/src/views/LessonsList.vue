@@ -741,15 +741,6 @@ defineExpose({
             </button>
           </div>
 
-          <button
-            v-if="hasActiveFilters"
-            @click="clearAllFilters"
-            class="inline-flex items-center gap-1 rounded-md border border-gray-300 dark:border-gray-600 px-2.5 py-1.5 text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-          >
-            <XMarkIcon class="h-3.5 w-3.5" />
-            {{ t('lessons.clearAllFilters') }}
-          </button>
-
           <div class="ml-auto inline-flex items-center gap-2">
             <span class="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
               {{ t('lessons.sortedBy') }}
@@ -806,17 +797,17 @@ defineExpose({
                   {{ selectedHebrewYears.size }}
                 </span>
               </MenuButton>
-              <MenuItems class="absolute left-0 z-10 mt-1 min-w-[180px] rounded-md bg-white dark:bg-gray-800 shadow-lg ring-1 ring-black/5 dark:ring-gray-700 p-1">
+              <MenuItems class="absolute left-0 z-10 mt-1 min-w-[180px] rounded-md bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 shadow-lg ring-1 ring-black/5 dark:ring-gray-700 p-1">
                 <MenuItem v-for="year in availableHebrewYears" :key="year" v-slot="{ active }">
                   <button
                     @click="toggleHebrewYear(year)"
                     :class="[
-                      'w-full rounded px-2 py-1.5 text-left text-xs flex items-center justify-between',
+                      'w-full rounded px-2 py-1.5 text-left text-xs text-gray-800 dark:text-gray-200 flex items-center justify-between',
                       active ? 'bg-gray-100 dark:bg-gray-700' : '',
                     ]"
                   >
                     <span>{{ year }}</span>
-                    <CheckIcon v-if="selectedHebrewYears.has(year)" class="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+                    <CheckIcon v-if="selectedHebrewYears.has(year)" class="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-300" />
                   </button>
                 </MenuItem>
               </MenuItems>
@@ -840,17 +831,17 @@ defineExpose({
                   {{ selectedStatuses.size }}
                 </span>
               </MenuButton>
-              <MenuItems class="absolute left-0 z-10 mt-1 min-w-[220px] rounded-md bg-white dark:bg-gray-800 shadow-lg ring-1 ring-black/5 dark:ring-gray-700 p-1">
+              <MenuItems class="absolute left-0 z-10 mt-1 min-w-[220px] rounded-md bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 shadow-lg ring-1 ring-black/5 dark:ring-gray-700 p-1">
                 <MenuItem v-for="status in STATUS_FILTERS" :key="status" v-slot="{ active }">
                   <button
                     @click="toggleStatusFilter(status)"
                     :class="[
-                      'w-full rounded px-2 py-1.5 text-left text-xs flex items-center justify-between',
+                      'w-full rounded px-2 py-1.5 text-left text-xs text-gray-800 dark:text-gray-200 flex items-center justify-between',
                       active ? 'bg-gray-100 dark:bg-gray-700' : '',
                     ]"
                   >
                     <span>{{ t('lessons.status_' + status) }}</span>
-                    <CheckIcon v-if="selectedStatuses.has(status)" class="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+                    <CheckIcon v-if="selectedStatuses.has(status)" class="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-300" />
                   </button>
                 </MenuItem>
               </MenuItems>
@@ -874,17 +865,17 @@ defineExpose({
                   {{ selectedThemeIds.size }}
                 </span>
               </MenuButton>
-              <MenuItems class="absolute left-0 z-10 mt-1 min-w-[220px] max-h-64 overflow-y-auto rounded-md bg-white dark:bg-gray-800 shadow-lg ring-1 ring-black/5 dark:ring-gray-700 p-1">
+              <MenuItems class="absolute left-0 z-10 mt-1 min-w-[220px] max-h-64 overflow-y-auto rounded-md bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 shadow-lg ring-1 ring-black/5 dark:ring-gray-700 p-1">
                 <MenuItem v-for="theme in availableThemes" :key="theme.id" v-slot="{ active }">
                   <button
                     @click="toggleThemeFilter(theme.id)"
                     :class="[
-                      'w-full rounded px-2 py-1.5 text-left text-xs flex items-center justify-between gap-2',
+                      'w-full rounded px-2 py-1.5 text-left text-xs text-gray-800 dark:text-gray-200 flex items-center justify-between gap-2',
                       active ? 'bg-gray-100 dark:bg-gray-700' : '',
                     ]"
                   >
                     <span class="truncate">{{ theme.name }}</span>
-                    <CheckIcon v-if="selectedThemeIds.has(theme.id)" class="h-3.5 w-3.5 flex-shrink-0 text-indigo-600 dark:text-indigo-400" />
+                    <CheckIcon v-if="selectedThemeIds.has(theme.id)" class="h-3.5 w-3.5 flex-shrink-0 text-indigo-600 dark:text-indigo-300" />
                   </button>
                 </MenuItem>
               </MenuItems>
@@ -915,6 +906,14 @@ defineExpose({
               <XMarkIcon class="h-3.5 w-3.5" />
             </button>
           </template>
+          <button
+            v-if="hasActiveFilters"
+            @click="clearAllFilters"
+            class="inline-flex items-center gap-1 rounded-md border border-gray-300 dark:border-gray-600 px-2.5 py-1.5 text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+          >
+            <XMarkIcon class="h-3.5 w-3.5" />
+            {{ t('lessons.clearAllFilters') }}
+          </button>
           <span class="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
             {{ t('lessons.displayedLessonsCount', { count: sortedLessons.length }) }}
           </span>
