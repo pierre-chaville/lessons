@@ -26,7 +26,7 @@ import crud
 from database import create_db_and_tables, engine
 from models import Lesson
 from services.edited_transcript import edited_transcript_markdown
-from services.lessons import default_step_statuses
+from services.lessons import normalize_step_statuses
 
 
 def _canonical(value: Any) -> str:
@@ -57,7 +57,10 @@ def _has_brief(lesson: Lesson) -> bool:
 
 
 def _build_initialized_statuses(lesson: Lesson, session: Session) -> dict[str, str]:
-    statuses = default_step_statuses()
+    current = lesson.step_statuses if isinstance(lesson.step_statuses, dict) else {}
+    # Preserve existing valid/legacy statuses (including migrated legacy keys),
+    # then only fill missing non-started steps from content evidence.
+    statuses = normalize_step_statuses(current)
 
     lesson_sources = crud.get_lesson_sources(session, lesson.id)
     has_extracted_sources = len(lesson_sources) > 0
@@ -71,17 +74,28 @@ def _build_initialized_statuses(lesson: Lesson, session: Session) -> dict[str, s
         for source in lesson_sources
     )
 
-    if _has_transcript(lesson):
+    if statuses["transcription"] == "non_started" and _has_transcript(lesson):
         statuses["transcription"] = "in_progress"
-    if _has_corrected_transcript(lesson) or _has_edited_transcript(lesson):
+    edited_inferred_done = (
+        _has_corrected_transcript(lesson)
+        or _has_edited_transcript(lesson)
+        # Historical process pipeline states beyond edition imply edited exists.
+        or (lesson.process_status in {"edition", "sources_extraction", "sources_checking", "summary"})
+        # Summary/brief typically require edited content.
+        or _has_summary(lesson)
+        or _has_brief(lesson)
+        # Metadata persisted for edited operations is also a strong signal.
+        or bool(isinstance(lesson.edited_metadata, dict) and lesson.edited_metadata)
+    )
+    if statuses["edited"] == "non_started" and edited_inferred_done:
         statuses["edited"] = "in_progress"
-    if has_verified_sources:
+    if statuses["sources"] == "non_started" and has_verified_sources:
         statuses["sources"] = "in_progress"
-    elif has_extracted_sources:
+    elif statuses["sources"] == "non_started" and has_extracted_sources:
         statuses["sources"] = "in_progress"
-    if _has_summary(lesson):
+    if statuses["summary"] == "non_started" and _has_summary(lesson):
         statuses["summary"] = "in_progress"
-    if _has_brief(lesson):
+    if statuses["brief"] == "non_started" and _has_brief(lesson):
         statuses["brief"] = "in_progress"
 
     return statuses
@@ -105,8 +119,9 @@ def run_initialization(apply: bool, lesson_id: int | None, limit: int | None) ->
             checked_count += 1
             target = _build_initialized_statuses(lesson, session)
             current = lesson.step_statuses if isinstance(lesson.step_statuses, dict) else {}
+            current_normalized = normalize_step_statuses(current)
 
-            if _canonical(current) == _canonical(target):
+            if _canonical(current_normalized) == _canonical(target):
                 print(f"[lesson {lesson.id}] up-to-date")
                 continue
 

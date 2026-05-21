@@ -618,6 +618,13 @@ def set_lesson_step_status(
         raise HTTPException(status_code=400, detail=f"Invalid workflow step: {step}")
     if status not in WORKFLOW_STEP_STATUSES:
         raise HTTPException(status_code=400, detail=f"Invalid step status: {status}")
+
+    # No-op updates are always allowed, even for statuses not user-mutable.
+    statuses = normalize_step_statuses(lesson.step_statuses)
+    previous_status = statuses.get(step, "non_started")
+    if previous_status == status:
+        return lesson
+
     allowed_statuses = (
         USER_MUTABLE_WORKFLOW_STEP_STATUSES
         if updated_by == "user"
@@ -631,11 +638,6 @@ def set_lesson_step_status(
                 f"Allowed: {', '.join(sorted(allowed_statuses))}"
             ),
         )
-
-    statuses = normalize_step_statuses(lesson.step_statuses)
-    previous_status = statuses.get(step, "non_started")
-    if previous_status == status:
-        return lesson
 
     statuses[step] = status
     lesson.step_statuses = statuses

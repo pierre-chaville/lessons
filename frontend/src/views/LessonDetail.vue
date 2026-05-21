@@ -1404,14 +1404,62 @@ const WORKFLOW_STEPS: LessonWorkflowStep[] = [
 ]
 const DEFAULT_STEP_STATUS: LessonWorkflowStepStatus = 'non_started'
 const USER_EDITABLE_STEP_STATUSES: LessonWorkflowStepStatus[] = ['in_progress', 'completed', 'validated']
+const STEP_STATUS_VALUES: LessonWorkflowStepStatus[] = [
+  'non_started',
+  'failed',
+  'to_review',
+  'in_progress',
+  'completed',
+  'validated',
+]
 
 const normalizedStepStatuses = computed<Record<LessonWorkflowStep, LessonWorkflowStepStatus>>(() => {
-  const raw = (props.lesson.step_statuses ?? {}) as Partial<Record<LessonWorkflowStep, LessonWorkflowStepStatus>>
-  return WORKFLOW_STEPS.reduce((acc, step) => {
+  const raw = (props.lesson.step_statuses ?? {}) as Record<string, unknown>
+  const statuses = WORKFLOW_STEPS.reduce((acc, step) => {
     const candidate = raw[step]
-    acc[step] = candidate ?? DEFAULT_STEP_STATUS
+    acc[step] = (
+      typeof candidate === 'string' && STEP_STATUS_VALUES.includes(candidate as LessonWorkflowStepStatus)
+        ? candidate
+        : DEFAULT_STEP_STATUS
+    ) as LessonWorkflowStepStatus
     return acc
   }, {} as Record<LessonWorkflowStep, LessonWorkflowStepStatus>)
+
+  // Frontend safety net: support legacy keys and infer from visible content.
+  const legacyEdited = raw.edited ?? raw.edition ?? raw.correction
+  if (
+    statuses.edited === 'non_started'
+    && typeof legacyEdited === 'string'
+    && STEP_STATUS_VALUES.includes(legacyEdited as LessonWorkflowStepStatus)
+  ) {
+    statuses.edited = legacyEdited as LessonWorkflowStepStatus
+  }
+  if (
+    statuses.edited === 'non_started'
+    && (
+      hasEditedTranscript.value
+      || hasCorrectedTranscript.value
+      || !!props.lesson.summary
+      || !!props.lesson.brief
+      || ['edition', 'sources_extraction', 'sources_checking', 'summary'].includes(props.lesson.process_status || '')
+    )
+  ) {
+    statuses.edited = 'in_progress'
+  }
+
+  const legacySources = raw.sources ?? raw.extraction
+  if (
+    statuses.sources === 'non_started'
+    && typeof legacySources === 'string'
+    && STEP_STATUS_VALUES.includes(legacySources as LessonWorkflowStepStatus)
+  ) {
+    statuses.sources = legacySources as LessonWorkflowStepStatus
+  }
+  if (statuses.sources === 'non_started' && hasSourcesExtracted.value) {
+    statuses.sources = 'in_progress'
+  }
+
+  return statuses
 })
 
 const pipelineSteps = computed(() =>
@@ -1463,6 +1511,13 @@ const TRANSITIONS: Record<string, Record<string, string[]>> = {
   revision_requested: { in_progress:       ['editor', 'publisher', 'admin'] },
   validated:          { in_progress:       ['admin'] },
 }
+const LESSON_STATUS_VALUES: LessonStatus[] = [
+  'draft',
+  'in_progress',
+  'review_requested',
+  'revision_requested',
+  'validated',
+]
 
 const availableTransitions = computed(() => {
   const current = props.lesson.status || 'draft'
@@ -1471,6 +1526,11 @@ const availableTransitions = computed(() => {
     .filter(([_, roles]) => roles.includes(role.value))
     .map(([target]) => target as LessonStatus)
 })
+const isStatusSelectable = (target: LessonStatus): boolean => {
+  const current = props.lesson.status || 'draft'
+  if (target === current) return true
+  return availableTransitions.value.includes(target)
+}
 
 const isUpdatingStatus = ref(false)
 const lessonStatusVisual = computed<LessonWorkflowStepStatus>(() => {
@@ -2426,7 +2486,7 @@ const saveParagraph = async () => {
                 <span class="text-sm font-medium text-slate-500 dark:text-slate-400">
                   {{ t('lessons.sessionStatus') }}
                 </span>
-                <div v-if="availableTransitions.length > 0" class="relative flex-shrink-0">
+                <div class="relative flex-shrink-0">
                   <select
                     :value="lesson.status || 'draft'"
                     :disabled="isUpdatingStatus"
@@ -2437,13 +2497,11 @@ const saveParagraph = async () => {
                     ]"
                     @change="onLessonStatusSelection($event)"
                   >
-                    <option :value="lesson.status || 'draft'">
-                      {{ t('lessons.status_' + (lesson.status || 'draft')) }}
-                    </option>
                     <option
-                      v-for="target in availableTransitions"
+                      v-for="target in LESSON_STATUS_VALUES"
                       :key="target"
                       :value="target"
+                      :disabled="!isStatusSelectable(target)"
                     >
                       {{ t('lessons.status_' + target) }}
                     </option>
@@ -2452,15 +2510,6 @@ const saveParagraph = async () => {
                     class="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-500 dark:text-slate-300"
                   />
                 </div>
-                <span
-                  v-else
-                  :class="[
-                    'inline-flex items-center justify-between w-32 px-2 py-1 text-xs font-semibold rounded-md border flex-shrink-0',
-                    stepStatusBadgeClass(lessonStatusVisual),
-                  ]"
-                >
-                  {{ t('lessons.status_' + (lesson.status || 'draft')) }}
-                </span>
               </div>
 
               <span v-if="isUpdatingStatus" class="text-xs text-gray-400 dark:text-gray-500">
