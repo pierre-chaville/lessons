@@ -231,3 +231,13 @@ class LessonResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class LessonBulkCsvImportResponse(BaseModel):
+    """Result summary for bulk lesson CSV import."""
+
+    updated_count: int
+    skipped_count: int
+    error_count: int
+    updated_ids: List[int] = Field(default_factory=list)
+    errors: List[str] = Field(default_factory=list)

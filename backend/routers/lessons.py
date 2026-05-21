@@ -14,6 +14,7 @@ from schemas.lesson import (
     LessonCreate, LessonUpdate, LessonListResponse, LessonResponse,
     StatusUpdate, ALLOWED_TRANSITIONS, VALID_STATUSES,
     VersionResponse, RestoreVersionRequest, CheckpointRequest, AuditLogResponse,
+    LessonBulkCsvImportResponse,
 )
 from services import lessons as lesson_service
 from services import exports as export_service
@@ -95,6 +96,40 @@ def get_lessons(
         parsed_ids = [int(x) for x in course_ids.split(",") if x.strip().isdigit()]
     lessons = crud.get_all_lessons(session, course_id=course_id, course_ids=parsed_ids)
     return [lesson_service.build_lesson_list_item(lesson, session) for lesson in lessons]
+
+
+@router.get("/bulk/csv/export")
+def export_lessons_csv(
+    session: Session = Depends(get_session),
+    _claims: Dict[str, Any] = Depends(require_roles(["admin"])),
+):
+    """Export lessons as CSV for admin bulk edits."""
+    csv_payload = lesson_service.export_lessons_csv(session)
+    return Response(
+        content=csv_payload.encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="lessons_bulk_edit.csv"'},
+    )
+
+
+@router.post("/bulk/csv/import", response_model=LessonBulkCsvImportResponse)
+async def import_lessons_csv(
+    file: UploadFile = File(...),
+    session: Session = Depends(get_session),
+    claims: Dict[str, Any] = Depends(require_roles(["admin"])),
+):
+    """Import lessons from admin CSV and update only changed fields."""
+    filename = str(file.filename or "").lower()
+    if filename and not filename.endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Please upload a .csv file")
+    payload = await file.read()
+    if not payload:
+        raise HTTPException(status_code=400, detail="Uploaded CSV is empty")
+    return lesson_service.import_lessons_csv(
+        session=session,
+        csv_bytes=payload,
+        assigned_by=claims.get("sub"),
+    )
 
 
 @router.get("/{lesson_hashid}", response_model=LessonResponse)

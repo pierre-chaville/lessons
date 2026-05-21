@@ -9,6 +9,7 @@ import {
 } from '@heroicons/vue/24/outline'
 import { Dialog, DialogPanel, DialogTitle } from '@headlessui/vue'
 import { coursesApi } from '@/api/courses'
+import { lessonsApi } from '@/api/lessons'
 import { useToast } from '@/composables/useToast'
 import { usePermissions } from '@/composables/usePermissions'
 import CourseTreeItem from '@/components/CourseTreeItem.vue'
@@ -31,6 +32,9 @@ const editingCourse = ref<Course | null>(null)
 const deletingCourse = ref<Course | null>(null)
 const isSaving = ref(false)
 const isDeleting = ref(false)
+const csvInputRef = ref<HTMLInputElement | null>(null)
+const isCsvBusy = ref(false)
+const showCsvHelpModal = ref(false)
 
 const expanded = ref<Set<number>>(new Set())
 const draggedNode = ref<CourseTreeNode | null>(null)
@@ -326,14 +330,119 @@ const availableParents = computed(() => {
   return courses.value.filter((c) => c.id !== excludeId)
 })
 
+const downloadBulkCsv = async () => {
+  try {
+    isCsvBusy.value = true
+    const blob = await lessonsApi.exportBulkCsv()
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'lessons_bulk_edit.csv'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+  } catch {
+    toast.error(t('courses.bulkCsvExportFailed'))
+  } finally {
+    isCsvBusy.value = false
+  }
+}
+
+const openBulkCsvPicker = () => {
+  csvInputRef.value?.click()
+}
+
+const openCsvHelpModal = () => {
+  showCsvHelpModal.value = true
+}
+
+const closeCsvHelpModal = () => {
+  showCsvHelpModal.value = false
+}
+
+const onBulkCsvSelected = async (event: Event) => {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+
+  try {
+    isCsvBusy.value = true
+    const result = await lessonsApi.importBulkCsv(file)
+    toast.success(
+      t('courses.bulkCsvImportSuccess', {
+        updated: result.updated_count,
+        errors: result.error_count,
+      }),
+    )
+    if (result.error_count > 0) {
+      toast.warning(result.errors.slice(0, 3).join('\n'))
+    }
+  } catch {
+    toast.error(t('courses.bulkCsvImportFailed'))
+  } finally {
+    isCsvBusy.value = false
+    input.value = ''
+  }
+}
+
 onMounted(() => {
   fetchData()
 })
 
-defineExpose({ openCreateModal })
+defineExpose({
+  openCreateModal,
+  downloadBulkCsv,
+  openBulkCsvPicker,
+  openCsvHelpModal,
+})
 </script>
 
 <template>
+  <input
+    ref="csvInputRef"
+    type="file"
+    accept=".csv,text/csv"
+    class="hidden"
+    @change="onBulkCsvSelected"
+  />
+
+  <!-- CSV Help Modal -->
+  <Dialog :open="showCsvHelpModal" @close="closeCsvHelpModal" class="relative z-50">
+    <div class="fixed inset-0 bg-black/30 backdrop-blur-sm" aria-hidden="true" />
+    <div class="fixed inset-0 flex items-center justify-center p-4">
+      <DialogPanel class="mx-auto max-w-2xl w-full bg-white dark:bg-gray-800 rounded-lg shadow-xl">
+        <div class="p-6">
+          <DialogTitle class="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+            {{ t('courses.csvHelpTitle') }}
+          </DialogTitle>
+          <div class="space-y-3 text-sm text-gray-700 dark:text-gray-300">
+            <p>{{ t('courses.csvHelpIntro') }}</p>
+            <ul class="list-disc pl-5 space-y-1">
+              <li><code>id</code>, <code>title</code> — {{ t('courses.csvHelpIdTitle') }}</li>
+              <li><code>status</code> — {{ t('courses.csvHelpStatus') }}</li>
+              <li><code>date</code> — {{ t('courses.csvHelpDate') }}</li>
+              <li><code>course_id</code> / <code>course_name</code> — {{ t('courses.csvHelpCourse') }}</li>
+              <li><code>theme_ids</code> / <code>theme_names</code> — {{ t('courses.csvHelpThemes') }}</li>
+              <li><code>editor_ids</code> — {{ t('courses.csvHelpEditors') }}</li>
+            </ul>
+            <p class="text-xs text-gray-500 dark:text-gray-400">
+              {{ t('courses.csvHelpSeparator') }}
+            </p>
+          </div>
+          <div class="flex justify-end mt-6">
+            <button
+              @click="closeCsvHelpModal"
+              class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md transition-colors"
+            >
+              {{ t('courses.close') }}
+            </button>
+          </div>
+        </div>
+      </DialogPanel>
+    </div>
+  </Dialog>
+
   <!-- Create Course Modal -->
   <Dialog :open="showCreateModal" @close="closeCreateModal" class="relative z-50">
     <div class="fixed inset-0 bg-black/30 backdrop-blur-sm" aria-hidden="true" />

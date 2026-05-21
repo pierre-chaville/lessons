@@ -10,6 +10,7 @@ import type {
   LessonVersion,
   VersionDiffResponse,
   AuditLogRow,
+  LessonBulkCsvImportResponse,
 } from './types'
 
 export const lessonsApi = {
@@ -110,6 +111,21 @@ export const lessonsApi = {
     formData.append('file', file)
     return apiClient
       .post<LessonDetail>(`/lessons/${hashid}/imports/${importType}`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      .then((r) => r.data)
+  },
+
+  exportBulkCsv: () =>
+    apiClient
+      .get<Blob>('/lessons/bulk/csv/export', { responseType: 'blob' })
+      .then((r) => r.data),
+
+  importBulkCsv: (file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return apiClient
+      .post<LessonBulkCsvImportResponse>('/lessons/bulk/csv/import', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
       .then((r) => r.data)

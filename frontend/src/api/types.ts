@@ -203,6 +203,14 @@ export interface LessonUpdate {
   edited_metadata?: Record<string, unknown> | null
 }
 
+export interface LessonBulkCsvImportResponse {
+  updated_count: number
+  skipped_count: number
+  error_count: number
+  updated_ids: number[]
+  errors: string[]
+}
+
 /** Response from GET /lessons/:hashid/audio-url */
 export interface AudioUrlResponse {
   url: string

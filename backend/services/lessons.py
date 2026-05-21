@@ -4,6 +4,9 @@ from sqlmodel import Session
 from fastapi import HTTPException
 from typing import List, Optional
 from datetime import datetime
+import csv
+import io
+import re
 from convertdate import hebrew
 
 import crud
@@ -14,6 +17,7 @@ from schemas.lesson import (
     LessonListResponse,
     LessonResponse,
     LessonEditorResponse,
+    VALID_STATUSES,
 )
 from schemas.source import LessonSourceResponse
 from schemas.course import CourseResponse
@@ -155,6 +159,196 @@ def build_lesson_list_item(lesson: Lesson, session: Session) -> LessonListRespon
         course=_build_course_resp(lesson.course),
         editors=_build_editor_resps(db_editors),
     )
+
+
+def export_lessons_csv(session: Session) -> str:
+    """Export lessons to CSV for admin bulk updates."""
+    lessons = crud.get_all_lessons(session)
+    course_by_id = {c.id: c for c in crud.get_all_courses(session)}
+    theme_by_id = {t.id: t for t in crud.get_all_themes(session)}
+
+    output = io.StringIO()
+    writer = csv.DictWriter(
+        output,
+        fieldnames=[
+            "id",
+            "title",
+            "status",
+            "date",
+            "course_id",
+            "course_name",
+            "theme_ids",
+            "theme_names",
+            "editor_ids",
+        ],
+    )
+    writer.writeheader()
+
+    for lesson in lessons:
+        theme_ids = lesson.get_themes()
+        theme_names = [theme_by_id[t_id].name for t_id in theme_ids if t_id in theme_by_id]
+        editors = crud.get_lesson_editors(session, lesson.id)
+        course = course_by_id.get(lesson.course_id) if lesson.course_id else None
+
+        writer.writerow(
+            {
+                "id": lesson.id,
+                "title": lesson.title,
+                "status": lesson.status or "draft",
+                "date": lesson.date.date().isoformat(),
+                "course_id": course.id if course else "",
+                "course_name": course.name if course else "",
+                "theme_ids": "|".join(str(t_id) for t_id in theme_ids),
+                "theme_names": "|".join(theme_names),
+                "editor_ids": "|".join(e.user_id for e in editors),
+            }
+        )
+    return output.getvalue()
+
+
+def _split_csv_list(raw: str) -> list[str]:
+    return [part.strip() for part in re.split(r"[|,]", raw) if part.strip()]
+
+
+def _parse_lesson_date(raw: str) -> datetime:
+    value = raw.strip()
+    if not value:
+        raise ValueError("Date value is empty")
+    # Support both date-only and datetime ISO values from spreadsheet edits.
+    if "T" not in value and " " not in value:
+        return datetime.fromisoformat(f"{value}T00:00:00")
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def import_lessons_csv(
+    session: Session,
+    csv_bytes: bytes,
+    assigned_by: Optional[str] = None,
+) -> dict:
+    """Import lesson updates from CSV. Only changed fields are persisted."""
+    try:
+        decoded = csv_bytes.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(status_code=400, detail="CSV must be UTF-8 encoded") from exc
+
+    reader = csv.DictReader(io.StringIO(decoded))
+    if not reader.fieldnames or "id" not in reader.fieldnames:
+        raise HTTPException(status_code=400, detail="CSV must contain an 'id' column")
+
+    courses = crud.get_all_courses(session)
+    course_by_id = {c.id: c for c in courses}
+    course_id_by_name = {c.name.strip().lower(): c.id for c in courses}
+    themes = crud.get_all_themes(session)
+    theme_by_id = {t.id: t for t in themes}
+    theme_id_by_name = {t.name.strip().lower(): t.id for t in themes}
+
+    updated_ids: list[int] = []
+    errors: list[str] = []
+    total_rows = 0
+
+    for line_no, row in enumerate(reader, start=2):
+        total_rows += 1
+        lesson_id_raw = str(row.get("id", "")).strip()
+        if not lesson_id_raw:
+            errors.append(f"Line {line_no}: missing lesson id")
+            continue
+        if not lesson_id_raw.isdigit():
+            errors.append(f"Line {line_no}: invalid lesson id '{lesson_id_raw}'")
+            continue
+
+        lesson_id = int(lesson_id_raw)
+        lesson = crud.get_lesson(session, lesson_id)
+        if not lesson:
+            errors.append(f"Line {line_no}: lesson {lesson_id} not found")
+            continue
+
+        changed = False
+
+        try:
+            status_raw = str(row.get("status", "")).strip()
+            if status_raw and status_raw != (lesson.status or "draft"):
+                if status_raw not in VALID_STATUSES:
+                    raise ValueError(f"invalid status '{status_raw}'")
+                lesson.status = status_raw
+                changed = True
+
+            date_raw = str(row.get("date", "")).strip()
+            if date_raw:
+                parsed_date = _parse_lesson_date(date_raw)
+                if lesson.date != parsed_date:
+                    lesson.date = parsed_date
+                    changed = True
+
+            if "course_id" in row or "course_name" in row:
+                course_id_raw = str(row.get("course_id", "")).strip()
+                course_name_raw = str(row.get("course_name", "")).strip()
+                if course_id_raw:
+                    if not course_id_raw.isdigit():
+                        raise ValueError(f"invalid course_id '{course_id_raw}'")
+                    next_course_id = int(course_id_raw)
+                    if next_course_id not in course_by_id:
+                        raise ValueError(f"course_id '{next_course_id}' does not exist")
+                elif course_name_raw:
+                    next_course_id = course_id_by_name.get(course_name_raw.lower())
+                    if next_course_id is None:
+                        raise ValueError(f"course_name '{course_name_raw}' does not exist")
+                else:
+                    next_course_id = None
+
+                if lesson.course_id != next_course_id:
+                    lesson.course_id = next_course_id
+                    changed = True
+
+            if "theme_ids" in row or "theme_names" in row:
+                theme_ids_raw = str(row.get("theme_ids", "")).strip()
+                theme_names_raw = str(row.get("theme_names", "")).strip()
+
+                if theme_ids_raw:
+                    next_theme_ids = [int(v) for v in _split_csv_list(theme_ids_raw)]
+                    unknown_ids = [t_id for t_id in next_theme_ids if t_id not in theme_by_id]
+                    if unknown_ids:
+                        raise ValueError(f"unknown theme_ids: {unknown_ids}")
+                elif theme_names_raw:
+                    next_theme_ids = []
+                    for name in _split_csv_list(theme_names_raw):
+                        theme_id = theme_id_by_name.get(name.lower())
+                        if theme_id is None:
+                            raise ValueError(f"theme '{name}' does not exist")
+                        next_theme_ids.append(theme_id)
+                else:
+                    next_theme_ids = []
+
+                current_theme_ids = lesson.get_themes()
+                if sorted(current_theme_ids) != sorted(next_theme_ids):
+                    lesson.set_themes(next_theme_ids)
+                    changed = True
+
+            if "editor_ids" in row:
+                next_editor_ids = _split_csv_list(str(row.get("editor_ids", "")).strip())
+                current_editor_ids = [e.user_id for e in crud.get_lesson_editors(session, lesson.id)]
+                if sorted(current_editor_ids) != sorted(next_editor_ids):
+                    crud.set_lesson_editors(
+                        session,
+                        lesson.id,
+                        next_editor_ids,
+                        assigned_by=assigned_by,
+                    )
+                    changed = True
+
+            if changed:
+                session.add(lesson)
+                updated_ids.append(lesson.id)
+        except ValueError as exc:
+            errors.append(f"Line {line_no} (lesson {lesson_id}): {exc}")
+
+    session.commit()
+    return {
+        "updated_count": len(updated_ids),
+        "skipped_count": max(0, total_rows - len(updated_ids) - len(errors)),
+        "error_count": len(errors),
+        "updated_ids": updated_ids,
+        "errors": errors,
+    }
 
 
 def create_lesson_with_audio(
