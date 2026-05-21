@@ -14,6 +14,8 @@ from schemas.lesson import (
     LessonCreate, LessonUpdate, LessonListResponse, LessonResponse,
     StatusUpdate, ALLOWED_TRANSITIONS, VALID_STATUSES,
     VersionResponse, RestoreVersionRequest, CheckpointRequest, AuditLogResponse,
+    StepStatusUpdate,
+    WORKFLOW_STEP_KEYS,
     LessonBulkCsvImportResponse,
 )
 from services import lessons as lesson_service
@@ -213,6 +215,29 @@ def update_lesson(
     return lesson_service.update_lesson_data(
         lesson_id, lesson_data, session, assigned_by=claims.get("sub"),
     )
+
+
+@router.patch("/{lesson_hashid}/steps/{step}/status", response_model=LessonResponse)
+def update_lesson_step_status(
+    lesson_hashid: str,
+    step: str,
+    body: StepStatusUpdate,
+    session: Session = Depends(get_session),
+    claims: Dict[str, Any] = Depends(require_roles(["editor", "publisher", "admin"])),
+):
+    lesson_id = decode_id(lesson_hashid)
+    _require_lesson_access(lesson_id, claims, session)
+    if step not in WORKFLOW_STEP_KEYS:
+        raise HTTPException(status_code=400, detail=f"Invalid workflow step: {step}")
+    lesson = lesson_service.set_lesson_step_status(
+        session=session,
+        lesson_id=lesson_id,
+        step=step,
+        status=body.status,
+        actor={"sub": claims.get("sub"), "role": _extract_role(claims)},
+        updated_by="user",
+    )
+    return lesson_service.build_lesson_response(lesson, session)
 
 
 @router.post("/{lesson_hashid}/edited/realign", response_model=LessonResponse)

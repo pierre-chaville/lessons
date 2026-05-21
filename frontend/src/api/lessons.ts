@@ -11,6 +11,8 @@ import type {
   VersionDiffResponse,
   AuditLogRow,
   LessonBulkCsvImportResponse,
+  LessonWorkflowStep,
+  LessonWorkflowStepStatus,
 } from './types'
 
 export const lessonsApi = {
@@ -36,6 +38,11 @@ export const lessonsApi = {
 
   updateStatus: (hashid: string, status: LessonStatus) =>
     apiClient.patch<LessonDetail>(`/lessons/${hashid}/status`, { status }).then((r) => r.data),
+
+  updateStepStatus: (hashid: string, step: LessonWorkflowStep, status: LessonWorkflowStepStatus) =>
+    apiClient
+      .patch<LessonDetail>(`/lessons/${hashid}/steps/${step}/status`, { status })
+      .then((r) => r.data),
 
   listVersions: (
     hashid: string,

@@ -293,6 +293,7 @@ def update_lesson(
     brief: Optional[str] = None,
     summary: Optional[str] = None,
     process_status: Optional[str] = None,
+    step_statuses: Optional[dict] = None,
     theme_ids: Optional[List[int]] = None,
     transcript_metadata: Optional[dict] = None,
     correction_metadata: Optional[dict] = None,
@@ -316,6 +317,8 @@ def update_lesson(
             lesson.transcript = transcript
         if process_status is not None:
             lesson.process_status = process_status
+        if step_statuses is not None:
+            lesson.step_statuses = step_statuses
         if theme_ids is not None:
             lesson.set_themes(theme_ids)
         if transcript_metadata is not None:

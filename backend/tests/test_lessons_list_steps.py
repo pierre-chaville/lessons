@@ -46,6 +46,13 @@ def test_step_flags_are_computed_independently_from_data() -> None:
             },
             summary="Final summary",
             process_status="edition",
+            step_statuses={
+                "transcription": "completed",
+                "edited": "completed",
+                "sources": "completed",
+                "summary": "to_review",
+                "brief": "non_started",
+            },
         )
         source = LessonSource(
             lesson_id=lesson.id,
@@ -73,6 +80,13 @@ def test_step_flags_fallback_to_process_status_independently() -> None:
             summary=None,
             brief=None,
             process_status="sources_extraction",
+            step_statuses={
+                "transcription": "non_started",
+                "edited": "to_review",
+                "sources": "to_review",
+                "summary": "non_started",
+                "brief": "non_started",
+            },
         )
 
         row = build_lesson_list_item(lesson, session)

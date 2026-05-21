@@ -18,6 +18,7 @@ from services import (
     transcribe_lesson,
     verify_lesson_sources,
 )
+from services import lessons as lesson_service
 from services.llm_utils import get_token_usage_tracker, reset_token_usage_tracker
 from memory_usage import format_memory_mb, get_rss_memory_mb
 import logging
@@ -40,6 +41,15 @@ TASK_TYPE_TO_PROCESS_STATUS = {
     "sources": "sources_checking",
     "summary": "summary",
     "brief": "summary",
+}
+TASK_TYPE_TO_WORKFLOW_STEP = {
+    "transcription": "transcription",
+    "correction": "edited",
+    "edition": "edited",
+    "extraction": "sources",
+    "sources": "sources",
+    "summary": "summary",
+    "brief": "brief",
 }
 LLM_TASK_TYPES = {"correction", "edition", "summary", "brief", "extraction", "sources"}
 
@@ -584,8 +594,44 @@ def process_task(session: Session, task: Task):
                 session, task, "failed", error=f"Unknown task type: {task.task_type}"
             )
 
+        step = TASK_TYPE_TO_WORKFLOW_STEP.get(task.task_type)
+        if lesson_id and step and task.status in {"completed", "failed"}:
+            next_status = "to_review" if task.status == "completed" else "failed"
+            try:
+                lesson_service.set_lesson_step_status(
+                    session=session,
+                    lesson_id=lesson_id,
+                    step=step,
+                    status=next_status,
+                    updated_by="worker",
+                )
+            except Exception as step_error:
+                logger.warning(
+                    "Failed to set step status to %s for lesson %s step %s: %s",
+                    next_status,
+                    lesson_id,
+                    step,
+                    step_error,
+                )
     except Exception as e:
         logger.error(f"Error processing task {task.id}: {str(e)}", exc_info=True)
+        step = TASK_TYPE_TO_WORKFLOW_STEP.get(task.task_type)
+        if lesson_id and step:
+            try:
+                lesson_service.set_lesson_step_status(
+                    session=session,
+                    lesson_id=lesson_id,
+                    step=step,
+                    status="failed",
+                    updated_by="worker",
+                )
+            except Exception as step_error:
+                logger.warning(
+                    "Failed to set step status to failed for lesson %s step %s: %s",
+                    lesson_id,
+                    step,
+                    step_error,
+                )
         extra_kwargs = {}
         if task.task_type in LLM_TASK_TYPES:
             extra_kwargs["result"] = _build_llm_result(

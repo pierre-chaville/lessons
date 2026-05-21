@@ -2,7 +2,7 @@
 
 from sqlmodel import Session
 from fastapi import HTTPException
-from typing import List, Optional
+from typing import List, Optional, Literal
 from datetime import datetime
 import csv
 import io
@@ -18,6 +18,10 @@ from schemas.lesson import (
     LessonResponse,
     LessonEditorResponse,
     VALID_STATUSES,
+    USER_MUTABLE_WORKFLOW_STEP_STATUSES,
+    WORKER_MUTABLE_WORKFLOW_STEP_STATUSES,
+    WORKFLOW_STEP_KEYS,
+    WORKFLOW_STEP_STATUSES,
 )
 from schemas.source import LessonSourceResponse
 from schemas.course import CourseResponse
@@ -34,6 +38,41 @@ from services.edited_transcript import (
 )
 from services.summary_alignment import build_summary_alignment_metadata
 from services.versioning import seal_all_current_versions, update_content
+
+
+WORKFLOW_DONE_STATUSES = {"to_review", "completed", "validated"}
+
+
+def default_step_statuses() -> dict[str, str]:
+    return {step: "non_started" for step in WORKFLOW_STEP_KEYS}
+
+
+def normalize_step_statuses(raw: Optional[dict]) -> dict[str, str]:
+    statuses = default_step_statuses()
+    if not isinstance(raw, dict):
+        return statuses
+
+    legacy_edited_statuses: list[str] = []
+    legacy_sources_statuses: list[str] = []
+
+    for key, value in raw.items():
+        if not isinstance(value, str) or value not in WORKFLOW_STEP_STATUSES:
+            continue
+        if key in WORKFLOW_STEP_KEYS:
+            statuses[key] = value
+            continue
+        if key in {"correction", "edition"}:
+            legacy_edited_statuses.append(value)
+            continue
+        if key == "extraction":
+            legacy_sources_statuses.append(value)
+
+    if statuses["edited"] == "non_started" and legacy_edited_statuses:
+        statuses["edited"] = legacy_edited_statuses[-1]
+    if statuses["sources"] == "non_started" and legacy_sources_statuses:
+        statuses["sources"] = legacy_sources_statuses[-1]
+
+    return statuses
 
 
 def _build_course_resp(course) -> CourseResponse | None:
@@ -107,6 +146,7 @@ def build_lesson_response(lesson: Lesson, session: Session) -> LessonResponse:
         summary=lesson.summary,
         status=lesson.status or "draft",
         process_status=lesson.process_status,
+        step_statuses=normalize_step_statuses(lesson.step_statuses),
         theme_ids=theme_ids,
         themes=_build_theme_resps(themes),
         course=_build_course_resp(lesson.course),
@@ -126,20 +166,10 @@ def build_lesson_list_item(lesson: Lesson, session: Session) -> LessonListRespon
     db_editors = crud.get_lesson_editors(session, lesson.id)
     db_sources = crud.get_lesson_sources(session, lesson.id)
 
-    process_status = (lesson.process_status or "").strip()
-    edition_done = bool(
-        edited_transcript_markdown(lesson.edited_transcript).strip()
-        or process_status in {"edition", "sources_extraction", "sources_checking", "summary"}
-    )
-    sources_done = bool(
-        db_sources
-        or process_status in {"sources_extraction", "sources_checking", "summary"}
-    )
-    summary_done = bool(
-        (isinstance(lesson.summary, str) and lesson.summary.strip())
-        or (isinstance(lesson.brief, str) and lesson.brief.strip())
-        or process_status == "summary"
-    )
+    statuses = normalize_step_statuses(lesson.step_statuses)
+    edition_done = statuses["edited"] in WORKFLOW_DONE_STATUSES
+    sources_done = statuses["sources"] in WORKFLOW_DONE_STATUSES
+    summary_done = statuses["summary"] in WORKFLOW_DONE_STATUSES
 
     return LessonListResponse(
         id=lesson.id,
@@ -151,6 +181,7 @@ def build_lesson_list_item(lesson: Lesson, session: Session) -> LessonListRespon
         brief=lesson.brief,
         status=lesson.status or "draft",
         process_status=lesson.process_status,
+        step_statuses=statuses,
         edition_done=edition_done,
         sources_done=sources_done,
         summary_done=summary_done,
@@ -433,6 +464,12 @@ def update_lesson_data(
     lesson_id: int, lesson_data: LessonUpdate, session: Session, assigned_by: Optional[str] = None,
 ) -> LessonResponse:
     """Validate references, convert typed objects to dicts, persist update, return enriched response."""
+    if lesson_data.step_statuses is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="Use /lessons/{lesson_hashid}/steps/{step}/status to update workflow step statuses",
+        )
+
     if lesson_data.course_id:
         if not crud.get_course(session, lesson_data.course_id):
             raise HTTPException(status_code=404, detail="Course not found")
@@ -561,6 +598,62 @@ def change_status(
         action="lesson.status_changed",
         payload={"from": old_status, "to": new_status, "reason": reason},
     )
+    session.commit()
+    session.refresh(lesson)
+    return lesson
+
+
+def set_lesson_step_status(
+    session: Session,
+    lesson_id: int,
+    step: str,
+    status: str,
+    actor: Optional[dict] = None,
+    updated_by: Literal["user", "worker"] = "user",
+) -> Lesson:
+    lesson = crud.get_lesson(session, lesson_id)
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+    if step not in WORKFLOW_STEP_KEYS:
+        raise HTTPException(status_code=400, detail=f"Invalid workflow step: {step}")
+    if status not in WORKFLOW_STEP_STATUSES:
+        raise HTTPException(status_code=400, detail=f"Invalid step status: {status}")
+    allowed_statuses = (
+        USER_MUTABLE_WORKFLOW_STEP_STATUSES
+        if updated_by == "user"
+        else WORKER_MUTABLE_WORKFLOW_STEP_STATUSES
+    )
+    if status not in allowed_statuses:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Status '{status}' cannot be set by {updated_by}. "
+                f"Allowed: {', '.join(sorted(allowed_statuses))}"
+            ),
+        )
+
+    statuses = normalize_step_statuses(lesson.step_statuses)
+    previous_status = statuses.get(step, "non_started")
+    if previous_status == status:
+        return lesson
+
+    statuses[step] = status
+    lesson.step_statuses = statuses
+    session.add(lesson)
+    if actor:
+        log_event(
+            session=session,
+            actor=actor,
+            entity_type="lesson",
+            entity_id=str(lesson.id),
+            action="lesson.step_status_changed",
+            payload={
+                "step": step,
+                "from": previous_status,
+                "to": status,
+                "updated_by": updated_by,
+            },
+        )
     session.commit()
     session.refresh(lesson)
     return lesson

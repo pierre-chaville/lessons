@@ -556,6 +556,32 @@ const closeLesson = () => {
   updateUrl(null)
 }
 
+const selectedLessonIndex = computed(() => {
+  const hashid = selectedLessonDetail.value?.hashid
+  if (!hashid) return -1
+  return sortedLessons.value.findIndex((lesson) => lesson.hashid === hashid)
+})
+
+const hasPreviousLesson = computed(() => selectedLessonIndex.value > 0)
+const hasNextLesson = computed(() => {
+  const index = selectedLessonIndex.value
+  return index >= 0 && index < sortedLessons.value.length - 1
+})
+
+const openPreviousLesson = async () => {
+  if (!hasPreviousLesson.value) return
+  const index = selectedLessonIndex.value
+  if (index <= 0) return
+  await openLesson(sortedLessons.value[index - 1], null, true)
+}
+
+const openNextLesson = async () => {
+  if (!hasNextLesson.value) return
+  const index = selectedLessonIndex.value
+  if (index < 0 || index >= sortedLessons.value.length - 1) return
+  await openLesson(sortedLessons.value[index + 1], null, true)
+}
+
 const openCreateModal = () => {
   showCreateModal.value = true
 }
@@ -646,10 +672,14 @@ defineExpose({
   <LessonDetail
     v-if="selectedLessonDetail"
     :lesson="selectedLessonDetail"
+    :has-previous-lesson="hasPreviousLesson"
+    :has-next-lesson="hasNextLesson"
     :initial-history-content-type="selectedHistoryRoute?.contentType ?? null"
     :initial-history-version-id="selectedHistoryRoute?.versionId ?? null"
     :initial-history-compare="selectedHistoryRoute?.compare ?? null"
     @close="closeLesson"
+    @previous="openPreviousLesson"
+    @next="openNextLesson"
   />
 
   <!-- Two-panel layout: tree on left, lessons on right -->

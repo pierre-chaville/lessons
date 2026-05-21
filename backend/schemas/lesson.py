@@ -3,7 +3,7 @@
 from enum import Enum
 
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Literal
 from uuid import UUID
 from datetime import datetime
 
@@ -94,6 +94,7 @@ class LessonUpdate(BaseModel):
     brief: Optional[str] = None
     summary: Optional[str] = None
     process_status: Optional[str] = None
+    step_statuses: Optional[Dict[str, str]] = None
     theme_ids: Optional[List[int]] = None
     editor_ids: Optional[List[str]] = None
     transcript_metadata: Optional[Dict[str, Any]] = None
@@ -103,6 +104,24 @@ class LessonUpdate(BaseModel):
 
 
 VALID_STATUSES = {"draft", "in_progress", "review_requested", "revision_requested", "validated"}
+
+WORKFLOW_STEP_KEYS: tuple[str, ...] = (
+    "transcription",
+    "edited",
+    "sources",
+    "summary",
+    "brief",
+)
+WORKFLOW_STEP_STATUSES: tuple[str, ...] = (
+    "non_started",
+    "failed",
+    "to_review",
+    "in_progress",
+    "completed",
+    "validated",
+)
+USER_MUTABLE_WORKFLOW_STEP_STATUSES = {"in_progress", "completed", "validated"}
+WORKER_MUTABLE_WORKFLOW_STEP_STATUSES = {"failed", "to_review"}
 
 ALLOWED_TRANSITIONS: Dict[str, Dict[str, list]] = {
     "draft":               {"in_progress":       ["editor", "publisher", "admin"]},
@@ -118,6 +137,12 @@ class StatusUpdate(BaseModel):
     """Schema for changing lesson workflow status"""
     status: str
     reason: Optional[str] = None
+
+
+class StepStatusUpdate(BaseModel):
+    """Schema for changing one workflow step status."""
+
+    status: str
 
 
 class RestoreVersionRequest(BaseModel):
@@ -189,6 +214,7 @@ class LessonListResponse(BaseModel):
     brief: Optional[str]
     status: str = "draft"
     process_status: Optional[str] = None
+    step_statuses: Dict[str, str] = Field(default_factory=dict)
     edition_done: bool = False
     sources_done: bool = False
     summary_done: bool = False
@@ -219,6 +245,7 @@ class LessonResponse(BaseModel):
     summary: Optional[str]
     status: str = "draft"
     process_status: Optional[str] = None
+    step_statuses: Dict[str, str] = Field(default_factory=dict)
     theme_ids: List[int]
     themes: List[ThemeResponse] = []
     course: Optional[CourseResponse] = None

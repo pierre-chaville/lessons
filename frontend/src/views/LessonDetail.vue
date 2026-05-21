@@ -4,10 +4,12 @@ import { useI18n } from 'vue-i18n'
 import { marked } from 'marked'
 import {
   ArrowLeftIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
   ClockIcon,
   CalendarIcon,
   DocumentTextIcon,
-  BookOpenIcon,
+  FolderIcon,
   PlayIcon,
   PauseIcon,
   PencilIcon,
@@ -45,6 +47,8 @@ import type {
   LessonDetail as LessonDetailType,
   LessonSource,
   LessonStatus,
+  LessonWorkflowStep,
+  LessonWorkflowStepStatus,
   Course,
   Theme,
   ContentType,
@@ -53,6 +57,8 @@ import type {
 
 const props = defineProps<{
   lesson: LessonDetailType
+  hasPreviousLesson?: boolean
+  hasNextLesson?: boolean
   autoplayFrom?: number | null
   initialHistoryContentType?: ContentType | null
   initialHistoryVersionId?: string | null
@@ -64,12 +70,20 @@ const props = defineProps<{
   } | null
 }>()
 
-const emit = defineEmits<{ (e: 'close'): void }>()
+const emit = defineEmits<{
+  (e: 'close'): void
+  (e: 'previous'): void
+  (e: 'next'): void
+}>()
 
 const { t, locale } = useI18n()
 const toast = useToast()
 const { can, role } = usePermissions()
 const { user } = useAuth()
+
+const showLessonPager = computed(
+  () => props.hasPreviousLesson !== undefined || props.hasNextLesson !== undefined,
+)
 
 const canEditLesson = computed(() => {
   if (['publisher', 'admin'].includes(role.value)) return true
@@ -1114,6 +1128,48 @@ const fetchCourses = async () => {
   try { courses.value = await coursesApi.list() } catch { /* silent */ }
 }
 
+const courseById = computed<Map<number, Course>>(() => {
+  const map = new Map<number, Course>()
+  for (const course of courses.value) {
+    map.set(course.id, course)
+  }
+  return map
+})
+
+const lessonCoursePath = computed<string | null>(() => {
+  const lessonCourseId = props.lesson.course_id ?? props.lesson.course?.id ?? null
+  if (!lessonCourseId) return null
+
+  if (!courseById.value.size) {
+    return props.lesson.course?.name ?? null
+  }
+
+  const path: string[] = []
+  const visited = new Set<number>()
+  let currentId: number | null = lessonCourseId
+
+  while (currentId !== null && !visited.has(currentId)) {
+    visited.add(currentId)
+    const node = courseById.value.get(currentId)
+    if (!node) break
+    path.push(node.name)
+    currentId = node.parent_id ?? null
+  }
+
+  if (path.length === 0) return props.lesson.course?.name ?? null
+  return path.reverse().join(' / ')
+})
+
+watch(
+  () => props.lesson.course_id,
+  async (courseId) => {
+    if (courseId && !courses.value.length) {
+      await fetchCourses()
+    }
+  },
+  { immediate: true },
+)
+
 const fetchThemes = async () => {
   try { themes.value = await themesApi.list() } catch { /* silent */ }
 }
@@ -1338,16 +1394,65 @@ const hasEditedTranscript = computed(() => editedParts.value.length > 0)
 const hasSourcesExtracted = computed(() => {
   return !!(props.lesson.sources && props.lesson.sources.length > 0)
 })
-const hasSummary = computed(() => !!props.lesson.summary)
 
-const pipelineSteps = computed(() => [
-  { key: 'transcription', done: hasTranscript.value },
-  { key: 'correction', done: hasCorrectedTranscript.value },
-  { key: 'edition', done: hasEditedTranscript.value },
-  { key: 'extraction', done: hasSourcesExtracted.value },
-  { key: 'sources', done: hasSourcesExtracted.value && props.lesson.sources?.some((s: any) => s.verification_status != null) },
-  { key: 'summary', done: hasSummary.value },
-])
+const WORKFLOW_STEPS: LessonWorkflowStep[] = [
+  'transcription',
+  'edited',
+  'sources',
+  'summary',
+  'brief',
+]
+const DEFAULT_STEP_STATUS: LessonWorkflowStepStatus = 'non_started'
+const USER_EDITABLE_STEP_STATUSES: LessonWorkflowStepStatus[] = ['in_progress', 'completed', 'validated']
+
+const normalizedStepStatuses = computed<Record<LessonWorkflowStep, LessonWorkflowStepStatus>>(() => {
+  const raw = (props.lesson.step_statuses ?? {}) as Partial<Record<LessonWorkflowStep, LessonWorkflowStepStatus>>
+  return WORKFLOW_STEPS.reduce((acc, step) => {
+    const candidate = raw[step]
+    acc[step] = candidate ?? DEFAULT_STEP_STATUS
+    return acc
+  }, {} as Record<LessonWorkflowStep, LessonWorkflowStepStatus>)
+})
+
+const pipelineSteps = computed(() =>
+  WORKFLOW_STEPS.map((key) => ({ key, status: normalizedStepStatuses.value[key] })),
+)
+
+const stepStatusBadgeClass = (status: LessonWorkflowStepStatus): string => {
+  switch (status) {
+    case 'validated':
+    case 'completed':
+      return 'bg-emerald-50 text-emerald-700 border-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800'
+    case 'to_review':
+      return 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800'
+    case 'failed':
+      return 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-900/30 dark:text-rose-300 dark:border-rose-800'
+    case 'in_progress':
+      return 'bg-indigo-50 text-indigo-700 border-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-300 dark:border-indigo-800'
+    default:
+      return 'bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-800/60 dark:text-slate-300 dark:border-slate-700'
+  }
+}
+
+const isUpdatingStepStatus = ref(false)
+const updateStepStatus = async (step: LessonWorkflowStep, status: LessonWorkflowStepStatus) => {
+  if (!USER_EDITABLE_STEP_STATUSES.includes(status)) return
+  try {
+    isUpdatingStepStatus.value = true
+    const updated = await lessonsApi.updateStepStatus(props.lesson.hashid, step, status)
+    Object.assign(props.lesson, updated)
+    toast.success(t('lessons.stepStatusUpdated'))
+  } catch (e: any) {
+    toast.error(e?.response?.data?.detail || t('lessons.stepStatusUpdateFailed'))
+  } finally {
+    isUpdatingStepStatus.value = false
+  }
+}
+const onStepStatusSelection = (step: LessonWorkflowStep, event: Event) => {
+  const value = (event.target as HTMLSelectElement | null)?.value as LessonWorkflowStepStatus | undefined
+  if (!value) return
+  updateStepStatus(step, value)
+}
 
 // Status transitions
 const TRANSITIONS: Record<string, Record<string, string[]>> = {
@@ -1368,6 +1473,20 @@ const availableTransitions = computed(() => {
 })
 
 const isUpdatingStatus = ref(false)
+const lessonStatusVisual = computed<LessonWorkflowStepStatus>(() => {
+  const current = props.lesson.status || 'draft'
+  switch (current) {
+    case 'in_progress':
+      return 'in_progress'
+    case 'review_requested':
+    case 'revision_requested':
+      return 'to_review'
+    case 'validated':
+      return 'completed'
+    default:
+      return 'non_started'
+  }
+})
 
 const updateStatus = async (newStatus: LessonStatus) => {
   try {
@@ -1382,12 +1501,12 @@ const updateStatus = async (newStatus: LessonStatus) => {
   }
 }
 
-const statusConfig: Record<string, { color: string; darkColor: string }> = {
-  draft:              { color: 'bg-gray-100 text-gray-700', darkColor: 'dark:bg-gray-700 dark:text-gray-300' },
-  in_progress:        { color: 'bg-blue-100 text-blue-700', darkColor: 'dark:bg-blue-900/30 dark:text-blue-400' },
-  review_requested:   { color: 'bg-amber-100 text-amber-700', darkColor: 'dark:bg-amber-900/30 dark:text-amber-400' },
-  revision_requested: { color: 'bg-orange-100 text-orange-700', darkColor: 'dark:bg-orange-900/30 dark:text-orange-400' },
-  validated:          { color: 'bg-green-100 text-green-700', darkColor: 'dark:bg-green-900/30 dark:text-green-400' },
+const onLessonStatusSelection = (event: Event) => {
+  const target = (event.target as HTMLSelectElement | null)?.value as LessonStatus | undefined
+  const current = props.lesson.status || 'draft'
+  if (!target || target === current) return
+  if (!availableTransitions.value.includes(target)) return
+  updateStatus(target)
 }
 
 const canCorrect = computed(() => hasTranscript.value || selectedProcesses.value.transcribe)
@@ -1935,7 +2054,7 @@ const saveParagraph = async () => {
       <DialogPanel class="mx-auto max-w-2xl w-full bg-white dark:bg-gray-800 rounded-lg shadow-xl">
         <div class="p-6 max-h-[85vh] overflow-y-auto">
           <DialogTitle class="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-            {{ t('lessons.editLesson') }}
+            {{ t('lessons.modifySession') }}
           </DialogTitle>
 
           <div class="space-y-4">
@@ -2061,7 +2180,7 @@ const saveParagraph = async () => {
   
   <div class="bg-gray-50 dark:bg-gray-900 min-h-screen transition-colors">
     <!-- Main Content -->
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 pb-8">
       <VersionHistoryPanel
         v-if="isHistoryMode && historyContentType"
         :lesson-id="lesson.id"
@@ -2076,14 +2195,45 @@ const saveParagraph = async () => {
       />
 
       <template v-else>
-      <!-- Back Button (no card, just like home page) -->
-      <button
-        @click="emit('close')"
-        class="inline-flex items-center gap-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 transition-colors mb-6"
-      >
-        <ArrowLeftIcon class="h-5 w-5" />
-        {{ t('lessons.backToList') }}
-      </button>
+      <div class="mb-3 flex items-center justify-between gap-2">
+        <!-- Back Button (no card, just like home page) -->
+        <button
+          @click="emit('close')"
+          class="inline-flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
+        >
+          <ArrowLeftIcon class="h-4 w-4" />
+          {{ t('lessons.backToList') }}
+        </button>
+
+        <div v-if="showLessonPager" class="inline-flex items-center gap-1.5">
+          <button
+            @click="emit('previous')"
+            :disabled="!props.hasPreviousLesson"
+            :class="[
+              'inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs transition-colors',
+              props.hasPreviousLesson
+                ? 'border-gray-300 text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800'
+                : 'border-gray-200 text-gray-400 cursor-not-allowed dark:border-gray-700 dark:text-gray-500',
+            ]"
+          >
+            <ChevronLeftIcon class="h-3.5 w-3.5" />
+            {{ t('lessons.previousSession') }}
+          </button>
+          <button
+            @click="emit('next')"
+            :disabled="!props.hasNextLesson"
+            :class="[
+              'inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs transition-colors',
+              props.hasNextLesson
+                ? 'border-gray-300 text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800'
+                : 'border-gray-200 text-gray-400 cursor-not-allowed dark:border-gray-700 dark:text-gray-500',
+            ]"
+          >
+            {{ t('lessons.nextSession') }}
+            <ChevronRightIcon class="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
 
       <!-- Processing Status Banner -->
       <div
@@ -2106,33 +2256,83 @@ const saveParagraph = async () => {
 
       <!-- Lesson Header -->
       <div class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-6 mb-6 transition-colors">
-        <div class="flex items-start justify-between gap-4 mb-4">
-          <div class="flex items-start gap-4 flex-1">
-            <DocumentTextIcon class="h-8 w-8 text-indigo-600 dark:text-indigo-400 flex-shrink-0 mt-1" />
-            <div class="flex-1">
-              <div class="mb-4 flex items-start justify-between gap-3">
-                <h1 class="text-3xl font-bold text-gray-900 dark:text-white">
-                  {{ lesson.title }}
-                </h1>
+        <div class="mb-4">
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div class="flex items-start gap-4 min-w-0">
+              <DocumentTextIcon class="h-8 w-8 text-indigo-600 dark:text-indigo-400 flex-shrink-0 mt-1" />
+              <h1 class="text-3xl font-bold text-gray-900 dark:text-white break-words">
+                {{ lesson.title }}
+              </h1>
+            </div>
+
+            <div v-if="!isEditingLesson" class="flex items-center gap-2">
+              <button
+                v-if="canEditLesson"
+                @click="startEditLesson"
+                :disabled="isProcessing"
+                :class="[
+                  'inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors',
+                  isProcessing
+                    ? 'text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-700 cursor-not-allowed opacity-50'
+                    : 'text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600'
+                ]"
+              >
+                <PencilIcon class="h-4 w-4" />
+                {{ t('lessons.modifySession') }}
+              </button>
+              <button
+                v-if="can('lessons', 'delete')"
+                @click="confirmDelete"
+                :disabled="isProcessing"
+                :title="t('lessons.delete')"
+                :aria-label="t('lessons.delete')"
+                :class="[
+                  'inline-flex items-center justify-center rounded-md p-2 transition-colors',
+                  isProcessing
+                    ? 'text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-700 cursor-not-allowed opacity-50'
+                    : 'text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600'
+                ]"
+              >
+                <TrashIcon class="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <!-- Left: lesson metadata/content -->
+          <div class="lg:col-span-2">
+            <div
+              v-if="lessonCoursePath"
+              class="mb-3 flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300"
+            >
+              <FolderIcon class="h-4 w-4 flex-shrink-0 text-violet-500 dark:text-violet-400" />
+              <span class="truncate">{{ lessonCoursePath }}</span>
+            </div>
+
+            <div v-if="lesson.brief" class="mb-4">
+              <div class="min-w-0">
+                <div class="mb-1 flex items-center gap-2">
+                  <div class="text-sm font-semibold text-gray-500 dark:text-gray-400">
+                    {{ t('lessons.brief') }}
+                  </div>
+                  <button
+                    v-if="canEditLesson"
+                    @click="openHistory('brief')"
+                    class="inline-flex items-center gap-1 whitespace-nowrap rounded border border-gray-300 px-1.5 py-0.5 text-[11px] text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+                  >
+                    <HistoryIcon class="h-3 w-3" />
+                    {{ t('history.historyButton') }}
+                  </button>
+                </div>
+                <div
+                  class="text-sm text-gray-600 dark:text-gray-300 leading-relaxed prose prose-sm dark:prose-invert max-w-none"
+                  v-html="renderMarkdown(lesson.brief)"
+                ></div>
               </div>
-              
-              <!-- Brief Summary -->
-              <div v-if="lesson.brief" class="mb-4 flex items-start justify-between gap-3">
-                <p class="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
-                  {{ lesson.brief }}
-                </p>
-                <button
-                  v-if="canEditLesson"
-                  @click="openHistory('brief')"
-                  class="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
-                >
-                  <HistoryIcon class="mr-1 inline h-3.5 w-3.5" />
-                  {{ t('history.historyButton') }}
-                </button>
-              </div>
-            
-            <!-- Metadata Grid -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
               <div class="flex items-center gap-2 text-sm">
                 <CalendarIcon class="h-5 w-5 text-gray-400 dark:text-gray-500" />
                 <div>
@@ -2142,7 +2342,7 @@ const saveParagraph = async () => {
                   </div>
                 </div>
               </div>
-              
+
               <div class="flex items-center gap-2 text-sm">
                 <ClockIcon class="h-5 w-5 text-gray-400 dark:text-gray-500" />
                 <div>
@@ -2152,71 +2352,29 @@ const saveParagraph = async () => {
                   </div>
                 </div>
               </div>
-              
-              <div v-if="lesson.course" class="flex items-center gap-2 text-sm">
-                <BookOpenIcon class="h-5 w-5 text-gray-400 dark:text-gray-500" />
-                <div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400">{{ t('lessons.course') }}</div>
-                  <div class="font-medium text-gray-900 dark:text-white">
-                    {{ lesson.course.name }}
-                  </div>
-                </div>
-              </div>
-              
-              <div class="flex items-center gap-2 text-sm">
+
+              <div class="flex items-center gap-2 text-sm sm:col-span-2">
                 <DocumentTextIcon class="h-5 w-5 text-gray-400 dark:text-gray-500" />
                 <div>
                   <div class="text-xs text-gray-500 dark:text-gray-400">{{ t('lessons.file') }}</div>
-                  <div class="font-medium text-gray-900 dark:text-white font-mono text-xs">
+                  <div class="font-medium text-gray-900 dark:text-white font-mono text-xs break-all">
                     {{ lesson.filename }}
                   </div>
                 </div>
               </div>
+
+              <div v-if="audioUrl" class="sm:col-span-2">
+                <audio
+                  :src="audioUrl"
+                  controls
+                  preload="metadata"
+                  class="lesson-audio-player w-full sm:max-w-md"
+                />
+              </div>
             </div>
 
-            <!-- Status -->
-            <div class="flex items-center gap-3 mb-4">
-              <span
-                :class="[
-                  'inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold',
-                  statusConfig[lesson.status || 'draft']?.color,
-                  statusConfig[lesson.status || 'draft']?.darkColor,
-                ]"
-              >
-                {{ t('lessons.status_' + (lesson.status || 'draft')) }}
-              </span>
-              <template v-if="availableTransitions.length > 0 && !isUpdatingStatus">
-                <button
-                  v-for="target in availableTransitions"
-                  :key="target"
-                  @click="updateStatus(target)"
-                  class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                >
-                  <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
-                  </svg>
-                  {{ t('lessons.status_' + target) }}
-                </button>
-              </template>
-              <span v-if="isUpdatingStatus" class="text-xs text-gray-400 dark:text-gray-500">
-                {{ t('lessons.statusUpdating') }}
-              </span>
-            </div>
-
-            <!-- Editors -->
-            <div v-if="lesson.editors && lesson.editors.length > 0" class="flex flex-wrap items-center gap-2 mb-4">
-              <span class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('lessons.editors') }}:</span>
-              <span
-                v-for="editor in lesson.editors"
-                :key="editor.user_id"
-                class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-sky-100 dark:bg-sky-900/30 text-sky-700 dark:text-sky-300"
-              >
-                {{ getUserName(editor.user_id) }}
-              </span>
-            </div>
-
-            <!-- Themes -->
-            <div v-if="lesson.themes && lesson.themes.length > 0" class="flex flex-wrap gap-2 mb-4">
+            <div v-if="lesson.themes && lesson.themes.length > 0" class="flex flex-wrap items-center gap-2 mb-4">
+              <span class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('lessons.themes') }}:</span>
               <span
                 v-for="theme in lesson.themes"
                 :key="theme.id"
@@ -2226,75 +2384,136 @@ const saveParagraph = async () => {
               </span>
             </div>
 
-            <!-- Pipeline Progress -->
-            <div v-if="pipelineSteps.some(s => s.done)" class="flex items-center gap-1 flex-wrap">
-              <template v-for="(step, idx) in pipelineSteps" :key="step.key">
-                <div
-                  class="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors"
-                  :class="step.done
-                    ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
-                    : 'bg-gray-100 dark:bg-gray-700/50 text-gray-400 dark:text-gray-500'"
-                >
-                  <svg v-if="step.done" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                  </svg>
-                  <span v-else class="h-3.5 w-3.5 flex items-center justify-center">
-                    <span class="block h-1.5 w-1.5 rounded-full bg-current"></span>
-                  </span>
-                  {{ t('lessons.step_' + step.key) }}
-                </div>
-                <svg v-if="idx < pipelineSteps.length - 1" class="h-3 w-3 text-gray-300 dark:text-gray-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                </svg>
-              </template>
-            </div>
-            </div>
           </div>
-          
-          <!-- Action Buttons -->
-          <div v-if="!isEditingLesson" class="flex gap-2">
-            <button
-              v-if="canEditLesson"
-              @click="openProcessModal"
-              :disabled="isProcessing"
-              :class="[
-                'flex-shrink-0 inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors',
-                isProcessing
-                  ? 'bg-indigo-400 text-white cursor-not-allowed opacity-50'
-                  : 'text-white bg-indigo-600 hover:bg-indigo-700'
-              ]"
-            >
-              <CogIcon class="h-4 w-4" />
-              {{ t('lessons.processLesson') }}
-            </button>
-            <button
-              v-if="canEditLesson"
-              @click="startEditLesson"
-              :disabled="isProcessing"
-              :class="[
-                'flex-shrink-0 inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors',
-                isProcessing
-                  ? 'text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-700 cursor-not-allowed opacity-50'
-                  : 'text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600'
-              ]"
-            >
-              <PencilIcon class="h-4 w-4" />
-              {{ t('lessons.editLesson') }}
-            </button>
-            <button
-              v-if="can('lessons', 'delete')"
-              @click="confirmDelete"
-              :disabled="isProcessing"
-              :class="[
-                'flex-shrink-0 inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors',
-                isProcessing
-                  ? 'text-red-300 dark:text-red-600 bg-red-50 dark:bg-red-900/20 cursor-not-allowed opacity-50'
-                  : 'text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30'
-              ]"
-            >
-              <TrashIcon class="h-4 w-4" />
-              {{ t('lessons.delete') }}
-            </button>
+
+          <!-- Right: workflow -->
+          <div class="lg:col-span-1">
+            <div class="mb-3 flex items-center justify-between gap-3">
+              <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                {{ t('lessons.workflow') }}
+              </h3>
+              <button
+                v-if="!isEditingLesson && canEditLesson"
+                @click="openProcessModal"
+                :disabled="isProcessing"
+                :class="[
+                  'inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-md transition-colors',
+                  isProcessing
+                    ? 'bg-indigo-400 text-white cursor-not-allowed opacity-50'
+                    : 'text-white bg-indigo-600 hover:bg-indigo-700'
+                ]"
+              >
+                <CogIcon class="h-3.5 w-3.5" />
+                {{ t('lessons.processLesson') }}
+              </button>
+            </div>
+
+            <div class="space-y-2">
+              <div v-if="lesson.editors && lesson.editors.length > 0" class="flex items-center justify-between gap-3 py-1">
+                <span class="text-sm font-medium text-slate-500 dark:text-slate-400">{{ t('lessons.editors') }}</span>
+                <div class="flex flex-wrap items-center justify-end gap-1.5">
+                  <span
+                    v-for="editor in lesson.editors"
+                    :key="editor.user_id"
+                    class="inline-flex items-center px-2 py-1 rounded-md text-xs font-semibold border bg-sky-50 text-sky-700 border-sky-100 dark:bg-sky-900/30 dark:text-sky-300 dark:border-sky-800"
+                  >
+                    {{ getUserName(editor.user_id) }}
+                  </span>
+                </div>
+              </div>
+
+              <div class="flex items-center justify-between gap-3 py-1">
+                <span class="text-sm font-medium text-slate-500 dark:text-slate-400">
+                  {{ t('lessons.sessionStatus') }}
+                </span>
+                <div v-if="availableTransitions.length > 0" class="relative flex-shrink-0">
+                  <select
+                    :value="lesson.status || 'draft'"
+                    :disabled="isUpdatingStatus"
+                    :class="[
+                      'inline-flex items-center justify-between w-32 px-2 pr-6 py-1 text-xs font-semibold rounded-md border cursor-pointer appearance-none',
+                      stepStatusBadgeClass(lessonStatusVisual),
+                      isUpdatingStatus ? 'opacity-60 cursor-not-allowed' : '',
+                    ]"
+                    @change="onLessonStatusSelection($event)"
+                  >
+                    <option :value="lesson.status || 'draft'">
+                      {{ t('lessons.status_' + (lesson.status || 'draft')) }}
+                    </option>
+                    <option
+                      v-for="target in availableTransitions"
+                      :key="target"
+                      :value="target"
+                    >
+                      {{ t('lessons.status_' + target) }}
+                    </option>
+                  </select>
+                  <ChevronDownIcon
+                    class="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-500 dark:text-slate-300"
+                  />
+                </div>
+                <span
+                  v-else
+                  :class="[
+                    'inline-flex items-center justify-between w-32 px-2 py-1 text-xs font-semibold rounded-md border flex-shrink-0',
+                    stepStatusBadgeClass(lessonStatusVisual),
+                  ]"
+                >
+                  {{ t('lessons.status_' + (lesson.status || 'draft')) }}
+                </span>
+              </div>
+
+              <span v-if="isUpdatingStatus" class="text-xs text-gray-400 dark:text-gray-500">
+                {{ t('lessons.statusUpdating') }}
+              </span>
+
+            <div class="space-y-2 mb-4">
+              <div
+                v-for="step in pipelineSteps"
+                :key="step.key"
+                class="flex items-center justify-between gap-3 py-1"
+              >
+                <span class="text-sm font-medium text-slate-500 dark:text-slate-400 truncate">
+                  {{ t('lessons.step_' + step.key) }}
+                </span>
+                <div v-if="canEditLesson" class="relative flex-shrink-0">
+                  <select
+                    :value="step.status"
+                    :disabled="isUpdatingStepStatus || isProcessing"
+                    :class="[
+                      'inline-flex items-center justify-between w-32 px-2 pr-6 py-1 text-xs font-semibold rounded-md border cursor-pointer appearance-none',
+                      stepStatusBadgeClass(step.status),
+                      (isUpdatingStepStatus || isProcessing) ? 'opacity-60 cursor-not-allowed' : '',
+                    ]"
+                    @change="onStepStatusSelection(step.key, $event)"
+                  >
+                    <option :value="step.status">{{ t('lessons.stepStatus_' + step.status) }}</option>
+                    <option
+                      v-for="target in USER_EDITABLE_STEP_STATUSES"
+                      :key="target"
+                      :value="target"
+                      :disabled="target === step.status"
+                    >
+                      {{ t('lessons.stepStatus_' + target) }}
+                    </option>
+                  </select>
+                  <ChevronDownIcon
+                    class="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-500 dark:text-slate-300"
+                  />
+                </div>
+                <span
+                  v-else
+                  :class="[
+                    'inline-flex items-center justify-between w-32 px-2 py-1 text-xs font-semibold rounded-md border flex-shrink-0',
+                    stepStatusBadgeClass(step.status),
+                  ]"
+                >
+                  {{ t('lessons.stepStatus_' + step.status) }}
+                </span>
+              </div>
+            </div>
+
+            </div>
           </div>
         </div>
         
@@ -2390,7 +2609,7 @@ const saveParagraph = async () => {
                 class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors print:hidden"
               >
                 <PencilIcon class="h-4 w-4" />
-                {{ t('lessons.modify') }}
+                {{ t('lessons.modifyEdited') }}
               </button>
               <button
                 v-if="activeView === 'edited' && !isEditingSummary && canEditLesson && isEditedAlignmentStale"
@@ -2435,7 +2654,7 @@ const saveParagraph = async () => {
                 class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors print:hidden"
               >
                 <PencilIcon class="h-4 w-4" />
-                {{ t('lessons.edit') }}
+                {{ t('lessons.modifySummary') }}
               </button>
               <button
                 v-if="canEditLesson && activeView === 'summary'"
@@ -3511,7 +3730,7 @@ const saveParagraph = async () => {
         <DialogPanel class="w-full max-w-7xl h-[90vh] bg-white dark:bg-gray-800 rounded-xl shadow-2xl overflow-hidden flex flex-col">
           <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
             <DialogTitle class="text-lg font-semibold text-gray-900 dark:text-white">
-              {{ t('lessons.edit') }} - {{ t('lessons.summary') }}
+              {{ t('lessons.modifySummary') }}
             </DialogTitle>
             <button
               @click="closeSummaryEditorModal"
@@ -3572,7 +3791,7 @@ const saveParagraph = async () => {
         <DialogPanel class="w-full max-w-7xl h-[90vh] bg-white dark:bg-gray-800 rounded-xl shadow-2xl overflow-hidden flex flex-col">
           <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
             <DialogTitle class="text-lg font-semibold text-gray-900 dark:text-white">
-              {{ t('lessons.modify') }} - {{ t('lessons.editedTranscript') }}
+              {{ t('lessons.modifyEdited') }}
             </DialogTitle>
             <button
               @click="closeEditedMarkdownEditorModal"
@@ -3635,4 +3854,31 @@ const saveParagraph = async () => {
     />
   </div>
 </template>
+
+<style>
+.lesson-audio-player {
+  color-scheme: light;
+}
+
+.lesson-audio-player::-webkit-media-controls-enclosure {
+  background-color: rgb(255 255 255);
+}
+
+.lesson-audio-player::-webkit-media-controls-panel {
+  background-color: rgb(255 255 255);
+}
+
+.dark .lesson-audio-player {
+  color-scheme: dark;
+}
+
+.dark .lesson-audio-player::-webkit-media-controls-enclosure {
+  background-color: rgb(31 41 55);
+  border-radius: 9999px;
+}
+
+.dark .lesson-audio-player::-webkit-media-controls-panel {
+  background-color: rgb(31 41 55);
+}
+</style>
 

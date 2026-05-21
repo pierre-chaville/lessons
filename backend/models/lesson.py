@@ -35,6 +35,7 @@ class Lesson(SQLModel, table=True):
     summary: Optional[str] = None  # Mirrored from current ContentVersion. Do not write directly. Use services.versioning.update_content.
     status: str = Field(default="draft")  # Workflow status: draft, in_progress, review_requested, revision_requested, validated
     process_status: Optional[str] = None  # Current processing step: transcript, edition, sources_extraction, sources_checking, summary
+    step_statuses: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
 
     # Metadata for transcript, correction, summary and edited transcript
     transcript_metadata: Optional[Dict[str, Any]] = Field(

@@ -118,6 +118,19 @@ export interface ThemeUpdate {
 // ── Lesson ────────────────────────────────────────────────────────────────────
 
 export type LessonStatus = 'draft' | 'in_progress' | 'review_requested' | 'revision_requested' | 'validated'
+export type LessonWorkflowStep =
+  | 'transcription'
+  | 'edited'
+  | 'sources'
+  | 'summary'
+  | 'brief'
+export type LessonWorkflowStepStatus =
+  | 'non_started'
+  | 'failed'
+  | 'to_review'
+  | 'in_progress'
+  | 'completed'
+  | 'validated'
 
 export interface LessonEditorAssignment {
   user_id: string
@@ -136,6 +149,7 @@ export interface LessonListItem {
   brief: string | null
   status: LessonStatus
   process_status: string | null
+  step_statuses: Record<LessonWorkflowStep, LessonWorkflowStepStatus>
   edition_done?: boolean
   sources_done?: boolean
   summary_done?: boolean
@@ -162,6 +176,7 @@ export interface LessonDetail {
   summary: string | null
   status: LessonStatus
   process_status: string | null
+  step_statuses: Record<LessonWorkflowStep, LessonWorkflowStepStatus>
   theme_ids: number[]
   themes: Theme[]
   course: Course | null
@@ -195,6 +210,7 @@ export interface LessonUpdate {
   brief?: string | null
   summary?: string | null
   process_status?: string | null
+  step_statuses?: Record<LessonWorkflowStep, LessonWorkflowStepStatus> | null
   theme_ids?: number[] | null
   editor_ids?: string[] | null
   transcript_metadata?: Record<string, unknown> | null

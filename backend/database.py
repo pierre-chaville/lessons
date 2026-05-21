@@ -204,6 +204,10 @@ def _run_migrations():
                     "ALTER TABLE lesson ADD COLUMN status VARCHAR NOT NULL DEFAULT 'draft'"
                 ))
             logger.info("Migration: added 'status' column to lesson table")
+        if "step_statuses" not in columns:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE lesson ADD COLUMN step_statuses JSON"))
+            logger.info("Migration: added 'step_statuses' column to lesson table")
 
     if "course" in tables:
         columns = {col["name"] for col in inspector.get_columns("course")}
