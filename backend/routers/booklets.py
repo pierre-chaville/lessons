@@ -50,8 +50,17 @@ _BOOKLET_TASK_ALIASES: Dict[str, str] = {
     "extraction": "extraction",
     "sources": "sources",
     "summary": "summary",
+    "brief": "brief",
 }
-_SUPPORTED_BOOKLET_TASK_TYPES = {"transcription", "correction", "edition", "extraction", "sources", "summary"}
+_SUPPORTED_BOOKLET_TASK_TYPES = {
+    "transcription",
+    "correction",
+    "edition",
+    "extraction",
+    "sources",
+    "summary",
+    "brief",
+}
 
 
 def _actor_from_claims(claims: Dict[str, Any]) -> Dict[str, Any]:
@@ -493,6 +502,7 @@ def launch_booklet_tasks(
                 session=session,
                 task_type=task_type,
                 parameters=task_parameters,
+                created_by_id=claims.get("sub"),
             )
             created_items.append(
                 BookletTaskLaunchItem(task_id=created.id, lesson_id=lesson_id, task_type=task_type)

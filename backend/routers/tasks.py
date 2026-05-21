@@ -19,6 +19,7 @@ VALID_TASK_TYPES = {
     "extraction",
     "sources",
     "summary",
+    "brief",
 }
 
 
@@ -41,7 +42,10 @@ def create_task(
                     detail="You are not assigned as an editor for this lesson",
                 )
     created = crud.create_task(
-        session=session, task_type=task.task_type, parameters=task.parameters
+        session=session,
+        task_type=task.task_type,
+        parameters=task.parameters,
+        created_by_id=claims.get("sub"),
     )
     lesson_id = (task.parameters or {}).get("lesson_id")
     if lesson_id and task.task_type in VALID_TASK_TYPES:
@@ -110,4 +114,5 @@ def create_test_task(
         session=session,
         task_type=task_type,
         parameters={"test": True, "message": f"Test {task_type} task"},
+        created_by_id=_.get("sub"),
     )

@@ -162,6 +162,8 @@
     "processExtractionDesc": "Extract sources from edited transcript",
     "processSummary": "Summary",
     "processSummaryDesc": "Generate a concise summary",
+    "processBrief": "Brief",
+    "processBriefDesc": "Generate a concise brief from the summary",
     "processSources": "Verify Sources",
     "processSourcesDesc": "Verify sources using Sefaria API and LLM",
     "summaryPromptType": "Summary Prompt Type",
@@ -181,6 +183,7 @@
     "step_extraction": "Extraction",
     "step_sources": "Sources",
     "step_summary": "Summary",
+    "step_brief": "Brief",
     "status_draft": "Draft",
     "status_in_progress": "In Progress",
     "status_review_requested": "Review Requested",
@@ -406,6 +409,7 @@
     "taskId": "Task ID",
     "taskType": "Type",
     "status": "Status",
+    "launchedBy": "Launched by",
     "lessonId": "Lesson ID",
     "lessonLabel": "Lesson label",
     "actions": "Actions",
@@ -431,7 +435,8 @@
       "edition": "Edition",
       "extraction": "Source Extraction",
       "sources": "Source Verification",
-      "summary": "Summary"
+      "summary": "Summary",
+      "brief": "Brief"
     },
     "statuses": {
       "pending": "Pending",

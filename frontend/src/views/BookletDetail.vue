@@ -67,6 +67,7 @@ const selectedProcesses = ref({
   extraction: false,
   sources: false,
   summary: false,
+  brief: false,
 })
 
 const availableSummaryPrompts = ref<NamedPrompt[]>([])
@@ -474,6 +475,7 @@ const openProcessModal = async () => {
     extraction: false,
     sources: false,
     summary: false,
+    brief: false,
   }
   showProcessModal.value = true
   try {
@@ -501,6 +503,7 @@ const selectAllProcesses = () => {
     extraction: true,
     sources: true,
     summary: true,
+    brief: true,
   }
 }
 
@@ -521,6 +524,7 @@ const launchBookletTasks = async () => {
     extraction: 'extraction',
     sources: 'sources',
     summary: 'summary',
+    brief: 'brief',
   }
   const taskParametersByType: Record<string, Record<string, unknown>> = {}
   if (selected.includes('correct')) {
@@ -899,24 +903,23 @@ watch(() => props.bookletId, loadDetail)
     >
       <div class="w-[min(96vw,1100px)] bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700">
         <div class="p-5 md:p-6 max-h-[85vh] overflow-y-auto">
-          <div class="flex items-center gap-4 mb-6">
-            <div class="flex-shrink-0 w-12 h-12 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center">
-              <CogIcon class="h-6 w-6 text-indigo-600 dark:text-indigo-400" />
+          <div class="flex items-start justify-between gap-4 mb-6">
+            <div class="flex items-center gap-4 min-w-0">
+              <div class="flex-shrink-0 w-12 h-12 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center">
+                <CogIcon class="h-6 w-6 text-indigo-600 dark:text-indigo-400" />
+              </div>
+              <div>
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
+                  {{ t('lessons.processLessonTitle') }}
+                </h3>
+                <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                  {{ t('lessons.processLessonDescription') }}
+                </p>
+              </div>
             </div>
-            <div>
-              <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
-                {{ t('lessons.processLessonTitle') }}
-              </h3>
-              <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                {{ t('lessons.processLessonDescription') }}
-              </p>
-            </div>
-          </div>
-
-          <div class="flex justify-end mb-4">
             <button
               @click="selectAllProcesses"
-              class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 rounded-md transition-colors"
+              class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 rounded-md transition-colors flex-shrink-0"
             >
               <CheckCircleIcon class="h-3.5 w-3.5" />
               {{ t('lessons.selectAllRemaining') }}
@@ -1093,6 +1096,24 @@ watch(() => props.bookletId, loadDetail)
                   </option>
                 </select>
               </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)] gap-3 items-start">
+              <label class="flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors">
+                <input
+                  type="checkbox"
+                  v-model="selectedProcesses.brief"
+                  class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                />
+                <div class="flex-1">
+                  <div class="text-sm font-medium text-gray-900 dark:text-white">
+                    {{ t('lessons.processBrief') }}
+                  </div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('lessons.processBriefDesc') }}
+                  </div>
+                </div>
+              </label>
             </div>
           </div>
 

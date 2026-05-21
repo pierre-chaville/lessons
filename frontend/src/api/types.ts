@@ -286,6 +286,7 @@ export type TaskType =
   | 'extraction'
   | 'sources'
   | 'summary'
+  | 'brief'
 
 export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed'
 
@@ -299,6 +300,7 @@ export interface Task {
   parameters: Record<string, unknown> | null
   result: Record<string, unknown> | null
   error: string | null
+  created_by_id: string | null
   created_at: string
 }
 
@@ -413,6 +415,7 @@ export type BookletTaskType =
   | 'extraction'
   | 'sources'
   | 'summary'
+  | 'brief'
 
 export interface BookletTaskLaunchItem {
   task_id: number

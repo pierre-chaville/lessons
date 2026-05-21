@@ -24,6 +24,7 @@ class Task(SQLModel, table=True):
         default=None, sa_column=Column(JSON)
     )  # Task result
     error: Optional[str] = None  # Error message if failed
+    created_by_id: Optional[str] = None  # User who launched the task
     created_at: datetime = Field(
         default_factory=datetime.utcnow
     )  # When task was created

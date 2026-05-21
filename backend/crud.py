@@ -485,6 +485,7 @@ def create_task(
     task_type: str,
     parameters: Optional[dict] = None,
     status: str = "pending",
+    created_by_id: Optional[str] = None,
 ) -> Task:
     """Create a new task"""
     from datetime import datetime
@@ -493,6 +494,7 @@ def create_task(
         task_type=task_type,
         status=status,
         parameters=parameters,
+        created_by_id=created_by_id,
         created_at=datetime.utcnow(),
     )
     session.add(task)

@@ -13,6 +13,7 @@ from services import (
     correct_transcript,
     edit_transcript,
     extract_sources,
+    generate_brief,
     generate_summary,
     transcribe_lesson,
     verify_lesson_sources,
@@ -38,8 +39,9 @@ TASK_TYPE_TO_PROCESS_STATUS = {
     "extraction": "sources_extraction",
     "sources": "sources_checking",
     "summary": "summary",
+    "brief": "summary",
 }
-LLM_TASK_TYPES = {"correction", "edition", "summary", "extraction", "sources"}
+LLM_TASK_TYPES = {"correction", "edition", "summary", "brief", "extraction", "sources"}
 
 
 def _build_pricing_map(session: Session) -> dict[tuple[str, str], ModelPreset]:
@@ -395,6 +397,51 @@ def process_summary_task(session: Session, task: Task):
         raise
 
 
+def process_brief_task(session: Session, task: Task):
+    """Process a brief generation task"""
+    logger.info(f"Processing brief task {task.id}")
+
+    try:
+        params = task.parameters or {}
+        lesson_id = params.get("lesson_id")
+
+        if not lesson_id:
+            raise ValueError("lesson_id is required in task parameters")
+
+        reset_token_usage_tracker()
+        success = generate_brief(
+            lesson_id=lesson_id,
+            session=session,
+        )
+
+        if success:
+            update_task_status(
+                session,
+                task,
+                "completed",
+                result=_build_llm_result(
+                    session,
+                    {
+                        "message": "Brief generated successfully",
+                        "lesson_id": lesson_id,
+                    },
+                    get_token_usage_tracker(),
+                ),
+            )
+        else:
+            update_task_status(
+                session,
+                task,
+                "failed",
+                error="Brief generation failed",
+                result=_build_llm_result(session, {}, get_token_usage_tracker()),
+            )
+
+    except Exception as e:
+        logger.error(f"Error in brief task: {e}", exc_info=True)
+        raise
+
+
 def process_extraction_task(session: Session, task: Task):
     """Process a source extraction task"""
     logger.info(f"Processing extraction task {task.id}")
@@ -525,6 +572,8 @@ def process_task(session: Session, task: Task):
             process_edition_task(session, task)
         elif task.task_type == "summary":
             process_summary_task(session, task)
+        elif task.task_type == "brief":
+            process_brief_task(session, task)
         elif task.task_type == "extraction":
             process_extraction_task(session, task)
         elif task.task_type == "sources":

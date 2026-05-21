@@ -214,7 +214,7 @@ const isHistoryMode = computed(() => historyContentType.value !== null)
 // Process tasks modal state
 const showProcessModal = ref(false)
 const selectedProcesses = ref<Record<string, boolean>>({
-  transcribe: false, correct: false, edition: false, extraction: false, summary: false, sources: false,
+  transcribe: false, correct: false, edition: false, extraction: false, summary: false, brief: false, sources: false,
 })
 const selectedSummaryPrompt = ref('')
 const availableSummaryPrompts = ref<Array<{ name: string; text: string }>>([])
@@ -1395,20 +1395,22 @@ const canEdition = computed(() => hasCorrectedTranscript.value || selectedProces
 const canExtraction = computed(() => hasEditedTranscript.value || selectedProcesses.value.edition)
 const canSources = computed(() => hasSourcesExtracted.value || selectedProcesses.value.extraction)
 const canSummary = computed(() => hasEditedTranscript.value || selectedProcesses.value.edition)
+const canBrief = computed(() => !!props.lesson.summary || selectedProcesses.value.summary)
 
 // Uncheck options that become disabled
-watch([canCorrect, canEdition, canExtraction, canSources, canSummary], () => {
+watch([canCorrect, canEdition, canExtraction, canSources, canSummary, canBrief], () => {
   if (!canCorrect.value) selectedProcesses.value.correct = false
   if (!canEdition.value) selectedProcesses.value.edition = false
   if (!canExtraction.value) selectedProcesses.value.extraction = false
   if (!canSources.value) selectedProcesses.value.sources = false
   if (!canSummary.value) selectedProcesses.value.summary = false
+  if (!canBrief.value) selectedProcesses.value.brief = false
 })
 
 // Process tasks modal functions
 const openProcessModal = async () => {
   selectedProcesses.value = {
-    transcribe: false, correct: false, edition: false, extraction: false, summary: false, sources: false,
+    transcribe: false, correct: false, edition: false, extraction: false, summary: false, brief: false, sources: false,
   }
   showProcessModal.value = true
   try {
@@ -1448,6 +1450,7 @@ const selectAllRemaining = () => {
   // Sources checking can always be re-run, select if extraction will be done or sources exist
   if (canSources.value) selectedProcesses.value.sources = true
   if (!props.lesson.summary) selectedProcesses.value.summary = true
+  if (!props.lesson.brief) selectedProcesses.value.brief = true
 }
 
 const createTasks = async () => {
@@ -1458,11 +1461,11 @@ const createTasks = async () => {
   }
   try {
     isCreatingTasks.value = true
-    const taskOrder = ['transcribe', 'correct', 'edition', 'extraction', 'summary', 'sources']
+    const taskOrder = ['transcribe', 'correct', 'edition', 'extraction', 'summary', 'brief', 'sources']
     const orderedTasks = taskOrder.filter((t) => selectedTasks.includes(t))
     const taskTypeMap: Record<string, string> = {
       transcribe: 'transcription', correct: 'correction', edition: 'edition',
-      extraction: 'extraction', summary: 'summary', sources: 'sources',
+      extraction: 'extraction', summary: 'summary', brief: 'brief', sources: 'sources',
     }
     for (const taskType of orderedTasks) {
       const parameters: Record<string, unknown> = { lesson_id: props.lesson.id }
@@ -1623,25 +1626,23 @@ const saveParagraph = async () => {
     <div class="fixed inset-0 flex items-center justify-center p-4">
       <DialogPanel class="w-[min(96vw,1100px)] bg-white dark:bg-gray-800 rounded-lg shadow-xl">
         <div class="p-5 md:p-6 max-h-[85vh] overflow-y-auto">
-          <div class="flex items-center gap-4 mb-6">
-            <div class="flex-shrink-0 w-12 h-12 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center">
-              <CogIcon class="h-6 w-6 text-indigo-600 dark:text-indigo-400" />
+          <div class="flex items-start justify-between gap-4 mb-6">
+            <div class="flex items-center gap-4 min-w-0">
+              <div class="flex-shrink-0 w-12 h-12 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center">
+                <CogIcon class="h-6 w-6 text-indigo-600 dark:text-indigo-400" />
+              </div>
+              <div>
+                <DialogTitle class="text-lg font-semibold text-gray-900 dark:text-white">
+                  {{ t('lessons.processLessonTitle') }}
+                </DialogTitle>
+                <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                  {{ t('lessons.processLessonDescription') }}
+                </p>
+              </div>
             </div>
-            <div>
-              <DialogTitle class="text-lg font-semibold text-gray-900 dark:text-white">
-                {{ t('lessons.processLessonTitle') }}
-              </DialogTitle>
-              <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                {{ t('lessons.processLessonDescription') }}
-              </p>
-            </div>
-          </div>
-          
-          <!-- Select All Remaining Button -->
-          <div class="flex justify-end mb-4">
             <button
               @click="selectAllRemaining"
-              class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 rounded-md transition-colors"
+              class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 rounded-md transition-colors flex-shrink-0"
             >
               <CheckIcon class="h-3.5 w-3.5" />
               {{ t('lessons.selectAllRemaining') }}
@@ -1875,6 +1876,31 @@ const saveParagraph = async () => {
                   </option>
                 </select>
               </div>
+            </div>
+
+            <!-- Brief (needs summary) -->
+            <div class="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)] gap-3 items-start">
+              <label :class="[
+                'flex items-center gap-3 p-3 rounded-lg border transition-colors',
+                canBrief
+                  ? 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer'
+                  : 'border-gray-100 dark:border-gray-800 opacity-50 cursor-not-allowed'
+              ]">
+                <input
+                  type="checkbox"
+                  v-model="selectedProcesses.brief"
+                  :disabled="!canBrief"
+                  class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 disabled:opacity-50"
+                />
+                <div class="flex-1">
+                  <div class="text-sm font-medium text-gray-900 dark:text-white">
+                    {{ t('lessons.processBrief') }}
+                  </div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('lessons.processBriefDesc') }}
+                  </div>
+                </div>
+              </label>
             </div>
           </div>
           

@@ -20,6 +20,7 @@ class TaskResponse(BaseModel):
     parameters: Optional[Dict[str, Any]]
     result: Optional[Dict[str, Any]]
     error: Optional[str]
+    created_by_id: Optional[str]
     created_at: datetime
 
     class Config:

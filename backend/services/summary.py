@@ -243,10 +243,93 @@ async def generate_summary_async(
 
         summary_text = summary.strip()
 
-        # Generate brief abstract from summary using dedicated brief config
+        # Save summary metadata (including selected prompt name)
+        prompt_info = summary_prompt
+        if selected_prompt_name:
+            prompt_info = f"[summary:{selected_prompt_name}] {summary_prompt}"
+
+        summary_provider = (
+            summary_model_preset.provider
+            if summary_model_preset
+            else config.get("provider", "OpenAI")
+        )
+        metadata = Metadata(
+            provider=summary_provider,
+            model=(summary_model_preset.model_id if summary_model_preset else None),
+            temperature=(summary_model_preset.temperature if summary_model_preset else None),
+            max_tokens=summary_max_tokens,
+            prompt=prompt_info,
+        )
+        base_metadata = metadata.model_dump()
+        base_metadata.update(
+            build_summary_alignment_metadata(
+                summary_markdown=summary_text,
+                edited_markdown=edited_text,
+                min_alignment_score=summary_min_alignment_score,
+            )
+        )
+        lesson.summary_metadata = base_metadata
+
+        # Commit metadata then persist versioned summary snapshot.
+        session.add(lesson)
+        session.commit()
+        update_content(
+            session=session,
+            lesson_id=lesson_id,
+            content_type=ContentType.SUMMARY,
+            new_content=summary_text,
+            actor=None,
+            source=VersionSource.PIPELINE,
+            change_summary="Pipeline summary rerun",
+        )
+        session.commit()
+
+        logger.info(
+            f"Successfully generated summary for lesson {lesson_id} "
+            f"({len(summary)} characters)"
+        )
+        return True
+
+    except Exception as e:
+        logger.error(
+            f"Error generating summary for lesson {lesson_id}: {e}", exc_info=True
+        )
+        if session:
+            session.rollback()
+        return False
+
+    finally:
+        if should_close_session and session:
+            session.close()
+
+
+async def generate_brief_async(
+    lesson_id: int,
+    session: Optional[Session] = None,
+) -> bool:
+    """
+    Generate a brief for a lesson using the existing summary as input.
+    """
+    should_close_session = False
+
+    try:
+        if session is None:
+            session = Session(engine)
+            should_close_session = True
+
+        lesson = session.get(Lesson, lesson_id)
+        if not lesson:
+            logger.error(f"Lesson {lesson_id} not found")
+            return False
+
+        summary_text = (lesson.summary or "").strip()
+        if not summary_text:
+            logger.error(f"Lesson {lesson_id} has no summary to generate brief from")
+            return False
+
+        config = load_config()
         brief_config = config.get("brief", {})
         brief_prompt = brief_config.get("prompt")
-        brief_prompt_name = "brief"
 
         if not brief_prompt:
             logger.error("No brief prompt configured in config.brief.")
@@ -280,57 +363,16 @@ async def generate_summary_async(
                 thinking_mode=brief_model_preset.thinking_mode or None,
             )
         else:
-            brief_llm = get_llm_model(task_name="summary", max_tokens=brief_max_tokens)
+            brief_llm = get_llm_model(task_name="brief", max_tokens=brief_max_tokens)
+
         brief = await generate_summary_with_retry(
-            input_text=summary.strip(),
+            input_text=summary_text,
             llm=brief_llm,
             summary_prompt=brief_prompt,
             input_label="Summary",
         )
-
         brief_text = brief.strip()
 
-        # Save summary metadata (including prompt type names)
-        prompt_info = summary_prompt
-        if selected_prompt_name:
-            prompt_info = f"[summary:{selected_prompt_name}] {summary_prompt}"
-        if brief_prompt_name:
-            prompt_info += f"\n[brief:{brief_prompt_name}] {brief_prompt}"
-
-        summary_provider = (
-            summary_model_preset.provider
-            if summary_model_preset
-            else config.get("provider", "OpenAI")
-        )
-        metadata = Metadata(
-            provider=summary_provider,
-            model=(summary_model_preset.model_id if summary_model_preset else None),
-            temperature=(summary_model_preset.temperature if summary_model_preset else None),
-            max_tokens=summary_max_tokens,
-            prompt=prompt_info,
-        )
-        base_metadata = metadata.model_dump()
-        base_metadata.update(
-            build_summary_alignment_metadata(
-                summary_markdown=summary_text,
-                edited_markdown=edited_text,
-                min_alignment_score=summary_min_alignment_score,
-            )
-        )
-        lesson.summary_metadata = base_metadata
-
-        # Commit metadata then persist versioned brief/summary snapshots.
-        session.add(lesson)
-        session.commit()
-        update_content(
-            session=session,
-            lesson_id=lesson_id,
-            content_type=ContentType.SUMMARY,
-            new_content=summary_text,
-            actor=None,
-            source=VersionSource.PIPELINE,
-            change_summary="Pipeline summary rerun",
-        )
         update_content(
             session=session,
             lesson_id=lesson_id,
@@ -343,19 +385,18 @@ async def generate_summary_async(
         session.commit()
 
         logger.info(
-            f"Successfully generated summary for lesson {lesson_id} "
-            f"({len(summary)} characters)"
+            f"Successfully generated brief for lesson {lesson_id} "
+            f"({len(brief_text)} characters)"
         )
         return True
 
     except Exception as e:
         logger.error(
-            f"Error generating summary for lesson {lesson_id}: {e}", exc_info=True
+            f"Error generating brief for lesson {lesson_id}: {e}", exc_info=True
         )
         if session:
             session.rollback()
         return False
-
     finally:
         if should_close_session and session:
             session.close()
@@ -381,6 +422,21 @@ def generate_summary(
         generate_summary_async(
             lesson_id=lesson_id,
             prompt_type=prompt_type,
+            session=session,
+        )
+    )
+
+
+def generate_brief(
+    lesson_id: int,
+    session: Optional[Session] = None,
+) -> bool:
+    """
+    Synchronous wrapper for generate_brief_async.
+    """
+    return asyncio.run(
+        generate_brief_async(
+            lesson_id=lesson_id,
             session=session,
         )
     )

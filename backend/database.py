@@ -220,6 +220,15 @@ def _run_migrations():
                 ))
             logger.info("Migration: added 'sort_order' column to course table")
 
+    if "task" in tables:
+        columns = {col["name"] for col in inspector.get_columns("task")}
+        if "created_by_id" not in columns:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    "ALTER TABLE task ADD COLUMN created_by_id VARCHAR"
+                ))
+            logger.info("Migration: added 'created_by_id' column to task table")
+
     if "lesson" in tables:
         try:
             had_content_version = "content_version" in tables

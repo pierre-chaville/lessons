@@ -162,6 +162,8 @@
     "processExtractionDesc": "Extraire les sources de la version rédigée",
     "processSummary": "Résumé",
     "processSummaryDesc": "Générer un résumé concis",
+    "processBrief": "Résumé bref",
+    "processBriefDesc": "Générer un résumé bref à partir du résumé",
     "processSources": "Vérifier les Sources",
     "processSourcesDesc": "Vérifier les sources en utilisant l'API Sefaria et l'IA",
     "summaryPromptType": "Type de Prompt de Résumé",
@@ -181,6 +183,7 @@
     "step_extraction": "Extraction",
     "step_sources": "Sources",
     "step_summary": "Résumé",
+    "step_brief": "Résumé bref",
     "status_draft": "Brouillon",
     "status_in_progress": "En cours",
     "status_review_requested": "Relecture demandée",
@@ -406,6 +409,7 @@
     "taskId": "ID tâche",
     "taskType": "Type",
     "status": "Statut",
+    "launchedBy": "Lancé par",
     "lessonId": "ID session",
     "lessonLabel": "Libellé session",
     "actions": "Actions",
@@ -431,7 +435,8 @@
       "edition": "Rédaction",
       "extraction": "Extraction des Sources",
       "sources": "Vérification des Sources",
-      "summary": "Résumé"
+      "summary": "Résumé",
+      "brief": "Résumé bref"
     },
     "statuses": {
       "pending": "En attente",

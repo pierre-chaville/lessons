@@ -15,6 +15,7 @@ import {
 import { Dialog, DialogPanel, DialogTitle, TransitionChild, TransitionRoot } from '@headlessui/vue'
 import { lessonsApi } from '@/api/lessons'
 import { tasksApi } from '@/api/tasks'
+import { usersApi, type ClerkUser } from '@/api/users'
 import { useToast } from '@/composables/useToast'
 import { usePermissions } from '@/composables/usePermissions'
 import type { LessonListItem, Task, TaskStatus, TaskType } from '@/api/types'
@@ -25,6 +26,7 @@ const { can } = usePermissions()
 
 const tasks = ref<Task[]>([])
 const lessons = ref<LessonListItem[]>([])
+const users = ref<ClerkUser[]>([])
 const loading = ref(false)
 const loadingLessons = ref(false)
 const selectedLessonId = ref<string>('all')
@@ -57,6 +59,15 @@ const fetchLessons = async () => {
   }
 }
 
+const fetchUsers = async () => {
+  try {
+    users.value = await usersApi.list()
+  } catch {
+    // Editors may not have access to /users; fallback to raw IDs in UI.
+    users.value = []
+  }
+}
+
 const sortedLessons = computed(() =>
   [...lessons.value].sort((a, b) => a.title.localeCompare(b.title)),
 )
@@ -83,6 +94,14 @@ const getLessonHashid = (task: Task): string | null => {
   if (lessonId === null) return null
   const lesson = lessons.value.find((item) => item.id === lessonId)
   return lesson?.hashid ?? null
+}
+
+const getLauncherLabel = (task: Task): string => {
+  if (!task.created_by_id) return '-'
+  const user = users.value.find((u) => u.id === task.created_by_id)
+  if (!user) return task.created_by_id
+  const fullName = [user.first_name, user.last_name].filter(Boolean).join(' ').trim()
+  return fullName || user.email || task.created_by_id
 }
 
 const matchesCreatedRange = (task: Task): boolean => {
@@ -220,6 +239,7 @@ const getTaskTypeIcon = (taskType: TaskType) => {
     case 'correction': return ChatBubbleBottomCenterTextIcon
     case 'sources':    return BookOpenIcon
     case 'summary':    return SparklesIcon
+    case 'brief':      return SparklesIcon
     default:           return DocumentTextIcon
   }
 }
@@ -228,6 +248,7 @@ const canDelete = (task: Task): boolean => task.status !== 'running'
 
 onMounted(() => {
   fetchLessons()
+  fetchUsers()
   fetchTasks()
   refreshInterval = setInterval(fetchTasks, 5000)
 })
@@ -378,6 +399,9 @@ onBeforeUnmount(() => {
                 {{ t('processing.status') }}
               </th>
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400">
+                {{ t('processing.launchedBy') }}
+              </th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400">
                 {{ t('processing.lessonId') }}
               </th>
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400">
@@ -429,6 +453,9 @@ onBeforeUnmount(() => {
                     {{ t(`processing.statuses.${task.status}`) }}
                   </span>
                 </td>
+                <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                  {{ getLauncherLabel(task) }}
+                </td>
                 <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
                   {{ getTaskLessonId(task) ?? '-' }}
                 </td>
@@ -473,7 +500,7 @@ onBeforeUnmount(() => {
                 </td>
               </tr>
               <tr v-if="task.status === 'failed' && task.error" class="bg-red-50/60 dark:bg-red-900/10">
-                <td colspan="11" class="px-4 py-3 text-sm text-red-800 dark:text-red-300">
+                <td colspan="12" class="px-4 py-3 text-sm text-red-800 dark:text-red-300">
                   <span class="font-medium">{{ t('processing.error') }}:</span>
                   <span class="ml-2 break-words">{{ task.error }}</span>
                 </td>
