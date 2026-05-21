@@ -16,6 +16,7 @@ import { Dialog, DialogPanel, DialogTitle, TransitionChild, TransitionRoot } fro
 import { lessonsApi } from '@/api/lessons'
 import { tasksApi } from '@/api/tasks'
 import { usersApi, type ClerkUser } from '@/api/users'
+import { useAuth } from '@/composables/useAuth'
 import { useToast } from '@/composables/useToast'
 import { usePermissions } from '@/composables/usePermissions'
 import type { LessonListItem, Task, TaskStatus, TaskType } from '@/api/types'
@@ -23,12 +24,14 @@ import type { LessonListItem, Task, TaskStatus, TaskType } from '@/api/types'
 const { t } = useI18n()
 const toast = useToast()
 const { can } = usePermissions()
+const { user } = useAuth()
 
 const tasks = ref<Task[]>([])
 const lessons = ref<LessonListItem[]>([])
 const users = ref<ClerkUser[]>([])
 const loading = ref(false)
 const loadingLessons = ref(false)
+const selectedOwnerFilter = ref<'mine' | 'all'>('mine')
 const selectedLessonId = ref<string>('all')
 const selectedCreatedRange = ref<'today' | 'last7' | 'last30' | 'all'>('today')
 const showDeleteModal = ref(false)
@@ -71,6 +74,7 @@ const fetchUsers = async () => {
 const sortedLessons = computed(() =>
   [...lessons.value].sort((a, b) => a.title.localeCompare(b.title)),
 )
+const currentUserId = computed(() => user.value?.id ?? null)
 
 const getTaskLessonId = (task: Task): number | null => {
   const rawLessonId = task.parameters?.lesson_id
@@ -124,6 +128,10 @@ const matchesCreatedRange = (task: Task): boolean => {
 
 const filteredTasks = computed(() => {
   return tasks.value.filter((task) => {
+    if (selectedOwnerFilter.value === 'mine') {
+      if (!currentUserId.value) return false
+      if (task.created_by_id !== currentUserId.value) return false
+    }
     if (!matchesCreatedRange(task)) return false
     if (selectedLessonId.value === 'all') return true
     const lessonId = Number(selectedLessonId.value)
@@ -334,7 +342,20 @@ onBeforeUnmount(() => {
           {{ filteredTasks.length }} {{ filteredTasks.length === 1 ? t('processing.task') : t('processing.tasks') }}
         </span>
       </div>
-      <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 max-w-3xl">
+      <div class="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3 max-w-5xl">
+        <div>
+          <label for="owner-filter" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            {{ t('processing.filterByOwner') }}
+          </label>
+          <select
+            id="owner-filter"
+            v-model="selectedOwnerFilter"
+            class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          >
+            <option value="mine">{{ t('processing.myTasks') }}</option>
+            <option value="all">{{ t('processing.allTasks') }}</option>
+          </select>
+        </div>
         <div>
           <label for="lesson-filter" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             {{ t('processing.filterByLesson') }}
