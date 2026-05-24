@@ -549,6 +549,7 @@
     "noDiffAvailable": "No differences to display.",
     "diffModeGithub": "GitHub mode",
     "diffModeRedlines": "Redlines mode",
+    "diffModeRawRedlines": "Raw redlines",
     "segmentLabel": "Segment {index}",
     "statusAdded": "Added",
     "statusRemoved": "Removed",

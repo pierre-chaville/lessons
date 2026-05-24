@@ -59,38 +59,40 @@ const onConfirm = async () => {
   <Dialog :open="isOpen" @close="emit('close')" class="relative z-50">
     <div class="fixed inset-0 bg-black/30" aria-hidden="true" />
     <div class="fixed inset-0 flex items-center justify-center p-4">
-      <DialogPanel class="w-full max-w-3xl rounded-lg bg-white dark:bg-gray-800 p-6 shadow-xl">
-        <DialogTitle class="mb-3 text-lg font-semibold text-gray-900 dark:text-white">
-          {{ t('history.restoreVersionTitle', { version: targetVersion?.version_number }) }}
-        </DialogTitle>
+      <DialogPanel class="flex w-full max-w-3xl max-h-[90vh] flex-col overflow-hidden rounded-lg bg-white dark:bg-gray-800 shadow-xl">
+        <div class="overflow-y-auto px-6 pt-6 pb-4">
+          <DialogTitle class="mb-3 text-lg font-semibold text-gray-900 dark:text-white">
+            {{ t('history.restoreVersionTitle', { version: targetVersion?.version_number }) }}
+          </DialogTitle>
 
-        <p class="mb-3 text-sm text-gray-600 dark:text-gray-400">
-          {{ t('history.restoreVersionHint') }}
-        </p>
+          <p class="mb-3 text-sm text-gray-600 dark:text-gray-400">
+            {{ t('history.restoreVersionHint') }}
+          </p>
 
-        <div v-if="targetVersion && currentVersion" class="mb-4">
-          <div class="mb-2 text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">
-            {{ t('history.diffPreview') }}
+          <div v-if="targetVersion && currentVersion" class="mb-4">
+            <div class="mb-2 text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">
+              {{ t('history.diffPreview') }}
+            </div>
+            <DiffViewer
+              :lesson-hashid="lessonHashid"
+              :version-a-id="currentVersion.id"
+              :version-b-id="targetVersion.id"
+              :content-type="contentType"
+            />
           </div>
-          <DiffViewer
-            :lesson-hashid="lessonHashid"
-            :version-a-id="currentVersion.id"
-            :version-b-id="targetVersion.id"
-            :content-type="contentType"
+
+          <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('history.reasonRequired') }}</label>
+          <textarea
+            v-model="reason"
+            rows="4"
+            class="mb-3 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+            :placeholder="t('history.restoreReasonPlaceholder')"
           />
+
+          <p v-if="error" class="text-sm text-red-600 dark:text-red-400">{{ error }}</p>
         </div>
 
-        <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('history.reasonRequired') }}</label>
-        <textarea
-          v-model="reason"
-          rows="4"
-          class="mb-3 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-          :placeholder="t('history.restoreReasonPlaceholder')"
-        />
-
-        <p v-if="error" class="mb-3 text-sm text-red-600 dark:text-red-400">{{ error }}</p>
-
-        <div class="flex justify-end gap-2">
+        <div class="flex justify-end gap-2 border-t border-gray-200 px-6 py-4 dark:border-gray-700">
           <button
             @click="emit('close')"
             :disabled="saving"

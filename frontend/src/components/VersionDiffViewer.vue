@@ -19,7 +19,7 @@ type StructuredDiffBlock = {
 }
 
 type RenderedDiffRow = DiffRow & { html: string }
-type CompareMode = 'github' | 'redlines'
+type CompareMode = 'github' | 'redlines' | 'raw_redlines'
 
 const props = defineProps<{
   lessonHashid: string
@@ -154,9 +154,45 @@ const normalizeVersionContentToText = (content: unknown): string => {
   return String(content)
 }
 
+const stripMarkdownForRawRedlines = (input: string): string => {
+  if (!input) return ''
+  return input
+    .replaceAll('\r\n', '\n')
+    .replace(/^ {0,3}#{1,6}\s+/gm, '')
+    .replace(/^>\s?/gm, '')
+    .replace(/^[-*+]\s+/gm, '')
+    .replace(/^\d+\.\s+/gm, '')
+    .replace(/^```[\w-]*\s*$/gm, '')
+    .replace(/^~~~[\w-]*\s*$/gm, '')
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/__(.*?)__/g, '$1')
+    .replace(/\*(.*?)\*/g, '$1')
+    .replace(/_(.*?)_/g, '$1')
+    .replace(/~~(.*?)~~/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\\([\\`*_{}\[\]()#+\-.!])/g, '$1')
+    .replace(/^\s*[-*_]{3,}\s*$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+const redlineBeforeText = computed(() => (
+  compareMode.value === 'raw_redlines'
+    ? stripMarkdownForRawRedlines(versionAText.value)
+    : versionAText.value
+))
+
+const redlineAfterText = computed(() => (
+  compareMode.value === 'raw_redlines'
+    ? stripMarkdownForRawRedlines(versionBText.value)
+    : versionBText.value
+))
+
 const redlineHtml = computed(() => {
-  if (!versionAText.value && !versionBText.value) return ''
-  const diffs = wordDiff(versionAText.value, versionBText.value)
+  if (!redlineBeforeText.value && !redlineAfterText.value) return ''
+  const diffs = wordDiff(redlineBeforeText.value, redlineAfterText.value)
   return diffs
     .map(([op, token]) => {
       const escaped = escapeHtml(token)
@@ -171,7 +207,7 @@ const redlineHtml = computed(() => {
     .join('')
 })
 
-const hasRedlineChanges = computed(() => versionAText.value !== versionBText.value)
+const hasRedlineChanges = computed(() => redlineBeforeText.value !== redlineAfterText.value)
 
 const textRows = computed(() => {
   if (!diff.value || diff.value.type !== 'text') return []
@@ -347,19 +383,28 @@ watch(
         >
           {{ t('history.diffModeRedlines') }}
         </button>
+        <button
+          class="rounded px-2.5 py-1 text-xs font-medium transition-colors"
+          :class="compareMode === 'raw_redlines'
+            ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900'
+            : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'"
+          @click="compareMode = 'raw_redlines'"
+        >
+          {{ t('history.diffModeRawRedlines') }}
+        </button>
       </div>
     </div>
 
     <div v-if="loading" class="text-sm text-gray-500 dark:text-gray-400">{{ t('history.loadingDiff') }}</div>
     <div v-else-if="error" class="text-sm text-red-600 dark:text-red-400">{{ error }}</div>
-    <div v-else-if="compareMode === 'redlines' && isLoadingRedlines" class="text-sm text-gray-500 dark:text-gray-400">
+    <div v-else-if="(compareMode === 'redlines' || compareMode === 'raw_redlines') && isLoadingRedlines" class="text-sm text-gray-500 dark:text-gray-400">
       {{ t('history.loadingDiff') }}
     </div>
-    <div v-else-if="compareMode === 'redlines' && !hasRedlineChanges" class="text-sm text-gray-500 dark:text-gray-400">
+    <div v-else-if="(compareMode === 'redlines' || compareMode === 'raw_redlines') && !hasRedlineChanges" class="text-sm text-gray-500 dark:text-gray-400">
       {{ t('history.noDiffAvailable') }}
     </div>
     <div
-      v-else-if="compareMode === 'redlines'"
+      v-else-if="compareMode === 'redlines' || compareMode === 'raw_redlines'"
       dir="auto"
       class="max-h-[65vh] overflow-auto whitespace-pre-wrap rounded-md border border-gray-200 bg-gray-50 p-3 text-sm leading-6 text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
       v-html="redlineHtml"

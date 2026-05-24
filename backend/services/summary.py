@@ -198,7 +198,8 @@ async def generate_summary_async(
         except (TypeError, ValueError):
             max_length = 300
         max_length = max(1, max_length)
-        summary_max_tokens = max_length * 2
+        # NB: We multiply by 4 to allow for the summary to be longer than the max_length and avoid being truncated.
+        summary_max_tokens = max_length * 4
 
         # Add max_length instruction to prompt if specified
         if max_length:
