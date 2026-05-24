@@ -545,6 +545,8 @@
     "loadingDiff": "Chargement du diff...",
     "diffLoadFailed": "Échec du chargement du diff",
     "noDiffAvailable": "Aucune différence à afficher.",
+    "diffModeGithub": "Mode GitHub",
+    "diffModeRedlines": "Mode Redlines",
     "segmentLabel": "Segment {index}",
     "statusAdded": "Ajouté",
     "statusRemoved": "Supprimé",
