@@ -303,6 +303,8 @@
   "glossary": {
     "title": "Glossaire",
     "addNew": "Nouvelle entrée",
+    "exportYaml": "Exporter YAML",
+    "importYaml": "Importer YAML",
     "loading": "Chargement du glossaire...",
     "empty": "Aucune entrée de glossaire pour le moment.",
     "entriesCount": "{count} entrées",
@@ -328,7 +330,11 @@
     "fetchFailed": "Échec du chargement des entrées du glossaire.",
     "createFailed": "Échec de la création de l'entrée du glossaire.",
     "updateFailed": "Échec de la modification de l'entrée du glossaire.",
-    "deleteFailed": "Échec de la suppression de l'entrée du glossaire."
+    "deleteFailed": "Échec de la suppression de l'entrée du glossaire.",
+    "exportSuccess": "Glossaire exporté.",
+    "exportFailed": "Échec de l'export du glossaire.",
+    "importSuccess": "{count} entrées importées.",
+    "importFailed": "Échec de l'import YAML du glossaire."
   },
   "booklets": {
     "title": "Livrets",

@@ -410,14 +410,32 @@ onBeforeUnmount(() => {
             <h2 class="text-xl font-semibold text-gray-900 dark:text-white">
               {{ t('glossary.title') }}
             </h2>
-            <button
-              v-if="can('glossary', 'create')"
-              @click="glossaryListRef?.openCreateModal()"
-              class="inline-flex items-center gap-x-2 rounded-md bg-indigo-600 dark:bg-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 dark:hover:bg-indigo-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:focus-visible:outline-indigo-500 transition-colors"
-            >
-              <PlusIcon class="h-5 w-5" />
-              {{ t('glossary.addNew') }}
-            </button>
+            <div class="flex items-center gap-2">
+              <button
+                v-if="can('glossary', 'create')"
+                @click="glossaryListRef?.exportYaml?.()"
+                class="inline-flex items-center gap-x-2 rounded-md px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
+              >
+                <ArrowDownTrayIcon class="h-4 w-4" />
+                {{ t('glossary.exportYaml') }}
+              </button>
+              <button
+                v-if="can('glossary', 'create')"
+                @click="glossaryListRef?.openImportDialog?.()"
+                class="inline-flex items-center gap-x-2 rounded-md px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
+              >
+                <ArrowUpTrayIcon class="h-4 w-4" />
+                {{ t('glossary.importYaml') }}
+              </button>
+              <button
+                v-if="can('glossary', 'create')"
+                @click="glossaryListRef?.openCreateModal()"
+                class="inline-flex items-center gap-x-2 rounded-md bg-indigo-600 dark:bg-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 dark:hover:bg-indigo-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:focus-visible:outline-indigo-500 transition-colors"
+              >
+                <PlusIcon class="h-5 w-5" />
+                {{ t('glossary.addNew') }}
+              </button>
+            </div>
           </div>
         </div>
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8">

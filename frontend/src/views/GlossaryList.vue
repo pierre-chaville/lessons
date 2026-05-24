@@ -28,6 +28,7 @@ const isDeleting = ref(false)
 const showCreateModal = ref(false)
 const showEditModal = ref(false)
 const showDeleteModal = ref(false)
+const importInputRef = ref<HTMLInputElement | null>(null)
 
 const editingEntry = ref<GlossaryEntry | null>(null)
 const deletingEntry = ref<GlossaryEntry | null>(null)
@@ -155,12 +156,56 @@ const deleteEntry = async () => {
   }
 }
 
+const exportYaml = async () => {
+  try {
+    const blob = await glossaryApi.exportYaml()
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'glossary.yaml'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+    toast.success(t('glossary.exportSuccess'))
+  } catch {
+    toast.error(t('glossary.exportFailed'))
+  }
+}
+
+const openImportDialog = () => {
+  importInputRef.value?.click()
+}
+
+const importYaml = async (event: Event) => {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  try {
+    const result = await glossaryApi.importYaml(file)
+    await loadEntries()
+    toast.success(t('glossary.importSuccess', { count: result.total }))
+  } catch {
+    toast.error(t('glossary.importFailed'))
+  } finally {
+    input.value = ''
+  }
+}
+
 onMounted(loadEntries)
 
-defineExpose({ openCreateModal })
+defineExpose({ openCreateModal, exportYaml, openImportDialog })
 </script>
 
 <template>
+  <input
+    ref="importInputRef"
+    type="file"
+    accept=".yaml,.yml,text/yaml,application/x-yaml"
+    class="hidden"
+    @change="importYaml"
+  />
+
   <Dialog :open="showCreateModal" @close="closeCreateModal" class="relative z-50">
     <div class="fixed inset-0 bg-black/30" aria-hidden="true" />
     <div class="fixed inset-0 flex items-center justify-center p-4">

@@ -21,7 +21,12 @@ from services.edited_transcript import (
     build_edited_transcript_payload,
     markdown_to_paragraphs,
 )
-from services.glossary_apply import apply_glossary_to_segments, apply_glossary_to_text, load_glossary_rules
+from services.glossary_apply import (
+    apply_glossary_to_segments_with_report,
+    apply_glossary_to_text_with_report,
+    merge_glossary_reports,
+    load_glossary_rules,
+)
 import logging
 
 logger = logging.getLogger(__name__)
@@ -336,14 +341,16 @@ async def edit_transcript_async(
         results = await asyncio.gather(*tasks)
 
         markdown = "\n\n".join(part.strip() for part in results if isinstance(part, str) and part.strip()).strip()
-        markdown = apply_glossary_to_text(markdown, glossary_rules)
+        markdown, markdown_report = apply_glossary_to_text_with_report(markdown, glossary_rules)
         if not markdown:
             raise ValueError("Edited transcript markdown is empty")
 
         edited_paragraphs = markdown_to_paragraphs(markdown)
         if not edited_paragraphs:
             edited_paragraphs = [markdown]
-        alignment_transcript = apply_glossary_to_segments(segments, glossary_rules)
+        alignment_transcript, transcript_report = apply_glossary_to_segments_with_report(
+            segments, glossary_rules
+        )
         edited_data = build_edited_transcript_payload(
             markdown=markdown,
             transcript=alignment_transcript,
@@ -374,6 +381,11 @@ async def edit_transcript_async(
             prompt=edition_prompt,
         )
         lesson.set_edited_metadata(metadata)
+        if lesson.edited_metadata is None:
+            lesson.edited_metadata = {}
+        lesson.edited_metadata["glossary_replacements"] = merge_glossary_reports(
+            [*markdown_report, *transcript_report]
+        )
 
         # Commit metadata then persist versioned content.
         session.add(lesson)

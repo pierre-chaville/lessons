@@ -18,7 +18,11 @@ from models.versioning import ContentType, VersionSource
 from services.versioning import update_content
 from services.edited_transcript import edited_transcript_markdown
 from services.summary_alignment import build_summary_alignment_metadata
-from services.glossary_apply import apply_glossary_to_text, load_glossary_rules
+from services.glossary_apply import (
+    apply_glossary_to_text_with_report,
+    merge_glossary_reports,
+    load_glossary_rules,
+)
 import logging
 
 logger = logging.getLogger(__name__)
@@ -140,7 +144,7 @@ async def generate_summary_async(
             return False
 
         glossary_rules = load_glossary_rules(session)
-        edited_text = apply_glossary_to_text(
+        edited_text, edited_report = apply_glossary_to_text_with_report(
             edited_transcript_markdown(lesson.edited_transcript).strip(),
             glossary_rules,
         )
@@ -247,7 +251,9 @@ async def generate_summary_async(
             input_label="Edited Text",
         )
 
-        summary_text = apply_glossary_to_text(summary.strip(), glossary_rules)
+        summary_text, summary_report = apply_glossary_to_text_with_report(
+            summary.strip(), glossary_rules
+        )
 
         # Save summary metadata (including selected prompt name)
         prompt_info = summary_prompt
@@ -267,6 +273,9 @@ async def generate_summary_async(
             prompt=prompt_info,
         )
         base_metadata = metadata.model_dump()
+        base_metadata["glossary_replacements"] = merge_glossary_reports(
+            [*edited_report, *summary_report]
+        )
         base_metadata.update(
             build_summary_alignment_metadata(
                 summary_markdown=summary_text,
@@ -329,7 +338,10 @@ async def generate_brief_async(
             return False
 
         glossary_rules = load_glossary_rules(session)
-        summary_text = apply_glossary_to_text((lesson.summary or "").strip(), glossary_rules)
+        summary_text, summary_report = apply_glossary_to_text_with_report(
+            (lesson.summary or "").strip(),
+            glossary_rules,
+        )
         if not summary_text:
             logger.error(f"Lesson {lesson_id} has no summary to generate brief from")
             return False
@@ -378,7 +390,10 @@ async def generate_brief_async(
             summary_prompt=brief_prompt,
             input_label="Summary",
         )
-        brief_text = apply_glossary_to_text(brief.strip(), glossary_rules)
+        brief_text, brief_report = apply_glossary_to_text_with_report(
+            brief.strip(),
+            glossary_rules,
+        )
 
         update_content(
             session=session,
@@ -389,6 +404,12 @@ async def generate_brief_async(
             source=VersionSource.PIPELINE,
             change_summary="Pipeline brief rerun",
         )
+        if lesson.summary_metadata is None:
+            lesson.summary_metadata = {}
+        lesson.summary_metadata["brief_glossary_replacements"] = merge_glossary_reports(
+            [*summary_report, *brief_report]
+        )
+        session.add(lesson)
         session.commit()
 
         logger.info(

@@ -16,7 +16,10 @@ from config import load_config
 from .llm_utils import get_llm_model
 from models.versioning import ContentType, VersionSource
 from services.versioning import update_content
-from services.glossary_apply import apply_glossary_to_segments, load_glossary_rules
+from services.glossary_apply import (
+    apply_glossary_to_segments_with_report,
+    load_glossary_rules,
+)
 import logging
 
 logger = logging.getLogger(__name__)
@@ -354,7 +357,9 @@ async def correct_transcript_async(
         
         corrected_data = [seg.model_dump() for seg in corrected_segments]
         glossary_rules = load_glossary_rules(session)
-        corrected_data = apply_glossary_to_segments(corrected_data, glossary_rules)
+        corrected_data, glossary_report = apply_glossary_to_segments_with_report(
+            corrected_data, glossary_rules
+        )
         
         # Save correction metadata
         correction_provider = (
@@ -378,6 +383,9 @@ async def correct_transcript_async(
             prompt=correction_prompt,
         )
         lesson.set_correction_metadata(metadata)
+        if lesson.correction_metadata is None:
+            lesson.correction_metadata = {}
+        lesson.correction_metadata["glossary_replacements"] = glossary_report
         
         # Commit metadata and versioned content in the same job.
         session.add(lesson)

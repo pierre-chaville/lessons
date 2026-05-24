@@ -303,6 +303,8 @@
   "glossary": {
     "title": "Glossary",
     "addNew": "New Entry",
+    "exportYaml": "Export YAML",
+    "importYaml": "Import YAML",
     "loading": "Loading glossary...",
     "empty": "No glossary entries yet.",
     "entriesCount": "{count} entries",
@@ -328,7 +330,11 @@
     "fetchFailed": "Failed to load glossary entries.",
     "createFailed": "Failed to create glossary entry.",
     "updateFailed": "Failed to update glossary entry.",
-    "deleteFailed": "Failed to delete glossary entry."
+    "deleteFailed": "Failed to delete glossary entry.",
+    "exportSuccess": "Glossary exported.",
+    "exportFailed": "Failed to export glossary.",
+    "importSuccess": "{count} entries imported.",
+    "importFailed": "Failed to import glossary YAML."
   },
   "booklets": {
     "title": "Booklets",

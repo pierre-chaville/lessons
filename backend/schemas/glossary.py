@@ -74,3 +74,9 @@ class GlossaryEntryResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class GlossaryImportResult(BaseModel):
+    created: int
+    updated: int
+    total: int
