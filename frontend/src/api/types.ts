@@ -115,6 +115,28 @@ export interface ThemeUpdate {
   name?: string
 }
 
+// ── Glossary ──────────────────────────────────────────────────────────────────
+
+export interface GlossaryEntry {
+  id: number
+  hashid: string
+  standard: string
+  variations: string[]
+  exact_case: boolean
+}
+
+export interface GlossaryEntryCreate {
+  standard: string
+  variations: string[]
+  exact_case?: boolean
+}
+
+export interface GlossaryEntryUpdate {
+  standard?: string
+  variations?: string[]
+  exact_case?: boolean
+}
+
 // ── Lesson ────────────────────────────────────────────────────────────────────
 
 export type LessonStatus = 'draft' | 'in_progress' | 'review_requested' | 'revision_requested' | 'validated'

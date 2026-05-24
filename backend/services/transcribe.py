@@ -18,6 +18,7 @@ from memory_usage import format_memory_mb, get_rss_memory_mb
 from storage import download_audio_bytes, get_audio_object_key, s3_enabled
 from models.versioning import ContentType, VersionSource
 from services.versioning import update_content
+from services.glossary_apply import apply_glossary_to_segments, load_glossary_rules
 import logging
 
 logger = logging.getLogger(__name__)
@@ -179,6 +180,8 @@ def transcribe_lesson(
             format_memory_mb(mem_before_transcription),
         )
         segments_data, metadata = transcribe_audio(audio_bytes, model=model, language=language)
+        glossary_rules = load_glossary_rules(session)
+        segments_data = apply_glossary_to_segments(segments_data, glossary_rules)
         mem_after_transcription = get_rss_memory_mb()
         logger.info(
             "Memory after Deepgram call for lesson %s: %s",

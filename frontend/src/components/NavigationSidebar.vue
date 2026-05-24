@@ -31,6 +31,7 @@ const allNavigationItems = [
   { key: 'search',      label: 'nav.search',       icon: MagnifyingGlassIcon,  route: '/search',      always: true },
   { key: 'courses',     label: 'nav.courses',      icon: AcademicCapIcon,      route: '/courses',     always: true },
   { key: 'themes',      label: 'nav.themes',       icon: TagIcon,              route: '/themes',      always: true },
+  { key: 'glossary',    label: 'nav.glossary',     icon: BookOpenIcon,         route: '/glossary',    always: false },
   { key: 'processing',  label: 'nav.processing',   icon: DocumentTextIcon,     route: '/processing',  always: false },
   { key: 'users',       label: 'nav.users',        icon: UsersIcon,            route: '/users',       always: false },
   { key: 'audit',       label: 'nav.audit',        icon: ClipboardDocumentListIcon, route: '/admin/audit-log', always: false },
@@ -42,6 +43,7 @@ const navigationItems = computed(() =>
   allNavigationItems.filter((item) => {
     if (item.key === 'processing')  return can('tasks', 'read');
     if (item.key === 'booklets')    return can('lessons', 'update');
+    if (item.key === 'glossary')    return can('glossary', 'read');
     if (item.key === 'users')       return can('users', 'manage');
     if (item.key === 'audit')       return role.value === 'admin';
     if (item.key === 'modelPresets') return can('model_presets', 'read');

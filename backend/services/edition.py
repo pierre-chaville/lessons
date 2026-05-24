@@ -21,6 +21,7 @@ from services.edited_transcript import (
     build_edited_transcript_payload,
     markdown_to_paragraphs,
 )
+from services.glossary_apply import apply_glossary_to_segments, apply_glossary_to_text, load_glossary_rules
 import logging
 
 logger = logging.getLogger(__name__)
@@ -211,6 +212,7 @@ async def edit_transcript_async(
         if not source_transcript:
             logger.error(f"Lesson {lesson_id} has no transcript to edit")
             return False
+        glossary_rules = load_glossary_rules(session)
 
         # Load config
         config = load_config()
@@ -334,15 +336,17 @@ async def edit_transcript_async(
         results = await asyncio.gather(*tasks)
 
         markdown = "\n\n".join(part.strip() for part in results if isinstance(part, str) and part.strip()).strip()
+        markdown = apply_glossary_to_text(markdown, glossary_rules)
         if not markdown:
             raise ValueError("Edited transcript markdown is empty")
 
         edited_paragraphs = markdown_to_paragraphs(markdown)
         if not edited_paragraphs:
             edited_paragraphs = [markdown]
+        alignment_transcript = apply_glossary_to_segments(segments, glossary_rules)
         edited_data = build_edited_transcript_payload(
             markdown=markdown,
-            transcript=segments,
+            transcript=alignment_transcript,
             sources=[[] for _ in edited_paragraphs],
             aligned_at_iso=datetime.utcnow().isoformat(),
             min_alignment_score=edited_min_alignment_score,

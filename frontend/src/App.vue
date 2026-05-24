@@ -21,6 +21,7 @@ import LessonsList from './views/LessonsList.vue';
 import SearchLessons from './views/SearchLessons.vue';
 import CoursesList from './views/CoursesList.vue';
 import ThemesList from './views/ThemesList.vue';
+import GlossaryList from './views/GlossaryList.vue';
 import BookletsList from './views/BookletsList.vue';
 import BookletDetail from './views/BookletDetail.vue';
 import ProcessingTasks from './views/ProcessingTasks.vue';
@@ -50,7 +51,7 @@ const getInitialRoute = () => {
   const path = raw.length > 1 && raw.endsWith('/') ? raw.slice(0, -1) : raw;
 
   // Known routes
-  const routes = ['/search', '/courses', '/themes', '/booklets', '/booklets/detail', '/processing', '/users', '/admin/audit-log', '/model-presets', '/preferences'];
+  const routes = ['/search', '/courses', '/themes', '/glossary', '/booklets', '/booklets/detail', '/processing', '/users', '/admin/audit-log', '/model-presets', '/preferences'];
   const match = routes.find(r => path === r);
   if (match) return match;
 
@@ -75,6 +76,7 @@ const currentRoute = ref(getInitialRoute());
 const lessonsListRef = ref(null);
 const coursesListRef = ref(null);
 const themesListRef = ref(null);
+const glossaryListRef = ref(null);
 const usersListRef = ref(null);
 const modelPresetsRef = ref(null);
 const bookletsListRef = ref(null);
@@ -110,6 +112,8 @@ const pageTitle = computed(() => {
       return t('courses.title');
     case '/themes':
       return t('themes.title');
+    case '/glossary':
+      return t('glossary.title');
     case '/booklets':
       return t('booklets.title');
     case '/booklets/detail':
@@ -399,6 +403,28 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
+      <!-- Glossary View -->
+      <div v-else-if="currentRoute === '/glossary'">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-0">
+          <div class="mb-6 flex justify-between items-center">
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">
+              {{ t('glossary.title') }}
+            </h2>
+            <button
+              v-if="can('glossary', 'create')"
+              @click="glossaryListRef?.openCreateModal()"
+              class="inline-flex items-center gap-x-2 rounded-md bg-indigo-600 dark:bg-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 dark:hover:bg-indigo-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:focus-visible:outline-indigo-500 transition-colors"
+            >
+              <PlusIcon class="h-5 w-5" />
+              {{ t('glossary.addNew') }}
+            </button>
+          </div>
+        </div>
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8">
+          <GlossaryList ref="glossaryListRef" />
+        </div>
+      </div>
+
       <!-- Booklets View -->
       <div v-else-if="currentRoute === '/booklets'">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-0">
@@ -508,7 +534,7 @@ onBeforeUnmount(() => {
       </div>
 
       <!-- Placeholder for other views -->
-      <main v-else-if="!isViewingDetail && currentRoute !== '/lessons' && currentRoute !== '/search' && currentRoute !== '/courses' && currentRoute !== '/themes' && currentRoute !== '/booklets' && currentRoute !== '/booklets/detail' && currentRoute !== '/processing' && currentRoute !== '/users' && currentRoute !== '/admin/audit-log' && currentRoute !== '/model-presets' && currentRoute !== '/preferences'" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main v-else-if="!isViewingDetail && currentRoute !== '/lessons' && currentRoute !== '/search' && currentRoute !== '/courses' && currentRoute !== '/themes' && currentRoute !== '/glossary' && currentRoute !== '/booklets' && currentRoute !== '/booklets/detail' && currentRoute !== '/processing' && currentRoute !== '/users' && currentRoute !== '/admin/audit-log' && currentRoute !== '/model-presets' && currentRoute !== '/preferences'" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-8 text-center transition-colors">
           <h2 class="text-2xl font-bold text-gray-900 dark:text-white mb-4">
             {{ pageTitle }}

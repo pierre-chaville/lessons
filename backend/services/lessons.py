@@ -37,6 +37,11 @@ from services.edited_transcript import (
     normalize_edited_transcript_payload,
 )
 from services.summary_alignment import build_summary_alignment_metadata
+from services.glossary_apply import (
+    apply_glossary_to_segments,
+    apply_glossary_to_text,
+    load_glossary_rules,
+)
 from services.versioning import seal_all_current_versions, update_content
 
 
@@ -679,6 +684,7 @@ def realign_edited_markdown(
     transcript = lesson.corrected_transcript or lesson.transcript
     if not transcript:
         raise HTTPException(status_code=400, detail="No transcript available for alignment")
+    glossary_rules = load_glossary_rules(session)
     alignment_config = load_config().get("alignment", {})
     try:
         edited_min_alignment_score = float(
@@ -689,8 +695,8 @@ def realign_edited_markdown(
     edited_min_alignment_score = max(0.0, min(1.0, edited_min_alignment_score))
 
     refreshed_payload = build_edited_transcript_payload(
-        markdown=markdown,
-        transcript=transcript,
+        markdown=apply_glossary_to_text(markdown, glossary_rules),
+        transcript=apply_glossary_to_segments(transcript, glossary_rules),
         sources=payload.get("sources"),
         min_alignment_score=edited_min_alignment_score,
     )
@@ -723,6 +729,7 @@ def realign_summary_alignment(
     edited_markdown = edited_transcript_markdown(lesson.edited_transcript).strip()
     if not edited_markdown:
         raise HTTPException(status_code=400, detail="Edited transcript markdown is empty")
+    glossary_rules = load_glossary_rules(session)
     alignment_config = load_config().get("alignment", {})
     try:
         summary_min_alignment_score = float(
@@ -734,8 +741,8 @@ def realign_summary_alignment(
 
     current_metadata = lesson.summary_metadata or {}
     refreshed = build_summary_alignment_metadata(
-        summary_markdown=str(lesson.summary),
-        edited_markdown=edited_markdown,
+        summary_markdown=apply_glossary_to_text(str(lesson.summary), glossary_rules),
+        edited_markdown=apply_glossary_to_text(edited_markdown, glossary_rules),
         min_alignment_score=summary_min_alignment_score,
     )
     lesson.summary_metadata = {**current_metadata, **refreshed}

@@ -14,6 +14,7 @@ from models import (
     SefariaCache,
     ContentVersion,
     ModelPreset,
+    GlossaryEntry,
 )
 
 
@@ -223,6 +224,69 @@ def delete_model_preset(session: Session, preset_id: int) -> bool:
     if not preset:
         return False
     session.delete(preset)
+    session.commit()
+    return True
+
+
+# Glossary CRUD
+def create_glossary_entry(
+    session: Session,
+    standard: str,
+    variations: List[str],
+    exact_case: bool = False,
+) -> GlossaryEntry:
+    """Create a glossary entry."""
+    entry = GlossaryEntry(
+        standard=standard,
+        variations=variations,
+        exact_case=exact_case,
+    )
+    session.add(entry)
+    session.commit()
+    session.refresh(entry)
+    return entry
+
+
+def get_glossary_entry(session: Session, entry_id: int) -> Optional[GlossaryEntry]:
+    """Get glossary entry by ID."""
+    return session.get(GlossaryEntry, entry_id)
+
+
+def get_all_glossary_entries(session: Session) -> List[GlossaryEntry]:
+    """Get all glossary entries, ordered by standard form."""
+    statement = select(GlossaryEntry).order_by(GlossaryEntry.standard)
+    return list(session.exec(statement).all())
+
+
+def update_glossary_entry(
+    session: Session,
+    entry_id: int,
+    standard: Optional[str] = None,
+    variations: Optional[List[str]] = None,
+    exact_case: Optional[bool] = None,
+) -> Optional[GlossaryEntry]:
+    """Update a glossary entry."""
+    entry = session.get(GlossaryEntry, entry_id)
+    if not entry:
+        return None
+    if standard is not None:
+        entry.standard = standard
+    if variations is not None:
+        entry.variations = variations
+    if exact_case is not None:
+        entry.exact_case = exact_case
+    session.add(entry)
+    session.commit()
+    session.refresh(entry)
+    return entry
+
+
+def delete_glossary_entry(session: Session, entry_id: int) -> bool:
+    """Delete a glossary entry."""
+    entry = session.get(GlossaryEntry, entry_id)
+    if not entry:
+        return False
+    session.delete(entry)
     session.commit()
     return True
 

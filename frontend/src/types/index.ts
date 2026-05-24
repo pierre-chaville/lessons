@@ -15,3 +15,4 @@ export type Resource =
   | 'configuration'
   | 'users'
   | 'model_presets'
+  | 'glossary'

@@ -16,6 +16,7 @@ from config import load_config
 from .llm_utils import get_llm_model
 from models.versioning import ContentType, VersionSource
 from services.versioning import update_content
+from services.glossary_apply import apply_glossary_to_segments, load_glossary_rules
 import logging
 
 logger = logging.getLogger(__name__)
@@ -352,6 +353,8 @@ async def correct_transcript_async(
                 corrected_segments.append(corrected_segment)
         
         corrected_data = [seg.model_dump() for seg in corrected_segments]
+        glossary_rules = load_glossary_rules(session)
+        corrected_data = apply_glossary_to_segments(corrected_data, glossary_rules)
         
         # Save correction metadata
         correction_provider = (

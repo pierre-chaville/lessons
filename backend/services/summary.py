@@ -18,6 +18,7 @@ from models.versioning import ContentType, VersionSource
 from services.versioning import update_content
 from services.edited_transcript import edited_transcript_markdown
 from services.summary_alignment import build_summary_alignment_metadata
+from services.glossary_apply import apply_glossary_to_text, load_glossary_rules
 import logging
 
 logger = logging.getLogger(__name__)
@@ -138,7 +139,11 @@ async def generate_summary_async(
             logger.error(f"Lesson {lesson_id} has no edited transcript to summarize")
             return False
 
-        edited_text = edited_transcript_markdown(lesson.edited_transcript).strip()
+        glossary_rules = load_glossary_rules(session)
+        edited_text = apply_glossary_to_text(
+            edited_transcript_markdown(lesson.edited_transcript).strip(),
+            glossary_rules,
+        )
 
         if not edited_text:
             logger.error(f"Lesson {lesson_id} has empty edited transcript")
@@ -242,7 +247,7 @@ async def generate_summary_async(
             input_label="Edited Text",
         )
 
-        summary_text = summary.strip()
+        summary_text = apply_glossary_to_text(summary.strip(), glossary_rules)
 
         # Save summary metadata (including selected prompt name)
         prompt_info = summary_prompt
@@ -323,7 +328,8 @@ async def generate_brief_async(
             logger.error(f"Lesson {lesson_id} not found")
             return False
 
-        summary_text = (lesson.summary or "").strip()
+        glossary_rules = load_glossary_rules(session)
+        summary_text = apply_glossary_to_text((lesson.summary or "").strip(), glossary_rules)
         if not summary_text:
             logger.error(f"Lesson {lesson_id} has no summary to generate brief from")
             return False
@@ -372,7 +378,7 @@ async def generate_brief_async(
             summary_prompt=brief_prompt,
             input_label="Summary",
         )
-        brief_text = brief.strip()
+        brief_text = apply_glossary_to_text(brief.strip(), glossary_rules)
 
         update_content(
             session=session,

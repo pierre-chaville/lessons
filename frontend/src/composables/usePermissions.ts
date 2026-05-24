@@ -54,6 +54,12 @@ const PERMISSIONS: Record<Resource, Record<string, Role[]>> = {
     update: ['admin'],
     delete: ['admin'],
   },
+  glossary: {
+    read: ['publisher', 'admin'],
+    create: ['publisher', 'admin'],
+    update: ['publisher', 'admin'],
+    delete: ['publisher', 'admin'],
+  },
 }
 
 export function usePermissions() {
