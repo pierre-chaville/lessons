@@ -127,6 +127,8 @@
     "summaryAlignmentOutdated": "Summary not aligned with edited version",
     "showEditedVersion": "Show edited version",
     "noAlignedEditedParagraph": "No aligned edited paragraph for this summary block.",
+    "noSummaryMatchForEditedParagraph": "No matching summary block.",
+    "possiblySkippedInSummary": "Possibly skipped in summary",
     "realignSuccess": "Alignment refreshed successfully.",
     "realignFailed": "Failed to refresh alignment. Please try again.",
     "realignSummarySuccess": "Summary alignment refreshed successfully.",

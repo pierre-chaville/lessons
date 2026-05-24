@@ -369,6 +369,16 @@ type SummaryAlignedRow = {
   endIndex: number | null
   alignedEditedParts: EditedPart[]
 }
+type SummaryEditedPart = EditedPart & {
+  paragraphIndex: number
+  isUnmatched: boolean
+}
+type SummaryCompareRow = {
+  key: string
+  summaryText: string | null
+  editedParts: SummaryEditedPart[]
+  isUnmatchedEditedRow: boolean
+}
 
 const summaryAlignedRows = computed<SummaryAlignedRow[]>(() => {
   const meta = (props.lesson.summary_metadata ?? {}) as Record<string, unknown>
@@ -390,6 +400,59 @@ const summaryAlignedRows = computed<SummaryAlignedRow[]>(() => {
     }
     return { summaryText, startIndex, endIndex, alignedEditedParts }
   })
+})
+
+const summaryComparisonRows = computed<SummaryCompareRow[]>(() => {
+  const edited = editedParts.value
+  const rows: SummaryCompareRow[] = []
+  let nextEditedIndex = 0
+
+  const pushUnmatchedRowsUntil = (targetExclusive: number) => {
+    const limit = Math.min(targetExclusive, edited.length)
+    for (let idx = nextEditedIndex; idx < limit; idx += 1) {
+      const part = edited[idx]
+      rows.push({
+        key: `unmatched-${idx}`,
+        summaryText: null,
+        editedParts: [{ ...part, paragraphIndex: idx, isUnmatched: true }],
+        isUnmatchedEditedRow: true,
+      })
+    }
+    nextEditedIndex = Math.max(nextEditedIndex, limit)
+  }
+
+  summaryAlignedRows.value.forEach((row, rowIndex) => {
+    const validRange = (
+      row.startIndex !== null &&
+      row.endIndex !== null &&
+      row.startIndex >= 0 &&
+      row.endIndex >= row.startIndex &&
+      row.endIndex < edited.length
+    )
+
+    let editedRowParts: SummaryEditedPart[] = []
+    if (validRange) {
+      pushUnmatchedRowsUntil(row.startIndex as number)
+      const start = row.startIndex as number
+      const end = row.endIndex as number
+      editedRowParts = edited.slice(start, end + 1).map((part, offset) => ({
+        ...part,
+        paragraphIndex: start + offset,
+        isUnmatched: false,
+      }))
+      nextEditedIndex = Math.max(nextEditedIndex, end + 1)
+    }
+
+    rows.push({
+      key: `summary-${rowIndex}`,
+      summaryText: row.summaryText,
+      editedParts: editedRowParts,
+      isUnmatchedEditedRow: false,
+    })
+  })
+
+  pushUnmatchedRowsUntil(edited.length)
+  return rows
 })
 
 const isSummaryAlignedPartPlaying = (part: EditedPart): boolean =>
@@ -2837,7 +2900,7 @@ const saveParagraph = async () => {
               </label>
             </div>
 
-            <div v-if="showSummaryWithEdited && summaryAlignedRows.length > 0" class="space-y-3">
+            <div v-if="showSummaryWithEdited && summaryComparisonRows.length > 0" class="space-y-3">
               <div class="sticky top-0 z-10 grid grid-cols-2 gap-4 py-2 bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm border-b border-gray-200 dark:border-gray-700">
                 <div class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
                   {{ t('lessons.summary') }}
@@ -2847,18 +2910,33 @@ const saveParagraph = async () => {
                 </div>
               </div>
               <div
-                v-for="(row, idx) in summaryAlignedRows"
-                :key="`summary-aligned-${idx}`"
+                v-for="(row, idx) in summaryComparisonRows"
+                :key="`summary-aligned-${row.key}-${idx}`"
                 class="grid grid-cols-2 gap-4 py-1.5 rounded-lg"
               >
                 <div class="prose prose-sm dark:prose-invert max-w-none">
-                  <div class="text-gray-900 dark:text-gray-100 leading-relaxed" v-html="renderMarkdown(row.summaryText)"></div>
+                  <div
+                    v-if="row.summaryText"
+                    class="text-gray-900 dark:text-gray-100 leading-relaxed"
+                    v-html="renderMarkdown(row.summaryText)"
+                  ></div>
+                  <div
+                    v-else
+                    class="rounded-md px-2 py-1 text-xs italic text-gray-500 dark:text-gray-400"
+                  >
+                    {{ t('lessons.noSummaryMatchForEditedParagraph') }}
+                  </div>
                 </div>
                 <div class="prose prose-sm dark:prose-invert max-w-none">
                   <div
-                    v-for="(part, partIdx) in row.alignedEditedParts"
+                    v-for="(part, partIdx) in row.editedParts"
                     :key="`summary-aligned-edited-${idx}-${partIdx}`"
-                    class="flex items-start gap-2 mb-3 last:mb-0"
+                    :class="[
+                      'flex items-start gap-2 mb-3 last:mb-0 rounded-md px-2 py-2',
+                      part.isUnmatched
+                        ? 'border border-rose-300 bg-rose-50/60 dark:border-rose-700 dark:bg-rose-900/20'
+                        : '',
+                    ]"
                   >
                     <div class="mt-1 inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400 print:hidden">
                       <button
@@ -2873,10 +2951,24 @@ const saveParagraph = async () => {
                         {{ formatTimestamp(part.start) }}
                       </span>
                     </div>
-                    <div
-                      class="flex-1 text-gray-900 dark:text-gray-100 leading-relaxed"
-                      v-html="renderMarkdown(part.text)"
-                    ></div>
+                    <div class="flex-1">
+                      <div
+                        v-if="part.isUnmatched"
+                        class="mb-1 inline-flex items-center rounded-full border border-rose-300 bg-rose-100 px-2 py-0.5 text-[11px] font-medium text-rose-700 dark:border-rose-700 dark:bg-rose-900/40 dark:text-rose-300"
+                      >
+                        {{ t('lessons.possiblySkippedInSummary') }}
+                      </div>
+                      <div
+                        class="text-gray-900 dark:text-gray-100 leading-relaxed"
+                        v-html="renderMarkdown(part.text)"
+                      ></div>
+                    </div>
+                  </div>
+                  <div
+                    v-if="row.editedParts.length === 0"
+                    class="rounded-md border border-gray-200 dark:border-gray-700 px-2 py-1 text-xs italic text-gray-500 dark:text-gray-400"
+                  >
+                    {{ t('lessons.noAlignedEditedParagraph') }}
                   </div>
                 </div>
               </div>
