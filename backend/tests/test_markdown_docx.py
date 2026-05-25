@@ -127,3 +127,48 @@ def test_docx_round_trip_preserves_section_markers():
 
     assert "<!-- MARKER:section-start -->" in converted
     assert "<!-- MARKER:section-end -->" in converted
+
+
+def test_docx_round_trip_preserves_italic_heading_segments():
+    markdown = "## *Matan Torathenou* et *Qabbalat ha-Torah*"
+
+    docx_bytes = markdown_to_docx_bytes(markdown)
+    converted = docx_bytes_to_markdown(docx_bytes)
+
+    assert "## *Matan Torathenou* et *Qabbalat ha-Torah*" in converted
+
+
+def test_docx_heading_import_ignores_heading_bold_noise_in_italic_runs():
+    document = Document()
+    heading = document.add_heading(level=2)
+
+    run_one = heading.add_run("Matan Torathenou")
+    run_one.italic = True
+    heading.add_run(" et ")
+    run_two = heading.add_run("Qabbalat")
+    run_two.italic = True
+    run_three = heading.add_run(" ha-Torah")
+    run_three.italic = True
+    run_three.bold = True
+
+    output = BytesIO()
+    document.save(output)
+
+    converted = docx_bytes_to_markdown(output.getvalue())
+
+    assert converted == "## *Matan Torathenou* et *Qabbalat ha-Torah*"
+
+
+def test_docx_import_escapes_literal_markdown_control_chars():
+    document = Document()
+    paragraph = document.add_paragraph()
+    paragraph.add_run(r"Price *value* and key_name ")
+    italic = paragraph.add_run(r"*wrapped* _token_")
+    italic.italic = True
+
+    output = BytesIO()
+    document.save(output)
+
+    converted = docx_bytes_to_markdown(output.getvalue())
+
+    assert converted == r"Price \*value\* and key\_name *\*wrapped\* \_token\_*"

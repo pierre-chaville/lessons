@@ -24,6 +24,15 @@ _DOCX_SECTION_START_SENTINEL = "[[LESSONS_SECTION_START]]"
 _DOCX_SECTION_END_SENTINEL = "[[LESSONS_SECTION_END]]"
 
 
+def _escape_markdown_inline_text(text: str) -> str:
+    """Escape markdown control characters that should remain literal."""
+    escaped = str(text or "")
+    escaped = escaped.replace("\\", "\\\\")
+    escaped = escaped.replace("*", "\\*")
+    escaped = escaped.replace("_", "\\_")
+    return escaped
+
+
 def _append_inline_runs(paragraph, text: str) -> None:
     """Append text to a paragraph while handling bold/italic markdown markers."""
     cursor = 0
@@ -280,20 +289,47 @@ def _is_page_break_paragraph(paragraph) -> bool:
     return False
 
 
-def _inline_runs_to_markdown(paragraph) -> str:
+def _inline_runs_to_markdown(paragraph, *, suppress_bold: bool = False) -> str:
     parts: list[str] = []
+    active_bold = False
+    active_italic = False
+
+    def _open_markers(want_bold: bool, want_italic: bool) -> str:
+        return ("**" if want_bold else "") + ("*" if want_italic else "")
+
+    def _close_markers(close_bold: bool, close_italic: bool) -> str:
+        # Close in reverse order to keep markdown nesting balanced.
+        return ("*" if close_italic else "") + ("**" if close_bold else "")
+
     for run in paragraph.runs:
         text = (run.text or "").replace("\r", "")
         if not text:
             continue
-        if run.bold and run.italic:
-            parts.append(f"***{text}***")
-        elif run.bold:
-            parts.append(f"**{text}**")
-        elif run.italic:
-            parts.append(f"*{text}*")
-        else:
-            parts.append(text)
+        text = _escape_markdown_inline_text(text)
+        want_bold = bool(run.bold) and not suppress_bold
+        want_italic = bool(run.italic)
+
+        # Close styles that are no longer active.
+        parts.append(
+            _close_markers(
+                close_bold=active_bold and not want_bold,
+                close_italic=active_italic and not want_italic,
+            )
+        )
+        # Open newly active styles.
+        parts.append(
+            _open_markers(
+                want_bold=want_bold and not active_bold,
+                want_italic=want_italic and not active_italic,
+            )
+        )
+        parts.append(text)
+        active_bold = want_bold
+        active_italic = want_italic
+
+    if active_bold or active_italic:
+        parts.append(_close_markers(close_bold=active_bold, close_italic=active_italic))
+
     return "".join(parts).strip()
 
 
@@ -334,21 +370,22 @@ def docx_bytes_to_markdown(docx_bytes: bytes) -> str:
             blocks.append(("rule", "---"))
             continue
 
-        inline_text = _inline_runs_to_markdown(paragraph)
         raw_text = (paragraph.text or "").strip()
-        if not raw_text and not inline_text:
-            continue
 
         style_name = ""
         if paragraph.style is not None:
             style_name = str(paragraph.style.name or "").strip().lower()
+
+        heading_match = re.match(r"heading\s+([1-6])$", style_name)
+        inline_text = _inline_runs_to_markdown(paragraph, suppress_bold=bool(heading_match))
+        if not raw_text and not inline_text:
+            continue
 
         if raw_text in {_DOCX_SECTION_START_SENTINEL, _DOCX_SECTION_END_SENTINEL}:
             marker = _SECTION_START_MARKER if raw_text == _DOCX_SECTION_START_SENTINEL else _SECTION_END_MARKER
             blocks.append(("marker", marker))
             continue
 
-        heading_match = re.match(r"heading\s+([1-6])$", style_name)
         if heading_match:
             level = int(heading_match.group(1))
             blocks.append(("heading", f"{'#' * level} {inline_text or raw_text}"))
