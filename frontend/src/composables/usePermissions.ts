@@ -55,7 +55,7 @@ const PERMISSIONS: Record<Resource, Record<string, Role[]>> = {
     delete: ['admin'],
   },
   glossary: {
-    read: ['publisher', 'admin'],
+    read: ['editor', 'publisher', 'admin'],
     create: ['publisher', 'admin'],
     update: ['publisher', 'admin'],
     delete: ['publisher', 'admin'],

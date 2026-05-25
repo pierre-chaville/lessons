@@ -1238,6 +1238,7 @@ const fetchThemes = async () => {
 }
 
 const fetchUsers = async () => {
+  if (!['publisher', 'admin'].includes(role.value)) return
   try { users.value = await usersApi.list() } catch { /* silent */ }
 }
 
@@ -1249,11 +1250,19 @@ watch(
   { immediate: true },
 )
 
-const getUserName = (userId: string) => {
+const getUserName = (userId: string, fallbackName?: string | null) => {
+  if (fallbackName?.trim()) return fallbackName.trim()
   const u = users.value.find((u) => u.id === userId)
   if (u) {
     const name = [u.first_name, u.last_name].filter(Boolean).join(' ')
     return name || u.username || u.email || userId
+  }
+  // Editors cannot access /users, so fall back to the signed-in Clerk profile
+  // for their own assignment chip instead of showing the raw Clerk ID.
+  if (user.value?.id === userId) {
+    const ownName = [user.value.firstName, user.value.lastName].filter(Boolean).join(' ')
+    const ownEmail = user.value.primaryEmailAddress?.emailAddress ?? null
+    return ownName || user.value.username || ownEmail || userId
   }
   return userId
 }
@@ -2540,7 +2549,7 @@ const saveParagraph = async () => {
                     :key="editor.user_id"
                     class="inline-flex items-center px-2 py-1 rounded-md text-xs font-semibold border bg-sky-50 text-sky-700 border-sky-100 dark:bg-sky-900/30 dark:text-sky-300 dark:border-sky-800"
                   >
-                    {{ getUserName(editor.user_id) }}
+                    {{ getUserName(editor.user_id, editor.user_name) }}
                   </span>
                 </div>
               </div>

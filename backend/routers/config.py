@@ -13,7 +13,7 @@ router = APIRouter(prefix="/config", tags=["Configuration"])
 
 @router.get("")
 def get_configuration(
-    _: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
+    _: Dict[str, Any] = Depends(require_roles(["editor", "publisher", "admin"])),
 ):
     """Get the current application configuration."""
     try:
@@ -42,7 +42,7 @@ def update_configuration(
 @router.get("/{key_path}")
 def get_configuration_value(
     key_path: str,
-    _: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
+    _: Dict[str, Any] = Depends(require_roles(["editor", "publisher", "admin"])),
 ):
     """Get a specific configuration value using dot notation (e.g., 'transcribe.model')."""
     try:

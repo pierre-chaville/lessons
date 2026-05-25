@@ -156,6 +156,7 @@ export type LessonWorkflowStepStatus =
 
 export interface LessonEditorAssignment {
   user_id: string
+  user_name?: string | null
   assigned_at: string
   assigned_by: string | null
 }

@@ -195,6 +195,7 @@ class AuditLogResponse(BaseModel):
 class LessonEditorResponse(BaseModel):
     """Editor assignment for a lesson."""
     user_id: str
+    user_name: Optional[str] = None
     assigned_at: datetime
     assigned_by: Optional[str] = None
 

@@ -43,6 +43,7 @@ from services.glossary_apply import (
     load_glossary_rules,
 )
 from services.versioning import seal_all_current_versions, update_content
+from routers.users import _get_cached_users
 
 
 WORKFLOW_DONE_STATUSES = {"to_review", "completed", "validated"}
@@ -106,9 +107,41 @@ def _build_source_resps(db_sources) -> list[LessonSourceResponse]:
     return [LessonSourceResponse.model_validate(s) for s in db_sources]
 
 
+def _user_display_name(user) -> str | None:
+    """Build a readable display name from a Clerk user."""
+    if not user:
+        return None
+    name = " ".join(part for part in [user.first_name, user.last_name] if part).strip()
+    return name or user.username or user.email or None
+
+
+def _get_user_name_by_id() -> dict[str, str]:
+    """Return a map of Clerk user id -> display name."""
+    try:
+        users = _get_cached_users()
+    except Exception:
+        return {}
+
+    by_id: dict[str, str] = {}
+    for user in users:
+        display_name = _user_display_name(user)
+        if display_name:
+            by_id[user.id] = display_name
+    return by_id
+
+
 def _build_editor_resps(db_editors) -> list[LessonEditorResponse]:
     """Convert LessonEditor DB rows to LessonEditorResponse schemas."""
-    return [LessonEditorResponse.model_validate(e) for e in db_editors]
+    user_name_by_id = _get_user_name_by_id()
+    return [
+        LessonEditorResponse.model_validate({
+            "user_id": editor.user_id,
+            "user_name": user_name_by_id.get(editor.user_id),
+            "assigned_at": editor.assigned_at,
+            "assigned_by": editor.assigned_by,
+        })
+        for editor in db_editors
+    ]
 
 
 def _build_hebrew_date(date_value: datetime | None) -> str | None:

@@ -35,7 +35,7 @@ def _build_glossary_response(entry) -> GlossaryEntryResponse:
 @router.get("", response_model=List[GlossaryEntryResponse])
 def list_glossary_entries(
     session: Session = Depends(get_session),
-    _: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
+    _: Dict[str, Any] = Depends(require_roles(["editor", "publisher", "admin"])),
 ):
     entries = crud.get_all_glossary_entries(session)
     return [_build_glossary_response(entry) for entry in entries]
@@ -44,7 +44,7 @@ def list_glossary_entries(
 @router.get("/export/yaml")
 def export_glossary_yaml(
     session: Session = Depends(get_session),
-    _: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
+    _: Dict[str, Any] = Depends(require_roles(["editor", "publisher", "admin"])),
 ):
     entries = crud.get_all_glossary_entries(session)
     payload = [
@@ -126,7 +126,7 @@ async def import_glossary_yaml(
 def get_glossary_entry(
     entry_hashid: str,
     session: Session = Depends(get_session),
-    _: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
+    _: Dict[str, Any] = Depends(require_roles(["editor", "publisher", "admin"])),
 ):
     entry_id = decode_id(entry_hashid)
     entry = crud.get_glossary_entry(session, entry_id)
