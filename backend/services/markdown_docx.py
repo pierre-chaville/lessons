@@ -7,6 +7,7 @@ from io import BytesIO
 
 from docx import Document
 from docx.enum.text import WD_BREAK
+from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Pt
 
@@ -22,6 +23,11 @@ _SECTION_START_MARKER = "<!-- MARKER:section-start -->"
 _SECTION_END_MARKER = "<!-- MARKER:section-end -->"
 _DOCX_SECTION_START_SENTINEL = "[[LESSONS_SECTION_START]]"
 _DOCX_SECTION_END_SENTINEL = "[[LESSONS_SECTION_END]]"
+_HEBREW_CHAR_RE = re.compile(r"[\u0590-\u05FF]")
+_HEBREW_WORD_RE = r"[\u0590-\u05FF\u05BE\u05F3\u05F4]+"
+_HEBREW_SPAN_RE = re.compile(rf"{_HEBREW_WORD_RE}(?:\s+{_HEBREW_WORD_RE})*")
+_LATIN_CHAR_RE = re.compile(r"[A-Za-z]")
+_BIDI_CONTROL_RE = re.compile(r"[\u200E\u200F\u202A-\u202E\u2066-\u2069]")
 
 
 def _escape_markdown_inline_text(text: str) -> str:
@@ -33,33 +39,101 @@ def _escape_markdown_inline_text(text: str) -> str:
     return escaped
 
 
+def _is_predominantly_hebrew(text: str) -> bool:
+    content = str(text or "")
+    hebrew_count = len(_HEBREW_CHAR_RE.findall(content))
+    latin_count = len(_LATIN_CHAR_RE.findall(content))
+    return hebrew_count > 0 and hebrew_count >= latin_count
+
+
+def _set_run_rtl(run) -> None:
+    # Mixed French/Hebrew text in Word is stable when Hebrew spans are marked
+    # as RTL + complex script + Hebrew bidi language at the run level.
+    # We avoid Unicode control characters in content because Word can surface
+    # them visually in some display/debug modes.
+    r_pr = run._r.get_or_add_rPr()
+    rtl = r_pr.find(qn("w:rtl"))
+    if rtl is None:
+        rtl = OxmlElement("w:rtl")
+        r_pr.append(rtl)
+    rtl.set(qn("w:val"), "1")
+
+    # Mark the run as complex-script Hebrew to improve Word's line-wrap behavior
+    # for mixed-direction paragraphs without injecting visible control symbols.
+    cs = r_pr.find(qn("w:cs"))
+    if cs is None:
+        cs = OxmlElement("w:cs")
+        r_pr.append(cs)
+    cs.set(qn("w:val"), "1")
+
+    lang = r_pr.find(qn("w:lang"))
+    if lang is None:
+        lang = OxmlElement("w:lang")
+        r_pr.append(lang)
+    lang.set(qn("w:bidi"), "he-IL")
+
+
+def _set_paragraph_bidi(paragraph) -> None:
+    p_pr = paragraph._p.get_or_add_pPr()
+    bidi = p_pr.find(qn("w:bidi"))
+    if bidi is None:
+        bidi = OxmlElement("w:bidi")
+        p_pr.append(bidi)
+    bidi.set(qn("w:val"), "1")
+
+
+def _add_run_with_direction(paragraph, text: str, *, bold: bool = False, italic: bool = False, rtl: bool = False):
+    run = paragraph.add_run(text)
+    if bold:
+        run.bold = True
+    if italic:
+        run.italic = True
+    if rtl:
+        _set_run_rtl(run)
+    return run
+
+
+def _append_text_with_direction(paragraph, text: str, *, bold: bool = False, italic: bool = False) -> None:
+    cursor = 0
+    for match in _HEBREW_SPAN_RE.finditer(text):
+        start, end = match.span()
+        if start > cursor:
+            _add_run_with_direction(paragraph, text[cursor:start], bold=bold, italic=italic)
+        _add_run_with_direction(paragraph, text[start:end], bold=bold, italic=italic, rtl=True)
+        cursor = end
+
+    if cursor < len(text):
+        _add_run_with_direction(paragraph, text[cursor:], bold=bold, italic=italic)
+
+
+def _finalize_paragraph_direction(paragraph) -> None:
+    if _is_predominantly_hebrew(paragraph.text):
+        _set_paragraph_bidi(paragraph)
+
+
 def _append_inline_runs(paragraph, text: str) -> None:
     """Append text to a paragraph while handling bold/italic markdown markers."""
     cursor = 0
     for match in _INLINE_TOKEN_RE.finditer(text):
         start, end = match.span()
         if start > cursor:
-            paragraph.add_run(text[cursor:start])
+            _append_text_with_direction(paragraph, text[cursor:start])
 
         token = match.group(0)
         if token.startswith("**") and token.endswith("**") and len(token) >= 4:
-            run = paragraph.add_run(token[2:-2])
-            run.bold = True
+            _append_text_with_direction(paragraph, token[2:-2], bold=True)
         elif token.startswith("__") and token.endswith("__") and len(token) >= 4:
-            run = paragraph.add_run(token[2:-2])
-            run.bold = True
+            _append_text_with_direction(paragraph, token[2:-2], bold=True)
         elif token.startswith("*") and token.endswith("*") and len(token) >= 2:
-            run = paragraph.add_run(token[1:-1])
-            run.italic = True
+            _append_text_with_direction(paragraph, token[1:-1], italic=True)
         elif token.startswith("_") and token.endswith("_") and len(token) >= 2:
-            run = paragraph.add_run(token[1:-1])
-            run.italic = True
+            _append_text_with_direction(paragraph, token[1:-1], italic=True)
         else:
-            paragraph.add_run(token)
+            _append_text_with_direction(paragraph, token)
         cursor = end
 
     if cursor < len(text):
-        paragraph.add_run(text[cursor:])
+        _append_text_with_direction(paragraph, text[cursor:])
 
 
 def _list_indent_level(indent: str) -> int:
@@ -89,6 +163,7 @@ def _add_list_paragraph(
     paragraph_format.first_line_indent = Pt(-hanging_indent)
     paragraph.add_run(f"{marker} ")
     _append_inline_runs(paragraph, content.strip())
+    _finalize_paragraph_direction(paragraph)
 
 
 def _parse_list_item(line: str) -> tuple[int, str, str] | None:
@@ -140,6 +215,7 @@ def _add_blockquote_paragraph(doc: Document, *, depth: int, content: str) -> Non
     paragraph_format.space_before = Pt(3)
     paragraph_format.space_after = Pt(3)
     _append_inline_runs(paragraph, content)
+    _finalize_paragraph_direction(paragraph)
 
 
 def markdown_to_docx_bytes(markdown_text: str) -> bytes:
@@ -192,6 +268,7 @@ def markdown_to_docx_bytes(markdown_text: str) -> bytes:
             heading_text = heading_match.group(2).strip()
             paragraph = doc.add_heading(level=level)
             _append_inline_runs(paragraph, heading_text)
+            _finalize_paragraph_direction(paragraph)
             idx += 1
             continue
 
@@ -275,6 +352,7 @@ def markdown_to_docx_bytes(markdown_text: str) -> bytes:
         if paragraph_text:
             paragraph = doc.add_paragraph()
             _append_inline_runs(paragraph, paragraph_text)
+            _finalize_paragraph_direction(paragraph)
 
     output = BytesIO()
     doc.save(output)
@@ -303,6 +381,7 @@ def _inline_runs_to_markdown(paragraph, *, suppress_bold: bool = False) -> str:
 
     for run in paragraph.runs:
         text = (run.text or "").replace("\r", "")
+        text = _BIDI_CONTROL_RE.sub("", text)
         if not text:
             continue
         text = _escape_markdown_inline_text(text)

@@ -1,9 +1,13 @@
 from io import BytesIO
+import re
 
 from docx import Document
 from docx.oxml.ns import qn
 
 from services.markdown_docx import docx_bytes_to_markdown, markdown_to_docx_bytes
+
+_HEBREW_CHAR_RE = re.compile(r"[\u0590-\u05FF]")
+_BIDI_CONTROL_RE = re.compile(r"[\u200E\u200F\u202A-\u202E\u2066-\u2069]")
 
 
 def _has_page_break(paragraph) -> bool:
@@ -12,6 +16,30 @@ def _has_page_break(paragraph) -> bool:
             if br.get(qn("w:type")) == "page":
                 return True
     return False
+
+
+def _run_has_rtl(run) -> bool:
+    r_pr = run._r.find(qn("w:rPr"))
+    if r_pr is None:
+        return False
+    rtl = r_pr.find(qn("w:rtl"))
+    if rtl is None:
+        return False
+    return rtl.get(qn("w:val")) == "1"
+
+
+def _paragraph_has_bidi(paragraph) -> bool:
+    p_pr = paragraph._p.find(qn("w:pPr"))
+    if p_pr is None:
+        return False
+    bidi = p_pr.find(qn("w:bidi"))
+    if bidi is None:
+        return False
+    return bidi.get(qn("w:val")) == "1"
+
+
+def _strip_bidi_controls(text: str) -> str:
+    return _BIDI_CONTROL_RE.sub("", text or "")
 
 
 def test_horizontal_rule_creates_page_break():
@@ -172,3 +200,44 @@ def test_docx_import_escapes_literal_markdown_control_chars():
     converted = docx_bytes_to_markdown(output.getvalue())
 
     assert converted == r"Price \*value\* and key\_name *\*wrapped\* \_token\_*"
+
+
+def test_hebrew_runs_are_explicitly_marked_rtl():
+    markdown = "Texte mixte: שלוש רגלים et encore."
+    docx_bytes = markdown_to_docx_bytes(markdown)
+    doc = Document(BytesIO(docx_bytes))
+
+    paragraph = next(p for p in doc.paragraphs if p.text.strip())
+    hebrew_runs = [run for run in paragraph.runs if _HEBREW_CHAR_RE.search(run.text or "")]
+
+    assert hebrew_runs
+    assert all(_run_has_rtl(run) for run in hebrew_runs)
+
+
+def test_predominantly_hebrew_paragraph_sets_bidi():
+    markdown = "שלוש רגלים ועוד מילים בעברית, avec un peu."
+    docx_bytes = markdown_to_docx_bytes(markdown)
+    doc = Document(BytesIO(docx_bytes))
+
+    paragraph = next(p for p in doc.paragraphs if p.text.strip())
+    assert _paragraph_has_bidi(paragraph)
+
+
+def test_mixed_french_hebrew_marks_only_hebrew_runs_rtl():
+    markdown = (
+        "Dans la tefila, les שלוש רגלים (shalosh regalim, "
+        "« les trois fêtes de pèlerinage ») sont appelées ..."
+    )
+    docx_bytes = markdown_to_docx_bytes(markdown)
+    doc = Document(BytesIO(docx_bytes))
+
+    paragraph = next(p for p in doc.paragraphs if p.text.strip())
+    assert _strip_bidi_controls(paragraph.text) == markdown
+
+    hebrew_runs = [run for run in paragraph.runs if _HEBREW_CHAR_RE.search(run.text or "")]
+    latin_runs = [run for run in paragraph.runs if (run.text or "").strip() and not _HEBREW_CHAR_RE.search(run.text or "")]
+
+    assert hebrew_runs
+    assert latin_runs
+    assert all(_run_has_rtl(run) for run in hebrew_runs)
+    assert all(not _run_has_rtl(run) for run in latin_runs)
