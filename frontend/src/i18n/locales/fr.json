@@ -270,6 +270,7 @@
     "csvHelpTitle": "Format CSV pour mise à jour en masse",
     "csvHelpIntro": "Exportez le CSV, modifiez les lignes, puis réimportez-le. Seuls les champs modifiés sont appliqués.",
     "csvHelpIdTitle": "pour identification uniquement ; laissez-les inchangés",
+    "csvHelpFilename": "à titre informatif uniquement ; non modifiable via CSV",
     "csvHelpStatus": "valeurs valides : draft, in_progress, review_requested, revision_requested, validated",
     "csvHelpDate": "format date ISO (YYYY-MM-DD)",
     "csvHelpCourse": "renseignez l'un des deux ; laissez vide pour retirer le cours",

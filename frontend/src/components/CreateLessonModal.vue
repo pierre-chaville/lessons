@@ -82,7 +82,8 @@ const parseFilename = (filename: string) => {
     title.value = nameWithoutExt.substring(0, match.index).replace(/[_-]/g, ' ').trim()
   } else {
     title.value = nameWithoutExt.replace(/[_-]/g, ' ').trim()
-    date.value = new Date().toISOString().slice(0, 10)
+    const now = new Date()
+    date.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
   }
 }
 
@@ -232,7 +233,7 @@ const createLesson = async () => {
     const lesson = await lessonsApi.create({
       title: title.value,
       filename: uploadedFilename,
-      date: date.value ? new Date(date.value).toISOString() : new Date().toISOString(),
+      date: date.value ? `${date.value}T00:00:00.000Z` : new Date().toISOString(),
       course_id: courseId.value,
       duration: audioDuration.value,
       theme_ids: themeIds.value.length > 0 ? themeIds.value : null,

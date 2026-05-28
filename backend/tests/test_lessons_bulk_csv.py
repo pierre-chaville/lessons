@@ -30,7 +30,7 @@ def test_export_lessons_csv_contains_identification_columns() -> None:
 
         csv_payload = export_lessons_csv(session)
 
-        assert "id,title,status,date,course_id,course_name,theme_ids,theme_names,editor_ids" in csv_payload
+        assert "id,title,filename,status,date,course_id,course_name,theme_ids,theme_names,editor_ids" in csv_payload
         assert "CSV Lesson" in csv_payload
 
 
@@ -56,8 +56,8 @@ def test_import_lessons_csv_updates_only_changed_fields() -> None:
         session.commit()
 
         csv_payload = (
-            "id,title,status,date,course_id,course_name,theme_ids,theme_names,editor_ids\n"
-            f"{lesson.id},Bulk Edit Lesson,validated,2026-02-15,{course_b.id},Course B,{theme_b.id},Theme B,editor_b\n"
+            "id,title,filename,status,date,course_id,course_name,theme_ids,theme_names,editor_ids\n"
+            f"{lesson.id},Bulk Edit Lesson,file.mp3,validated,2026-02-15,{course_b.id},Course B,{theme_b.id},Theme B,editor_b\n"
         )
         result = import_lessons_csv(
             session=session,

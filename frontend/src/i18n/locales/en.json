@@ -270,6 +270,7 @@
     "csvHelpTitle": "Lessons CSV bulk update format",
     "csvHelpIntro": "Export the CSV, edit rows, then import it back. Only changed fields are applied.",
     "csvHelpIdTitle": "for identification only; keep them unchanged",
+    "csvHelpFilename": "for information only; cannot be updated from CSV",
     "csvHelpStatus": "valid values: draft, in_progress, review_requested, revision_requested, validated",
     "csvHelpDate": "ISO date format (YYYY-MM-DD)",
     "csvHelpCourse": "set one of them; leave both empty to clear course",

@@ -420,6 +420,7 @@ defineExpose({
             <p>{{ t('courses.csvHelpIntro') }}</p>
             <ul class="list-disc pl-5 space-y-1">
               <li><code>id</code>, <code>title</code> — {{ t('courses.csvHelpIdTitle') }}</li>
+              <li><code>filename</code> — {{ t('courses.csvHelpFilename') }}</li>
               <li><code>status</code> — {{ t('courses.csvHelpStatus') }}</li>
               <li><code>date</code> — {{ t('courses.csvHelpDate') }}</li>
               <li><code>course_id</code> / <code>course_name</code> — {{ t('courses.csvHelpCourse') }}</li>

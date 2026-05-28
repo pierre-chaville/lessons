@@ -242,6 +242,7 @@ def export_lessons_csv(session: Session) -> str:
         fieldnames=[
             "id",
             "title",
+            "filename",
             "status",
             "date",
             "course_id",
@@ -263,6 +264,7 @@ def export_lessons_csv(session: Session) -> str:
             {
                 "id": lesson.id,
                 "title": lesson.title,
+                "filename": lesson.filename,
                 "status": lesson.status or "draft",
                 "date": lesson.date.date().isoformat(),
                 "course_id": course.id if course else "",
@@ -284,9 +286,13 @@ def _parse_lesson_date(raw: str) -> datetime:
     if not value:
         raise ValueError("Date value is empty")
     # Support both date-only and datetime ISO values from spreadsheet edits.
+    # We persist dates as date-only (00:00:00) to avoid timezone drift in UI.
     if "T" not in value and " " not in value:
-        return datetime.fromisoformat(f"{value}T00:00:00")
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        date_value = datetime.fromisoformat(value).date()
+        return datetime.combine(date_value, datetime.min.time())
+
+    datetime_value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return datetime.combine(datetime_value.date(), datetime.min.time())
 
 
 def import_lessons_csv(

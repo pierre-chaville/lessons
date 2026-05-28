@@ -1656,7 +1656,7 @@ const startEditLesson = async () => {
   if (!users.value.length) await fetchUsers()
   editedLesson.value = {
     title: props.lesson.title,
-    date: props.lesson.date ? new Date(props.lesson.date).toISOString().slice(0, 10) : '',
+    date: formatDate(props.lesson.date),
     course_id: props.lesson.course_id ?? null,
     theme_ids: props.lesson.theme_ids ?? [],
     editor_ids: props.lesson.editors?.map((e) => e.user_id) ?? [],
@@ -1673,7 +1673,7 @@ const saveLesson = async () => {
     isSavingLesson.value = true
     const updated = await lessonsApi.update(props.lesson.hashid, {
       title: editedLesson.value.title,
-      date: editedLesson.value.date ? new Date(editedLesson.value.date).toISOString() : null,
+      date: editedLesson.value.date ? `${editedLesson.value.date}T00:00:00.000Z` : null,
       course_id: editedLesson.value.course_id,
       theme_ids: editedLesson.value.theme_ids,
       editor_ids: editedLesson.value.editor_ids,
