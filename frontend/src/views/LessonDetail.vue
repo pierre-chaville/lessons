@@ -2862,7 +2862,7 @@ const saveParagraph = async () => {
                 {{ t('lessons.exportAction') }}
               </button>
               <button
-                v-if="activeView === 'summary' && !isEditingSummary"
+                v-if="activeView === 'summary' && !isEditingSummary && canEditLesson && !isProcessing"
                 @click="openLessonDocumentModal('import', 'summary')"
                 class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
               >
@@ -2889,7 +2889,7 @@ const saveParagraph = async () => {
                 {{ t('lessons.exportAction') }}
               </button>
               <button
-                v-if="activeView === 'transcript' && !isEditingSummary"
+                v-if="activeView === 'transcript' && !isEditingSummary && canEditLesson && !isProcessing"
                 @click="openLessonDocumentModal('import', 'transcript')"
                 class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
               >
@@ -2907,7 +2907,7 @@ const saveParagraph = async () => {
                 {{ t('lessons.exportAction') }}
               </button>
               <button
-                v-if="activeView === 'edited' && !isEditingSummary"
+                v-if="activeView === 'edited' && !isEditingSummary && canEditLesson && !isProcessing"
                 @click="openLessonDocumentModal('import', 'edited')"
                 class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
               >

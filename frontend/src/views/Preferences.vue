@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, onMounted, nextTick, watch, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Tab, TabGroup, TabList, TabPanel, TabPanels } from '@headlessui/vue'
 import {
   CogIcon,
-  CheckIcon,
   MicrophoneIcon,
   PencilIcon,
   DocumentTextIcon,
@@ -47,6 +46,12 @@ const isLoading = ref(true)
 const isSaving = ref(false)
 const saveMessage = ref('')
 const saveError = ref('')
+const AUTO_SAVE_DEBOUNCE_MS = 1000
+let autoSaveTimeout: ReturnType<typeof setTimeout> | null = null
+let autoSaveMessageTimeout: ReturnType<typeof setTimeout> | null = null
+const isConfigInitialized = ref(false)
+const isHydratingConfig = ref(false)
+const hasPendingAutoSave = ref(false)
 const importInputRef = ref<HTMLInputElement | null>(null)
 const modelPresets = ref<ModelPreset[]>([])
 type PromptGroupKey = 'correction' | 'edition' | 'extraction' | 'sources' | 'summary'
@@ -291,15 +296,23 @@ onMounted(async () => {
   await Promise.all([loadConfig(), loadModelPresets()])
 })
 
+onBeforeUnmount(() => {
+  if (autoSaveTimeout) clearTimeout(autoSaveTimeout)
+  if (autoSaveMessageTimeout) clearTimeout(autoSaveMessageTimeout)
+})
+
 const loadConfig = async () => {
   try {
     isLoading.value = true
+    isHydratingConfig.value = true
     const data = await configApi.get()
     config.value = data
     normalizeConfigShape()
+    isConfigInitialized.value = true
   } catch {
     saveError.value = t('preferences.loadFailed')
   } finally {
+    isHydratingConfig.value = false
     isLoading.value = false
   }
 }
@@ -313,19 +326,39 @@ const loadModelPresets = async () => {
   }
 }
 
-const saveConfig = async () => {
+const saveConfig = async (showSuccess = false) => {
   try {
     isSaving.value = true
-    saveMessage.value = ''
     saveError.value = ''
     await configApi.update(config.value)
-    saveMessage.value = t('preferences.saveSuccess')
-    setTimeout(() => { saveMessage.value = '' }, 3000)
+    if (showSuccess) {
+      saveMessage.value = t('preferences.saveSuccess')
+      if (autoSaveMessageTimeout) clearTimeout(autoSaveMessageTimeout)
+      autoSaveMessageTimeout = setTimeout(() => { saveMessage.value = '' }, 3000)
+    }
   } catch {
     saveError.value = t('preferences.saveFailed')
   } finally {
     isSaving.value = false
+    if (hasPendingAutoSave.value) {
+      hasPendingAutoSave.value = false
+      queueAutoSave()
+    }
   }
+}
+
+const queueAutoSave = () => {
+  if (!can('configuration', 'update')) return
+  if (!isConfigInitialized.value || isHydratingConfig.value || isLoading.value) return
+  if (isSaving.value) {
+    hasPendingAutoSave.value = true
+    return
+  }
+  if (autoSaveTimeout) clearTimeout(autoSaveTimeout)
+  autoSaveTimeout = setTimeout(async () => {
+    autoSaveTimeout = null
+    await saveConfig()
+  }, AUTO_SAVE_DEBOUNCE_MS)
 }
 
 const exportConfigYaml = () => {
@@ -369,13 +402,17 @@ const importConfigYaml = async (event: Event) => {
 
     const importedConfig = parsed as AppConfig
     await configApi.update(importedConfig)
+    isHydratingConfig.value = true
     config.value = importedConfig
     normalizeConfigShape()
+    isHydratingConfig.value = false
     saveMessage.value = t('preferences.importSuccess')
-    setTimeout(() => { saveMessage.value = '' }, 3000)
+    if (autoSaveMessageTimeout) clearTimeout(autoSaveMessageTimeout)
+    autoSaveMessageTimeout = setTimeout(() => { saveMessage.value = '' }, 3000)
   } catch {
     saveError.value = t('preferences.importFailed')
   } finally {
+    isHydratingConfig.value = false
     input.value = ''
   }
 }
@@ -506,6 +543,14 @@ const savePromptEditor = () => {
 
   closePromptEditor()
 }
+
+watch(
+  config,
+  () => {
+    queueAutoSave()
+  },
+  { deep: true },
+)
 </script>
 
 <template>
@@ -527,6 +572,9 @@ const savePromptEditor = () => {
         
         <div class="flex items-center gap-3">
           <!-- Success/Error Messages -->
+          <div v-if="isSaving" class="text-sm text-indigo-600 dark:text-indigo-400 font-medium">
+            {{ t('preferences.saving') }}
+          </div>
           <div v-if="saveMessage" class="text-sm text-green-600 dark:text-green-400 font-medium">
             {{ saveMessage }}
           </div>
@@ -562,16 +610,6 @@ const savePromptEditor = () => {
             {{ t('preferences.importYaml') }}
           </button>
 
-          <!-- Save Button (admin only) -->
-          <button
-            v-if="can('configuration', 'update')"
-            @click="saveConfig"
-            :disabled="isSaving || isLoading"
-            class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 rounded-md transition-colors"
-          >
-            <CheckIcon class="h-4 w-4" />
-            {{ isSaving ? t('preferences.saving') : t('preferences.save') }}
-          </button>
         </div>
       </div>
     </div>
@@ -1564,81 +1602,78 @@ const savePromptEditor = () => {
 
     <div
       v-if="isPromptEditorOpen"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      @click.self="closePromptEditor"
+      class="fixed inset-0 z-50 bg-white dark:bg-gray-900 flex flex-col"
     >
-      <div class="w-full max-w-5xl h-[90vh] rounded-lg bg-white dark:bg-gray-800 shadow-xl border border-gray-200 dark:border-gray-700 flex flex-col overflow-hidden">
-        <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
-          <h3 class="text-base font-semibold text-gray-900 dark:text-white">
-            {{ promptEditorTitle }}
-          </h3>
-          <div class="flex items-center gap-2">
-            <div class="inline-flex rounded-md border border-gray-300 dark:border-gray-600 overflow-hidden">
-              <button
-                type="button"
-                @click="promptEditorMode = 'visual'"
-                :class="[
-                  'px-3 py-1.5 text-xs font-medium transition-colors',
-                  promptEditorMode === 'visual'
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600'
-                ]"
-              >
-                {{ t('preferences.visualMode') }}
-              </button>
-              <button
-                type="button"
-                @click="promptEditorMode = 'markdown'"
-                :class="[
-                  'px-3 py-1.5 text-xs font-medium transition-colors border-l border-gray-300 dark:border-gray-600',
-                  promptEditorMode === 'markdown'
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600'
-                ]"
-              >
-                {{ t('preferences.markdownMode') }}
-              </button>
-            </div>
+      <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+        <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
+          {{ promptEditorTitle }}
+        </h3>
+        <div class="flex items-center gap-2">
+          <div class="inline-flex rounded-md border border-gray-300 dark:border-gray-600 overflow-hidden">
             <button
               type="button"
-              @click="closePromptEditor"
-              class="px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
+              @click="promptEditorMode = 'visual'"
+              :class="[
+                'px-3 py-1.5 text-xs font-medium transition-colors',
+                promptEditorMode === 'visual'
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600'
+              ]"
             >
-              {{ t('preferences.close') }}
+              {{ t('preferences.visualMode') }}
+            </button>
+            <button
+              type="button"
+              @click="promptEditorMode = 'markdown'"
+              :class="[
+                'px-3 py-1.5 text-xs font-medium transition-colors border-l border-gray-300 dark:border-gray-600',
+                promptEditorMode === 'markdown'
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600'
+              ]"
+            >
+              {{ t('preferences.markdownMode') }}
             </button>
           </div>
-        </div>
-
-        <div class="flex-1 overflow-y-auto p-4">
-          <MilkdownEditor
-            v-if="promptEditorMode === 'visual'"
-            v-model="promptEditorDraft"
-            :placeholder="t('preferences.promptText')"
-          />
-          <textarea
-            v-else
-            v-model="promptEditorDraft"
-            :placeholder="t('preferences.promptText')"
-            class="w-full h-full min-h-[24rem] px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
-          ></textarea>
-        </div>
-
-        <div class="flex justify-end gap-2 px-4 py-3 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
           <button
             type="button"
             @click="closePromptEditor"
-            class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md transition-colors"
+            class="px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
           >
-            {{ t('preferences.cancel') }}
-          </button>
-          <button
-            type="button"
-            @click="savePromptEditor"
-            class="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md transition-colors"
-          >
-            {{ t('preferences.save') }}
+            {{ t('preferences.close') }}
           </button>
         </div>
+      </div>
+
+      <div class="flex-1 overflow-y-auto p-6">
+        <MilkdownEditor
+          v-if="promptEditorMode === 'visual'"
+          v-model="promptEditorDraft"
+          :placeholder="t('preferences.promptText')"
+        />
+        <textarea
+          v-else
+          v-model="promptEditorDraft"
+          :placeholder="t('preferences.promptText')"
+          class="w-full h-full min-h-[24rem] px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
+        ></textarea>
+      </div>
+
+      <div class="flex justify-end gap-2 px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+        <button
+          type="button"
+          @click="closePromptEditor"
+          class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md transition-colors"
+        >
+          {{ t('preferences.cancel') }}
+        </button>
+        <button
+          type="button"
+          @click="savePromptEditor"
+          class="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md transition-colors"
+        >
+          {{ t('preferences.save') }}
+        </button>
       </div>
     </div>
   </div>
