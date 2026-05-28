@@ -10,6 +10,9 @@ from sqlmodel import Session
 
 import crud
 
+_APOSTROPHE_CHARS = "'’ʼ`´ʹ"
+_TOKEN_CHAR_CLASS = rf"[\w{re.escape(_APOSTROPHE_CHARS)}]"
+
 
 @dataclass(frozen=True)
 class GlossaryRule:
@@ -60,27 +63,71 @@ def apply_glossary_to_text_with_report(
     rules: list[GlossaryRule],
 ) -> tuple[str, list[dict[str, Any]]]:
     """Apply glossary replacements and return replacement stats."""
-    normalized = str(text or "")
-    if not normalized or not rules:
-        return normalized, []
+    source = str(text or "")
+    if not source or not rules:
+        return source, []
 
-    replacements: list[GlossaryReplacement] = []
-    for rule in rules:
+    # Apply glossary replacements in a single pass over the original text so one
+    # rule cannot rewrite text that has already been replaced by another rule.
+    # This avoids cascades like: Aqiva -> Akiva -> Aquiva when rules overlap.
+    candidates: list[tuple[int, int, int, int, str, GlossaryRule]] = []
+    for rule_index, rule in enumerate(rules):
         for variation in rule.variations:
             pattern = re.compile(
-                rf"(?<!\w){re.escape(variation)}(?!\w)",
+                rf"(?<!{_TOKEN_CHAR_CLASS}){re.escape(variation)}(?!{_TOKEN_CHAR_CLASS})",
                 0 if rule.exact_case else re.IGNORECASE,
             )
-            normalized, count = pattern.subn(rule.standard, normalized)
-            if count > 0:
-                replacements.append(
-                    GlossaryReplacement(
-                        standard=rule.standard,
-                        variation=variation,
-                        exact_case=rule.exact_case,
-                        count=count,
-                    )
-                )
+            for match in pattern.finditer(source):
+                start, end = match.span()
+                # Guard against duplicate apostrophes when canonical form starts
+                # with an apostrophe-like char but the match is already prefixed.
+                if (
+                    rule.standard
+                    and rule.standard[0] in _APOSTROPHE_CHARS
+                    and (not variation or variation[0] not in _APOSTROPHE_CHARS)
+                    and start > 0
+                    and source[start - 1] in _APOSTROPHE_CHARS
+                ):
+                    continue
+                length = end - start
+                candidates.append((start, end, -length, rule_index, variation, rule))
+
+    if not candidates:
+        return source, []
+
+    candidates.sort(key=lambda item: (item[0], item[2], item[3]))
+    selected: list[tuple[int, int, str, GlossaryRule]] = []
+    consumed_until = -1
+    for start, end, _, _, variation, rule in candidates:
+        if start < consumed_until:
+            continue
+        selected.append((start, end, variation, rule))
+        consumed_until = end
+
+    rebuilt: list[str] = []
+    cursor = 0
+    replacement_counts: dict[tuple[str, str, bool], int] = {}
+    for start, end, variation, rule in selected:
+        if start > cursor:
+            rebuilt.append(source[cursor:start])
+        rebuilt.append(rule.standard)
+        key = (rule.standard, variation, rule.exact_case)
+        replacement_counts[key] = replacement_counts.get(key, 0) + 1
+        cursor = end
+    if cursor < len(source):
+        rebuilt.append(source[cursor:])
+
+    normalized = "".join(rebuilt)
+    replacements = [
+        GlossaryReplacement(
+            standard=standard,
+            variation=variation,
+            exact_case=exact_case,
+            count=count,
+        )
+        for (standard, variation, exact_case), count in replacement_counts.items()
+    ]
+    replacements.sort(key=lambda item: (-item.count, item.standard, item.variation))
     return normalized, [
         {
             "standard": item.standard,

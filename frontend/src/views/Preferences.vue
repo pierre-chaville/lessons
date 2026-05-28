@@ -40,6 +40,10 @@ const config = ref<AppConfig>({
   },
   brief: { model_preset_id: null, max_tokens: 1000, prompt: '' },
   transcribe: { model: 'nova-3', language: 'fr' },
+  alignment: {
+    edited_min_score: 0.2,
+    summary_min_score: 0.2,
+  },
 })
 
 const isLoading = ref(true)
@@ -92,6 +96,17 @@ const normalizeConfigShape = () => {
   if (!config.value.transcribe) config.value.transcribe = { model: 'nova-3', language: 'fr' }
   if (!config.value.transcribe.model) config.value.transcribe.model = 'nova-3'
   if (!config.value.transcribe.language) config.value.transcribe.language = 'fr'
+  if (!config.value.alignment) {
+    config.value.alignment = { edited_min_score: 0.2, summary_min_score: 0.2 }
+  }
+  if (typeof config.value.alignment.edited_min_score !== 'number') {
+    config.value.alignment.edited_min_score = 0.2
+  }
+  if (typeof config.value.alignment.summary_min_score !== 'number') {
+    config.value.alignment.summary_min_score = 0.2
+  }
+  config.value.alignment.edited_min_score = Math.max(0, Math.min(1, config.value.alignment.edited_min_score))
+  config.value.alignment.summary_min_score = Math.max(0, Math.min(1, config.value.alignment.summary_min_score))
   if (!config.value.brief) config.value.brief = { model_preset_id: null, max_tokens: 1000, prompt: '' }
   // Backward compatibility: migrate legacy summary.brief to top-level brief.
   const summaryWithLegacyBrief = config.value.summary as typeof config.value.summary & {
@@ -690,6 +705,17 @@ watch(
               ]">
                 <DocumentTextIcon class="h-5 w-5" />
                 {{ t('preferences.brief') }}
+              </div>
+            </Tab>
+            <Tab v-slot="{ selected }" class="w-full rounded-md py-2.5 text-sm font-medium leading-5 transition-colors focus:outline-none">
+              <div :class="[
+                'flex items-center justify-center gap-2',
+                selected
+                  ? 'bg-white dark:bg-gray-800 text-indigo-700 dark:text-indigo-400 shadow'
+                  : 'text-gray-700 dark:text-gray-300 hover:bg-white/[0.12] dark:hover:bg-gray-600'
+              ]">
+                <CogIcon class="h-5 w-5" />
+                {{ t('preferences.alignment') }}
               </div>
             </Tab>
           </TabList>
@@ -1591,6 +1617,49 @@ watch(
                   </div>
                   <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
                     {{ t('preferences.briefPromptDesc') }}
+                  </p>
+                </div>
+              </div>
+            </TabPanel>
+
+            <!-- Alignment Tab -->
+            <TabPanel class="rounded-lg bg-white dark:bg-gray-800 p-6 shadow">
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                {{ t('preferences.alignmentSettings') }}
+              </h2>
+
+              <div class="space-y-6">
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    {{ t('preferences.editedTranscriptAlignmentThreshold') }}
+                  </label>
+                  <input
+                    v-model.number="config.alignment.edited_min_score"
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('preferences.alignmentThresholdDesc') }}
+                  </p>
+                </div>
+
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    {{ t('preferences.summaryEditedAlignmentThreshold') }}
+                  </label>
+                  <input
+                    v-model.number="config.alignment.summary_min_score"
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('preferences.alignmentThresholdDesc') }}
                   </p>
                 </div>
               </div>
