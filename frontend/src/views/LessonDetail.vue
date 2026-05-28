@@ -50,6 +50,7 @@ import type {
   LessonWorkflowStep,
   LessonWorkflowStepStatus,
   Course,
+  CourseTreeNode,
   Theme,
   ContentType,
   AuditLogRow,
@@ -103,6 +104,7 @@ const currentTime = ref(0)
 const currentSegment = ref<{ start: number; end: number } | null>(null)
 
 const courses = ref<Course[]>([])
+const courseTree = ref<CourseTreeNode[]>([])
 const themes = ref<Theme[]>([])
 const users = ref<ClerkUser[]>([])
 
@@ -162,11 +164,131 @@ const activeView = ref('summary')
 const isEditingSummary = ref(false)
 const editedSummary = ref('')
 const isSavingSummary = ref(false)
+const DRAFT_SAVE_DEBOUNCE_MS = 500
+let summaryDraftSaveTimeout: ReturnType<typeof setTimeout> | null = null
 
 // Edit full edited-markdown state
 const isEditingEditedMarkdown = ref(false)
 const editedMarkdownDraft = ref('')
 const isSavingEditedMarkdown = ref(false)
+let editedDraftSaveTimeout: ReturnType<typeof setTimeout> | null = null
+const showDraftRestoreDialog = ref(false)
+const draftRestoreTarget = ref<'summary' | 'edited' | null>(null)
+const draftRestoreBaseValue = ref('')
+const draftRestoreValue = ref('')
+
+const getSummaryDraftStorageKey = () => `lessons:draft:summary:${props.lesson.hashid}`
+const getEditedDraftStorageKey = () => `lessons:draft:edited:${props.lesson.hashid}`
+
+const clearDraftSaveTimeout = (kind: 'summary' | 'edited') => {
+  const timeout = kind === 'summary' ? summaryDraftSaveTimeout : editedDraftSaveTimeout
+  if (!timeout) return
+  clearTimeout(timeout)
+  if (kind === 'summary') summaryDraftSaveTimeout = null
+  else editedDraftSaveTimeout = null
+}
+
+const readDraftFromStorage = (storageKey: string): string | null => {
+  if (typeof window === 'undefined') return null
+  const raw = window.localStorage.getItem(storageKey)
+  return raw === null ? null : raw
+}
+
+const saveDraftToStorage = (storageKey: string, value: string) => {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(storageKey, value)
+}
+
+const clearDraftFromStorage = (storageKey: string) => {
+  if (typeof window === 'undefined') return
+  window.localStorage.removeItem(storageKey)
+}
+
+const getDraftCandidate = (
+  contentType: 'summary' | 'edited',
+  baseValue: string,
+): string | null => {
+  const storageKey =
+    contentType === 'summary'
+      ? getSummaryDraftStorageKey()
+      : getEditedDraftStorageKey()
+  const draft = readDraftFromStorage(storageKey)
+  if (draft === null || draft === baseValue) return null
+  return draft
+}
+
+const openEditorWithValue = (
+  contentType: 'summary' | 'edited',
+  value: string,
+) => {
+  if (contentType === 'summary') {
+    editedSummary.value = value
+    isEditingSummary.value = true
+    return
+  }
+
+  editedMarkdownDraft.value = value
+  isEditingEditedMarkdown.value = true
+}
+
+const startDraftRestoreFlow = (
+  contentType: 'summary' | 'edited',
+  baseValue: string,
+  draftValue: string,
+) => {
+  draftRestoreTarget.value = contentType
+  draftRestoreBaseValue.value = baseValue
+  draftRestoreValue.value = draftValue
+  showDraftRestoreDialog.value = true
+}
+
+const closeDraftRestoreDialogState = () => {
+  showDraftRestoreDialog.value = false
+  draftRestoreTarget.value = null
+  draftRestoreBaseValue.value = ''
+  draftRestoreValue.value = ''
+}
+
+const handleDraftRestoreDecision = (shouldRestore: boolean) => {
+  const target = draftRestoreTarget.value
+  if (!target) {
+    closeDraftRestoreDialogState()
+    return
+  }
+  const nextValue = shouldRestore ? draftRestoreValue.value : draftRestoreBaseValue.value
+  closeDraftRestoreDialogState()
+  openEditorWithValue(target, nextValue)
+}
+
+const draftRestoreTitle = computed(() => {
+  return draftRestoreTarget.value === 'summary'
+    ? t('lessons.restoreSummaryDraftTitle')
+    : t('lessons.restoreEditedDraftTitle')
+})
+
+const draftRestoreMessage = computed(() => {
+  return draftRestoreTarget.value === 'summary'
+    ? t('lessons.restoreSummaryDraftConfirm')
+    : t('lessons.restoreEditedDraftConfirm')
+})
+
+const scheduleDraftSave = (
+  contentType: 'summary' | 'edited',
+  value: string,
+) => {
+  const storageKey =
+    contentType === 'summary'
+      ? getSummaryDraftStorageKey()
+      : getEditedDraftStorageKey()
+  clearDraftSaveTimeout(contentType)
+  const timeout = setTimeout(() => {
+    saveDraftToStorage(storageKey, value)
+    if (contentType === 'summary') summaryDraftSaveTimeout = null
+    else editedDraftSaveTimeout = null
+  }, DRAFT_SAVE_DEBOUNCE_MS)
+  if (contentType === 'summary') summaryDraftSaveTimeout = timeout
+  else editedDraftSaveTimeout = timeout
+}
 
 // Edit lesson state
 const isEditingLesson = ref(false)
@@ -302,6 +424,8 @@ watch(isProcessing, (processing) => {
 
 onBeforeUnmount(() => {
   stopPolling()
+  clearDraftSaveTimeout('summary')
+  clearDraftSaveTimeout('edited')
 })
 
 // Render markdown to HTML
@@ -844,16 +968,22 @@ watch(activeView, (value) => {
 
 // Edit summary functions
 const startEditSummary = () => {
-  editedSummary.value = props.lesson.summary || '';
-  isEditingSummary.value = true;
-};
+  const baseSummary = props.lesson.summary || ''
+  const draft = getDraftCandidate('summary', baseSummary)
+  if (draft !== null) {
+    startDraftRestoreFlow('summary', baseSummary, draft)
+    return
+  }
+  openEditorWithValue('summary', baseSummary)
+}
 
 const cancelEditSummary = () => {
-  isEditingSummary.value = false;
-  editedSummary.value = '';
-};
+  clearDraftSaveTimeout('summary')
+  isEditingSummary.value = false
+  editedSummary.value = ''
+}
 
-const closeSummaryEditorModal = () => {
+const closeSummaryEditorPage = () => {
   if (isSavingSummary.value) return
   cancelEditSummary()
 }
@@ -867,6 +997,9 @@ const saveSummary = async () => {
     const realigned = await lessonsApi.realignSummary(props.lesson.hashid)
     Object.assign(props.lesson, realigned)
     isEditingSummary.value = false
+    clearDraftFromStorage(getSummaryDraftStorageKey())
+    clearDraftSaveTimeout('summary')
+    editedSummary.value = ''
     toast.success(t('lessons.realignSummarySuccess'))
   } catch {
     toast.error(t('lessons.realignSummaryFailed'))
@@ -876,17 +1009,23 @@ const saveSummary = async () => {
 }
 
 const startEditEditedMarkdown = () => {
-  editedMarkdownDraft.value = props.lesson.edited_transcript?.markdown || ''
-  isEditingEditedMarkdown.value = true
+  const baseEditedMarkdown = props.lesson.edited_transcript?.markdown || ''
+  const draft = getDraftCandidate('edited', baseEditedMarkdown)
+  if (draft !== null) {
+    startDraftRestoreFlow('edited', baseEditedMarkdown, draft)
+    return
+  }
+  openEditorWithValue('edited', baseEditedMarkdown)
 }
 
 const cancelEditEditedMarkdown = () => {
   if (isSavingEditedMarkdown.value) return
+  clearDraftSaveTimeout('edited')
   isEditingEditedMarkdown.value = false
   editedMarkdownDraft.value = ''
 }
 
-const closeEditedMarkdownEditorModal = () => {
+const closeEditedMarkdownEditorPage = () => {
   if (isSavingEditedMarkdown.value) return
   cancelEditEditedMarkdown()
 }
@@ -907,6 +1046,8 @@ const saveEditedMarkdown = async () => {
     const updated = await lessonsApi.realignEdited(props.lesson.hashid)
     Object.assign(props.lesson, updated)
     isEditingEditedMarkdown.value = false
+    clearDraftFromStorage(getEditedDraftStorageKey())
+    clearDraftSaveTimeout('edited')
     editedMarkdownDraft.value = ''
     toast.success(t('lessons.realignSuccess'))
   } catch {
@@ -1187,8 +1328,37 @@ const downloadDetailedSourcesPDF = async () => {
 }
 
 // Edit lesson functions
+type CourseOption = {
+  id: number
+  label: string
+}
+
+const flattenCourseTree = (
+  nodes: CourseTreeNode[],
+  ancestors: string[] = [],
+): CourseOption[] => {
+  return nodes.flatMap((node) => {
+    const path = [...ancestors, node.name]
+    return [
+      { id: node.id, label: path.join(' / ') },
+      ...flattenCourseTree(node.children, path),
+    ]
+  })
+}
+
+const courseOptions = computed<CourseOption[]>(() => {
+  if (courseTree.value.length > 0) {
+    return flattenCourseTree(courseTree.value)
+  }
+
+  return [...courses.value]
+    .sort((a, b) => a.sort_order - b.sort_order)
+    .map((course) => ({ id: course.id, label: course.name }))
+})
+
 const fetchCourses = async () => {
   try { courses.value = await coursesApi.list() } catch { /* silent */ }
+  try { courseTree.value = await coursesApi.tree() } catch { /* silent */ }
 }
 
 const courseById = computed<Map<number, Course>>(() => {
@@ -1248,6 +1418,22 @@ watch(
     if (editors?.length && !users.value.length) fetchUsers()
   },
   { immediate: true },
+)
+
+watch(
+  editedSummary,
+  (value) => {
+    if (!isEditingSummary.value || isSavingSummary.value) return
+    scheduleDraftSave('summary', value)
+  },
+)
+
+watch(
+  editedMarkdownDraft,
+  (value) => {
+    if (!isEditingEditedMarkdown.value || isSavingEditedMarkdown.value) return
+    scheduleDraftSave('edited', value)
+  },
 )
 
 const getUserName = (userId: string, fallbackName?: string | null) => {
@@ -2182,108 +2368,112 @@ const saveParagraph = async () => {
   <Dialog :open="isEditingLesson" @close="cancelEditLesson" class="relative z-50">
     <div class="fixed inset-0 bg-black/30 backdrop-blur-sm" aria-hidden="true" />
 
-    <div class="fixed inset-0 flex items-center justify-center p-4">
-      <DialogPanel class="mx-auto max-w-2xl w-full bg-white dark:bg-gray-800 rounded-lg shadow-xl">
-        <div class="p-6 max-h-[85vh] overflow-y-auto">
+    <div class="fixed inset-0 flex items-start justify-center p-3 sm:p-4 overflow-y-auto">
+      <DialogPanel class="mx-auto my-4 sm:my-8 w-full max-w-5xl max-h-[92vh] bg-white dark:bg-gray-800 rounded-lg shadow-xl flex flex-col overflow-hidden">
+        <div class="p-6 overflow-y-auto">
           <DialogTitle class="text-lg font-semibold text-gray-900 dark:text-white mb-4">
             {{ t('lessons.modifySession') }}
           </DialogTitle>
 
-          <div class="space-y-4">
-            <!-- Title -->
-            <div>
-              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                {{ t('lessons.lessonTitle') }}
-              </label>
-              <input
-                v-model="editedLesson.title"
-                type="text"
-                class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              />
-            </div>
+          <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 xl:gap-8">
+            <div class="space-y-4">
+              <!-- Title -->
+              <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  {{ t('lessons.lessonTitle') }}
+                </label>
+                <input
+                  v-model="editedLesson.title"
+                  type="text"
+                  class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                />
+              </div>
 
-            <!-- Date -->
-            <div>
-              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                {{ t('lessons.date') }}
-              </label>
-              <input
-                v-model="editedLesson.date"
-                type="date"
-                class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              />
-            </div>
+              <!-- Date -->
+              <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  {{ t('lessons.date') }}
+                </label>
+                <input
+                  v-model="editedLesson.date"
+                  type="date"
+                  class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                />
+              </div>
 
-            <!-- Brief -->
-            <div>
-              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                {{ t('lessons.brief') }}
-              </label>
-              <textarea
-                v-model="editedLesson.brief"
-                :placeholder="t('lessons.briefPlaceholder')"
-                rows="3"
-                class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
-              ></textarea>
-            </div>
-
-            <!-- Course -->
-            <div>
-              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                {{ t('lessons.course') }}
-              </label>
-              <select
-                v-model="editedLesson.course_id"
-                class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              >
-                <option :value="null">{{ t('lessons.noCourse') }}</option>
-                <option v-for="course in courses" :key="course.id" :value="course.id">
-                  {{ course.name }}
-                </option>
-              </select>
-            </div>
-
-            <!-- Themes -->
-            <div>
-              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                {{ t('lessons.themes') }}
-              </label>
-              <div class="flex flex-wrap gap-2">
-                <button
-                  v-for="theme in themes"
-                  :key="theme.id"
-                  @click="toggleTheme(theme.id)"
-                  :class="[
-                    'px-3 py-1.5 rounded-full text-sm font-medium transition-colors',
-                    editedLesson.theme_ids.includes(theme.id)
-                      ? 'bg-indigo-600 text-white'
-                      : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
-                  ]"
-                >
-                  {{ theme.name }}
-                </button>
+              <!-- Brief -->
+              <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  {{ t('lessons.brief') }}
+                </label>
+                <textarea
+                  v-model="editedLesson.brief"
+                  :placeholder="t('lessons.briefPlaceholder')"
+                  rows="5"
+                  class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+                ></textarea>
               </div>
             </div>
 
-            <!-- Editors -->
-            <div>
-              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                {{ t('lessons.editors') }}
-              </label>
-              <div class="flex flex-wrap gap-2">
-                <button
-                  v-for="user in editorRoleUsers"
-                  :key="user.id"
-                  @click="toggleEditor(user.id)"
-                  :class="[
-                    'px-3 py-1.5 rounded-full text-sm font-medium transition-colors',
-                    editedLesson.editor_ids.includes(user.id)
-                      ? 'bg-sky-600 text-white'
-                      : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
-                  ]"
+            <div class="space-y-4">
+              <!-- Course -->
+              <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  {{ t('lessons.course') }}
+                </label>
+                <select
+                  v-model="editedLesson.course_id"
+                  class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                 >
-                  {{ [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email || user.id }}
-                </button>
+                  <option :value="null">{{ t('lessons.noCourse') }}</option>
+                  <option v-for="course in courseOptions" :key="course.id" :value="course.id">
+                    {{ course.label }}
+                  </option>
+                </select>
+              </div>
+
+              <!-- Themes -->
+              <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  {{ t('lessons.themes') }}
+                </label>
+                <div class="flex flex-wrap gap-2">
+                  <button
+                    v-for="theme in themes"
+                    :key="theme.id"
+                    @click="toggleTheme(theme.id)"
+                    :class="[
+                      'px-3 py-1.5 rounded-full text-sm font-medium transition-colors',
+                      editedLesson.theme_ids.includes(theme.id)
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                    ]"
+                  >
+                    {{ theme.name }}
+                  </button>
+                </div>
+              </div>
+
+              <!-- Editors -->
+              <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  {{ t('lessons.editors') }}
+                </label>
+                <div class="flex flex-wrap gap-2">
+                  <button
+                    v-for="user in editorRoleUsers"
+                    :key="user.id"
+                    @click="toggleEditor(user.id)"
+                    :class="[
+                      'px-3 py-1.5 rounded-full text-sm font-medium transition-colors',
+                      editedLesson.editor_ids.includes(user.id)
+                        ? 'bg-sky-600 text-white'
+                        : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                    ]"
+                  >
+                    {{ [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email || user.id }}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -3869,60 +4059,34 @@ const saveParagraph = async () => {
       </div>
     </Dialog>
 
-    <!-- Summary Editor Modal -->
+    <!-- Draft Restore Dialog -->
     <Dialog
-      :open="isEditingSummary"
-      @close="closeSummaryEditorModal"
-      class="relative z-50"
+      :open="showDraftRestoreDialog"
+      @close="handleDraftRestoreDecision(false)"
+      class="relative z-[60]"
     >
       <div class="fixed inset-0 bg-black/40" aria-hidden="true" />
       <div class="fixed inset-0 flex items-center justify-center p-4">
-        <DialogPanel class="w-full max-w-7xl h-[90vh] bg-white dark:bg-gray-800 rounded-xl shadow-2xl overflow-hidden flex flex-col">
-          <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+        <DialogPanel class="w-full max-w-md rounded-xl bg-white dark:bg-gray-800 shadow-2xl">
+          <div class="px-6 py-5">
             <DialogTitle class="text-lg font-semibold text-gray-900 dark:text-white">
-              {{ t('lessons.modifySummary') }}
+              {{ draftRestoreTitle }}
             </DialogTitle>
-            <button
-              @click="closeSummaryEditorModal"
-              :disabled="isSavingSummary"
-              class="inline-flex items-center justify-center p-2 rounded-md text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 disabled:opacity-50"
-            >
-              <XMarkIcon class="h-5 w-5" />
-            </button>
-          </div>
-
-          <div
-            v-if="isSavingSummary"
-            class="mx-6 mt-4 px-3 py-2 text-sm text-indigo-800 dark:text-indigo-200 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800 rounded-md"
-          >
-            {{ t('lessons.savingAndRealigningSummary') }}
-          </div>
-
-          <div class="flex-1 overflow-y-auto p-6">
-            <MilkdownEditor
-              v-model="editedSummary"
-              placeholder="Enter summary in markdown format..."
-              :disabled="isSavingSummary"
-            />
-          </div>
-
-          <div class="sticky bottom-0 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-6 py-4">
-            <div class="flex items-center justify-end gap-3">
+            <p class="mt-2 text-sm text-gray-600 dark:text-gray-300">
+              {{ draftRestoreMessage }}
+            </p>
+            <div class="mt-6 flex items-center justify-end gap-3">
               <button
-                @click="cancelEditSummary"
-                :disabled="isSavingSummary"
-                class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 rounded-md transition-colors"
+                @click="handleDraftRestoreDecision(false)"
+                class="inline-flex items-center px-4 py-2 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
               >
-                <XMarkIcon class="h-4 w-4" />
-                {{ t('lessons.cancel') }}
+                {{ t('lessons.startFromServerVersion') }}
               </button>
               <button
-                @click="saveSummary"
-                :disabled="isSavingSummary"
-                class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 rounded-md transition-colors"
+                @click="handleDraftRestoreDecision(true)"
+                class="inline-flex items-center px-4 py-2 rounded-md text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 transition-colors"
               >
-                <CheckIcon class="h-4 w-4" />
-                {{ isSavingSummary ? t('lessons.saving') : t('lessons.save') }}
+                {{ t('lessons.restoreDraft') }}
               </button>
             </div>
           </div>
@@ -3930,66 +4094,115 @@ const saveParagraph = async () => {
       </div>
     </Dialog>
 
-    <!-- Edited Markdown Editor Modal -->
-    <Dialog
-      :open="isEditingEditedMarkdown"
-      @close="closeEditedMarkdownEditorModal"
-      class="relative z-50"
+    <!-- Summary Editor Page -->
+    <div
+      v-if="isEditingSummary"
+      class="fixed inset-0 z-50 bg-white dark:bg-gray-900 flex flex-col"
     >
-      <div class="fixed inset-0 bg-black/40" aria-hidden="true" />
-      <div class="fixed inset-0 flex items-center justify-center p-4">
-        <DialogPanel class="w-full max-w-7xl h-[90vh] bg-white dark:bg-gray-800 rounded-xl shadow-2xl overflow-hidden flex flex-col">
-          <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-            <DialogTitle class="text-lg font-semibold text-gray-900 dark:text-white">
-              {{ t('lessons.modifyEdited') }}
-            </DialogTitle>
-            <button
-              @click="closeEditedMarkdownEditorModal"
-              :disabled="isSavingEditedMarkdown"
-              class="inline-flex items-center justify-center p-2 rounded-md text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 disabled:opacity-50"
-            >
-              <XMarkIcon class="h-5 w-5" />
-            </button>
-          </div>
-
-          <div
-            v-if="isSavingEditedMarkdown"
-            class="mx-6 mt-4 px-3 py-2 text-sm text-indigo-800 dark:text-indigo-200 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800 rounded-md"
-          >
-            {{ t('lessons.savingAndRealigning') }}
-          </div>
-
-          <div class="flex-1 overflow-y-auto p-6">
-            <MilkdownEditor
-              v-model="editedMarkdownDraft"
-              placeholder="Enter edited transcript in markdown format..."
-              :disabled="isSavingEditedMarkdown"
-            />
-          </div>
-
-          <div class="sticky bottom-0 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-6 py-4">
-            <div class="flex items-center justify-end gap-3">
-              <button
-                @click="cancelEditEditedMarkdown"
-                :disabled="isSavingEditedMarkdown"
-                class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 rounded-md transition-colors"
-              >
-                <XMarkIcon class="h-4 w-4" />
-                {{ t('lessons.cancel') }}
-              </button>
-              <button
-                @click="saveEditedMarkdown"
-                :disabled="isSavingEditedMarkdown"
-                class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 rounded-md transition-colors"
-              >
-                <CheckIcon class="h-4 w-4" />
-                {{ isSavingEditedMarkdown ? t('lessons.saving') : t('lessons.save') }}
-              </button>
-            </div>
-          </div>
-        </DialogPanel>
+      <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+        <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+          {{ t('lessons.modifySummary') }}
+        </h2>
+        <button
+          @click="closeSummaryEditorPage"
+          :disabled="isSavingSummary"
+          class="inline-flex items-center justify-center p-2 rounded-md text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 disabled:opacity-50"
+        >
+          <XMarkIcon class="h-5 w-5" />
+        </button>
       </div>
-    </Dialog>
+
+      <div
+        v-if="isSavingSummary"
+        class="mx-6 mt-4 px-3 py-2 text-sm text-indigo-800 dark:text-indigo-200 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800 rounded-md"
+      >
+        {{ t('lessons.savingAndRealigningSummary') }}
+      </div>
+
+      <div class="flex-1 overflow-y-auto p-6">
+        <MilkdownEditor
+          v-model="editedSummary"
+          placeholder="Enter summary in markdown format..."
+          :disabled="isSavingSummary"
+        />
+      </div>
+
+      <div class="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-6 py-4">
+        <div class="flex items-center justify-end gap-3">
+          <button
+            @click="cancelEditSummary"
+            :disabled="isSavingSummary"
+            class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 rounded-md transition-colors"
+          >
+            <XMarkIcon class="h-4 w-4" />
+            {{ t('lessons.cancel') }}
+          </button>
+          <button
+            @click="saveSummary"
+            :disabled="isSavingSummary"
+            class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 rounded-md transition-colors"
+          >
+            <CheckIcon class="h-4 w-4" />
+            {{ isSavingSummary ? t('lessons.saving') : t('lessons.save') }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Edited Markdown Editor Page -->
+    <div
+      v-if="isEditingEditedMarkdown"
+      class="fixed inset-0 z-50 bg-white dark:bg-gray-900 flex flex-col"
+    >
+      <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+        <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+          {{ t('lessons.modifyEdited') }}
+        </h2>
+        <button
+          @click="closeEditedMarkdownEditorPage"
+          :disabled="isSavingEditedMarkdown"
+          class="inline-flex items-center justify-center p-2 rounded-md text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 disabled:opacity-50"
+        >
+          <XMarkIcon class="h-5 w-5" />
+        </button>
+      </div>
+
+      <div
+        v-if="isSavingEditedMarkdown"
+        class="mx-6 mt-4 px-3 py-2 text-sm text-indigo-800 dark:text-indigo-200 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800 rounded-md"
+      >
+        {{ t('lessons.savingAndRealigning') }}
+      </div>
+
+      <div class="flex-1 overflow-y-auto p-6">
+        <MilkdownEditor
+          v-model="editedMarkdownDraft"
+          placeholder="Enter edited transcript in markdown format..."
+          :disabled="isSavingEditedMarkdown"
+        />
+      </div>
+
+      <div class="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-6 py-4">
+        <div class="flex items-center justify-end gap-3">
+          <button
+            @click="cancelEditEditedMarkdown"
+            :disabled="isSavingEditedMarkdown"
+            class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 rounded-md transition-colors"
+          >
+            <XMarkIcon class="h-4 w-4" />
+            {{ t('lessons.cancel') }}
+          </button>
+          <button
+            @click="saveEditedMarkdown"
+            :disabled="isSavingEditedMarkdown"
+            class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 rounded-md transition-colors"
+          >
+            <CheckIcon class="h-4 w-4" />
+            {{ isSavingEditedMarkdown ? t('lessons.saving') : t('lessons.save') }}
+          </button>
+        </div>
+      </div>
+    </div>
 
     <LessonDocumentModal
       :is-open="showLessonDocumentModal"
