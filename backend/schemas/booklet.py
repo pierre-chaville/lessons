@@ -111,6 +111,13 @@ class BookletTasksLaunchResponse(BaseModel):
     tasks: List[BookletTaskLaunchItem]
 
 
+class BookletItemsCsvImportResponse(BaseModel):
+    imported_count: int
+    lesson_count: int
+    chapter_count: int
+    errors: List[str] = Field(default_factory=list)
+
+
 class BookletItemResponse(BaseModel):
     id: int
     booklet_id: int

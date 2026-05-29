@@ -10,6 +10,7 @@ import type {
   BookletUpdate,
   BookletTasksLaunchRequest,
   BookletTasksLaunchResponse,
+  BookletItemsCsvImportResponse,
 } from './types'
 
 export const bookletsApi = {
@@ -121,4 +122,19 @@ export const bookletsApi = {
     apiClient
       .post<BookletTasksLaunchResponse>(`/booklets/${id}/tasks`, data)
       .then((r) => r.data),
+
+  exportItemsCsv: (id: number) =>
+    apiClient
+      .get<Blob>(`/booklets/${id}/items/csv/export`, { responseType: 'blob' })
+      .then((r) => r.data),
+
+  importItemsCsv: (id: number, file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return apiClient
+      .post<BookletItemsCsvImportResponse>(`/booklets/${id}/items/csv/import`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      .then((r) => r.data)
+  },
 }

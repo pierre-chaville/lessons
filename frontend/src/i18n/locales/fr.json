@@ -372,6 +372,9 @@
     "removeChapterConfirm": "Retirer ce chapitre du livret ?",
     "dragHint": "Astuce : glissez-déposez les sessions pour changer l'ordre.",
     "compositionLocked": "La composition du livret est verrouillée lorsqu'il est prêt ou archivé.",
+    "itemsCsvExportFailed": "Echec de l'export CSV des elements du livret.",
+    "itemsCsvImportSuccess": "{count} element(s) du livret importe(s).",
+    "itemsCsvImportFailed": "Echec de l'import CSV des elements du livret.",
     "createTitle": "Créer un Nouveau Livret",
     "editTitle": "Modifier le Livret",
     "exportModalTitle": "Exporter le livret",
@@ -447,7 +450,10 @@
       "downloadMarkdown": "Télécharger Markdown",
       "downloadingMarkdown": "Téléchargement Markdown...",
       "downloadDocx": "Télécharger Word",
-      "downloadingDocx": "Téléchargement Word..."
+      "downloadingDocx": "Téléchargement Word...",
+      "exportItemsCsv": "Exporter CSV des elements",
+      "importItemsCsv": "Importer CSV des elements",
+      "importingItemsCsv": "Import CSV..."
     },
     "status": {
       "draft": "Brouillon",

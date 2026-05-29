@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   ArrowDownTrayIcon,
+  ArrowUpTrayIcon,
   ArrowTopRightOnSquareIcon,
   CheckCircleIcon,
   ClockIcon,
@@ -45,6 +46,8 @@ const loading = ref(false)
 const mutating = ref(false)
 const showBookletExportModal = ref(false)
 const isSubmittingBookletExport = ref(false)
+const isExportingItemsCsv = ref(false)
+const isImportingItemsCsv = ref(false)
 const detail = ref<BookletDetail | null>(null)
 const allLessons = ref<LessonListItem[]>([])
 const courseTree = ref<CourseTreeNode[]>([])
@@ -59,6 +62,7 @@ const selectedCourseNode = ref<CourseTreeNode | null>(null)
 const draggingItemId = ref<number | null>(null)
 const dragOverItemId = ref<number | null>(null)
 const isLaunchingTasks = ref(false)
+const itemsCsvInput = ref<HTMLInputElement | null>(null)
 
 const selectedProcesses = ref({
   transcribe: false,
@@ -148,6 +152,51 @@ const orderedItems = computed(() => {
   if (!detail.value) return []
   return [...detail.value.items].sort((a, b) => a.position - b.position)
 })
+
+const coursePathById = computed(() => {
+  const map = new Map<number, string>()
+  const walk = (nodes: CourseTreeNode[], ancestors: string[] = []) => {
+    for (const node of nodes) {
+      const nextAncestors = [...ancestors, node.name]
+      map.set(node.id, nextAncestors.join(' / '))
+      if (node.children.length > 0) {
+        walk(node.children, nextAncestors)
+      }
+    }
+  }
+  walk(courseTree.value)
+  return map
+})
+
+const lessonById = computed(() => {
+  const map = new Map<number, LessonListItem>()
+  for (const lesson of allLessons.value) {
+    map.set(lesson.id, lesson)
+  }
+  return map
+})
+
+const getLessonCoursePath = (lesson: LessonListItem | undefined): string => {
+  const courseId = lesson?.course?.id
+  if (courseId == null) return t('booklets.uncategorizedLessons')
+  return coursePathById.value.get(courseId) || lesson?.course?.name || t('booklets.uncategorizedLessons')
+}
+
+const getItemLessonMetadata = (item: BookletItem): { coursePath: string; date: string } | null => {
+  if (item.item_type !== 'lesson' || item.lesson_id == null) return null
+  const lesson = lessonById.value.get(item.lesson_id)
+  if (!lesson) return null
+  return {
+    coursePath: getLessonCoursePath(lesson),
+    date: formatDate(lesson.date),
+  }
+}
+
+const getItemLessonMetadataText = (item: BookletItem): string | null => {
+  const metadata = getItemLessonMetadata(item)
+  if (!metadata) return null
+  return `${metadata.coursePath} · ${metadata.date}`
+}
 
 const selectedLessonIds = computed(
   () =>
@@ -388,6 +437,46 @@ const triggerBookletDownload = (blob: Blob, filename: string) => {
   link.click()
   link.remove()
   window.URL.revokeObjectURL(url)
+}
+
+const exportItemsCsv = async () => {
+  if (!props.bookletId || isExportingItemsCsv.value) return
+  try {
+    isExportingItemsCsv.value = true
+    const blob = await bookletsApi.exportItemsCsv(props.bookletId)
+    const safeTitle = slugifyFilenamePart(detail.value?.title)
+    triggerBookletDownload(blob, `${safeTitle}-items.csv`)
+  } catch {
+    toast.error(t('booklets.itemsCsvExportFailed'))
+  } finally {
+    isExportingItemsCsv.value = false
+  }
+}
+
+const openItemsCsvImportPicker = () => {
+  if (!isDraft.value || mutating.value || isImportingItemsCsv.value) return
+  itemsCsvInput.value?.click()
+}
+
+const handleItemsCsvImport = async (event: Event) => {
+  const input = event.target as HTMLInputElement
+  const selectedFile = input.files?.[0]
+  input.value = ''
+  if (!props.bookletId || !selectedFile) return
+  try {
+    isImportingItemsCsv.value = true
+    const result = await bookletsApi.importItemsCsv(props.bookletId, selectedFile)
+    await loadDetail()
+    toast.success(t('booklets.itemsCsvImportSuccess', { count: result.imported_count }))
+  } catch (e: any) {
+    const detailMessage =
+      e?.response?.data?.detail?.message ||
+      e?.response?.data?.detail ||
+      t('booklets.itemsCsvImportFailed')
+    toast.error(String(detailMessage))
+  } finally {
+    isImportingItemsCsv.value = false
+  }
 }
 
 const slugifyFilenamePart = (value: string | null | undefined): string => {
@@ -789,6 +878,22 @@ watch(() => props.bookletId, loadDetail)
           </h4>
           <div class="flex justify-end gap-2">
             <button
+              class="inline-flex items-center gap-2 px-4 py-2 text-sm rounded-md bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              :disabled="mutating || isExportingItemsCsv || isImportingItemsCsv || orderedItems.length === 0"
+              @click="exportItemsCsv"
+            >
+              <ArrowDownTrayIcon class="h-4 w-4" />
+              {{ isExportingItemsCsv ? t('lessons.exporting') : t('booklets.actions.exportItemsCsv') }}
+            </button>
+            <button
+              class="inline-flex items-center gap-2 px-4 py-2 text-sm rounded-md bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              :disabled="!isDraft || mutating || isImportingItemsCsv || isExportingItemsCsv"
+              @click="openItemsCsvImportPicker"
+            >
+              <ArrowUpTrayIcon class="h-4 w-4" />
+              {{ isImportingItemsCsv ? t('booklets.actions.importingItemsCsv') : t('booklets.actions.importItemsCsv') }}
+            </button>
+            <button
               class="inline-flex items-center gap-2 px-4 py-2 text-sm rounded-md bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
               :disabled="!isDraft || mutating || loadingPicker"
               @click="openAddModal"
@@ -809,6 +914,13 @@ watch(() => props.bookletId, loadDetail)
         <p v-if="!isDraft" class="mb-3 text-xs text-amber-600 dark:text-amber-400 text-right">
           {{ t('booklets.compositionLocked') }}
         </p>
+        <input
+          ref="itemsCsvInput"
+          type="file"
+          accept=".csv,text/csv"
+          class="hidden"
+          @change="handleItemsCsvImport"
+        />
         <p v-if="isDraft" class="text-xs text-gray-500 dark:text-gray-400 mb-2">
           {{ t('booklets.dragHint') }}
         </p>
@@ -832,13 +944,21 @@ watch(() => props.bookletId, loadDetail)
             @dragend="onDragEnd"
           >
             <span class="text-xs text-gray-500 dark:text-gray-400 w-7">{{ row.position }}.</span>
-            <span class="text-sm text-gray-900 dark:text-gray-100 flex-1 truncate">
-              {{
-                row.item_type === 'chapter'
-                  ? row.chapter_title || t('booklets.untitledChapter')
-                  : row.custom_title || row.lesson_title || `Lesson #${row.lesson_id}`
-              }}
-            </span>
+            <div class="flex-1 min-w-0">
+              <span class="block text-sm text-gray-900 dark:text-gray-100 truncate">
+                {{
+                  row.item_type === 'chapter'
+                    ? row.chapter_title || t('booklets.untitledChapter')
+                    : row.custom_title || row.lesson_title || `Lesson #${row.lesson_id}`
+                }}
+              </span>
+              <span
+                v-if="getItemLessonMetadataText(row)"
+                class="block text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5"
+              >
+                {{ getItemLessonMetadataText(row) }}
+              </span>
+            </div>
             <span
               v-if="row.item_type === 'lesson' && row.lesson_status"
               class="text-xs text-gray-500 dark:text-gray-400"

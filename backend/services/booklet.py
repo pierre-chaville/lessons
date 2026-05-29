@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import csv
+import io
 import os
 import re
 import threading
@@ -236,6 +238,32 @@ def _format_date(value: Any) -> str:
     if " " in text:
         return text.split(" ", 1)[0]
     return text
+
+
+def _build_course_path_map(session: Session) -> Dict[int, str]:
+    rows = list(session.exec(select(Course)).all())
+    by_id = {row.id: row for row in rows if row.id is not None}
+
+    def build_path(course_id: int, visiting: Optional[set[int]] = None) -> str:
+        course = by_id.get(course_id)
+        if course is None:
+            return "-"
+        current_name = (course.name or "").strip() or "-"
+        parent_id = course.parent_id
+        if parent_id is None:
+            return current_name
+        if visiting is None:
+            visiting = set()
+        if course_id in visiting:
+            return current_name
+        visiting.add(course_id)
+        parent_path = build_path(parent_id, visiting)
+        visiting.remove(course_id)
+        if parent_path == "-":
+            return current_name
+        return f"{parent_path} / {current_name}"
+
+    return {course_id: build_path(course_id) for course_id in by_id.keys()}
 
 
 def _booklet_pdf_language() -> str:
@@ -864,6 +892,182 @@ def change_status(
 def get_booklet_items(session: Session, booklet_id: int) -> List[BookletItem]:
     _get_booklet(session, booklet_id)
     return _sorted_booklet_items(session, booklet_id)
+
+
+def export_booklet_items_csv(session: Session, booklet_id: int) -> str:
+    _get_booklet(session, booklet_id)
+    rows = _sorted_booklet_items(session, booklet_id)
+    lesson_ids = [row.lesson_id for row in rows if row.item_type == BookletItemType.LESSON and row.lesson_id is not None]
+    lessons: Dict[int, Lesson] = {}
+    if lesson_ids:
+        lessons = {
+            lesson.id: lesson
+            for lesson in session.exec(select(Lesson).where(Lesson.id.in_(lesson_ids))).all()
+            if lesson.id is not None
+        }
+    course_path_by_id = _build_course_path_map(session)
+
+    buffer = io.StringIO()
+    writer = csv.DictWriter(
+        buffer,
+        fieldnames=["position", "item_type", "session_id", "title", "course_path", "date", "status"],
+        lineterminator="\n",
+    )
+    writer.writeheader()
+    for row in rows:
+        if row.item_type == BookletItemType.CHAPTER:
+            writer.writerow(
+                {
+                    "position": row.position,
+                    "item_type": "chapter",
+                    "session_id": "",
+                    "title": row.chapter_title or "Untitled chapter",
+                    "course_path": "",
+                    "date": "",
+                    "status": "",
+                }
+            )
+            continue
+
+        lesson = lessons.get(row.lesson_id) if row.lesson_id is not None else None
+        writer.writerow(
+            {
+                "position": row.position,
+                "item_type": "lesson",
+                "session_id": row.lesson_id or "",
+                "title": row.custom_title or (lesson.title if lesson else ""),
+                "course_path": (
+                    course_path_by_id.get(lesson.course_id, "-")
+                    if lesson is not None and lesson.course_id is not None
+                    else "-"
+                ),
+                "date": _format_date(lesson.date) if lesson is not None else "",
+                "status": (lesson.status or "") if lesson is not None else "",
+            }
+        )
+    return buffer.getvalue()
+
+
+def import_booklet_items_csv(
+    session: Session,
+    booklet_id: int,
+    csv_bytes: bytes,
+    actor: Any,
+) -> Dict[str, Any]:
+    booklet = _get_booklet(session, booklet_id)
+    _require_composition_unlocked(booklet)
+    text = csv_bytes.decode("utf-8-sig")
+    reader = csv.DictReader(io.StringIO(text))
+    if not reader.fieldnames:
+        raise HTTPException(status_code=400, detail="CSV must include headers")
+
+    entries: List[Dict[str, Any]] = []
+    errors: List[str] = []
+    seen_lesson_ids: set[int] = set()
+    lesson_count = 0
+    chapter_count = 0
+
+    for line_index, raw_row in enumerate(reader, start=2):
+        row = {str(k or "").strip().lower(): (v or "").strip() for k, v in raw_row.items()}
+        if not any(row.values()):
+            continue
+
+        item_type_raw = row.get("item_type", "").lower()
+        session_id_raw = row.get("session_id", "")
+        title_raw = row.get("title", "")
+
+        if item_type_raw not in {"lesson", "chapter"}:
+            item_type_raw = "lesson" if session_id_raw else "chapter"
+
+        if item_type_raw == "lesson":
+            if not session_id_raw:
+                errors.append(f"Line {line_index}: lesson rows require session_id")
+                continue
+            try:
+                lesson_id = int(session_id_raw)
+            except ValueError:
+                errors.append(f"Line {line_index}: invalid session_id '{session_id_raw}'")
+                continue
+            if lesson_id <= 0:
+                errors.append(f"Line {line_index}: session_id must be a positive integer")
+                continue
+            if lesson_id in seen_lesson_ids:
+                errors.append(f"Line {line_index}: duplicate session_id {lesson_id}")
+                continue
+            lesson = session.get(Lesson, lesson_id)
+            if lesson is None:
+                errors.append(f"Line {line_index}: lesson {lesson_id} does not exist")
+                continue
+            seen_lesson_ids.add(lesson_id)
+            lesson_count += 1
+            entries.append(
+                {
+                    "item_type": BookletItemType.LESSON,
+                    "lesson_id": lesson_id,
+                    "custom_title": title_raw if title_raw and title_raw != (lesson.title or "") else None,
+                }
+            )
+            continue
+
+        chapter_title = title_raw or "Untitled chapter"
+        chapter_count += 1
+        entries.append(
+            {
+                "item_type": BookletItemType.CHAPTER,
+                "chapter_title": chapter_title,
+            }
+        )
+
+    if errors:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Invalid booklet items CSV",
+                "errors": errors,
+            },
+        )
+    if not entries:
+        raise HTTPException(status_code=400, detail="Uploaded CSV has no valid rows")
+
+    existing_rows = _sorted_booklet_items(session, booklet_id)
+    for row in existing_rows:
+        session.delete(row)
+    session.flush()
+
+    for position, entry in enumerate(entries, start=1):
+        row = BookletItem(
+            booklet_id=booklet_id,
+            position=position,
+            item_type=entry["item_type"],
+            lesson_id=entry.get("lesson_id"),
+            custom_title=entry.get("custom_title"),
+            chapter_title=entry.get("chapter_title"),
+            chapter_starts_new_page=True,
+            added_by_id=_actor_user_id(actor),
+        )
+        session.add(row)
+    session.flush()
+    _renumber_contiguous(session, booklet_id)
+    log_event(
+        session=session,
+        actor=actor,
+        entity_type="booklet",
+        entity_id=str(booklet_id),
+        action="booklet.items_csv_imported",
+        payload={
+            "imported_count": len(entries),
+            "lesson_count": lesson_count,
+            "chapter_count": chapter_count,
+        },
+    )
+    session.commit()
+
+    return {
+        "imported_count": len(entries),
+        "lesson_count": lesson_count,
+        "chapter_count": chapter_count,
+        "errors": [],
+    }
 
 
 def get_booklet_lessons(session: Session, booklet_id: int) -> List[BookletItem]:

@@ -6,7 +6,7 @@ import os
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from sqlmodel import Session, select
 
@@ -19,6 +19,7 @@ from schemas.booklet import (
     BookletGenerationCreate,
     BookletGenerationResponse,
     BookletItemAdd,
+    BookletItemsCsvImportResponse,
     BookletItemResponse,
     BookletItemUpdate,
     BookletLessonAdd,
@@ -159,6 +160,41 @@ def get_booklet(
         **BookletResponse.model_validate(booklet).model_dump(),
         items=items,
         lessons=lesson_items,
+    )
+
+
+@router.get("/{booklet_id}/items/csv/export")
+def export_booklet_items_csv(
+    booklet_id: int,
+    session: Session = Depends(get_session),
+    _: Dict[str, Any] = Depends(require_roles(["editor", "publisher", "admin"])),
+):
+    csv_payload = booklet_service.export_booklet_items_csv(session, booklet_id)
+    return Response(
+        content=csv_payload.encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="booklet_{booklet_id}_items.csv"'},
+    )
+
+
+@router.post("/{booklet_id}/items/csv/import", response_model=BookletItemsCsvImportResponse)
+async def import_booklet_items_csv(
+    booklet_id: int,
+    file: UploadFile = File(...),
+    session: Session = Depends(get_session),
+    claims: Dict[str, Any] = Depends(require_roles(["editor", "publisher", "admin"])),
+):
+    filename = str(file.filename or "").lower()
+    if filename and not filename.endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Please upload a .csv file")
+    payload = await file.read()
+    if not payload:
+        raise HTTPException(status_code=400, detail="Uploaded CSV is empty")
+    return booklet_service.import_booklet_items_csv(
+        session=session,
+        booklet_id=booklet_id,
+        csv_bytes=payload,
+        actor=_actor_from_claims(claims),
     )
 
 

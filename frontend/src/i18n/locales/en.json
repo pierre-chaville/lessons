@@ -372,6 +372,9 @@
     "removeChapterConfirm": "Remove this chapter from booklet?",
     "dragHint": "Tip: drag and drop lessons to reorder.",
     "compositionLocked": "Booklet composition is locked when status is ready or archived.",
+    "itemsCsvExportFailed": "Failed to export booklet items CSV.",
+    "itemsCsvImportSuccess": "{count} booklet item(s) imported.",
+    "itemsCsvImportFailed": "Failed to import booklet items CSV.",
     "createTitle": "Create New Booklet",
     "editTitle": "Edit Booklet",
     "exportModalTitle": "Export booklet",
@@ -447,7 +450,10 @@
       "downloadMarkdown": "Download Markdown",
       "downloadingMarkdown": "Downloading Markdown...",
       "downloadDocx": "Download Word",
-      "downloadingDocx": "Downloading Word..."
+      "downloadingDocx": "Downloading Word...",
+      "exportItemsCsv": "Export items CSV",
+      "importItemsCsv": "Import items CSV",
+      "importingItemsCsv": "Importing CSV..."
     },
     "status": {
       "draft": "Draft",

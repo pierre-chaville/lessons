@@ -476,6 +476,13 @@ export interface BookletTasksLaunchResponse {
   tasks: BookletTaskLaunchItem[]
 }
 
+export interface BookletItemsCsvImportResponse {
+  imported_count: number
+  lesson_count: number
+  chapter_count: number
+  errors: string[]
+}
+
 // ── Search ────────────────────────────────────────────────────────────────────
 
 export interface SearchMatchSegment {
