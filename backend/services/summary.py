@@ -197,24 +197,18 @@ async def generate_summary_async(
                 "Please provide a concise summary of the following lesson."
             )
 
-        max_length = (
-            selected_prompt.get("max_length", 300)
+        summary_max_tokens_raw = (
+            selected_prompt.get("max_tokens")
             if isinstance(selected_prompt, dict)
-            else summary_config.get("max_length", 300)
+            else summary_config.get("max_tokens")
         )
+        if summary_max_tokens_raw is None:
+            summary_max_tokens_raw = 1200
         try:
-            max_length = int(max_length)
+            summary_max_tokens = int(summary_max_tokens_raw)
         except (TypeError, ValueError):
-            max_length = 300
-        max_length = max(1, max_length)
-        # NB: We multiply by 4 to allow for the summary to be longer than the max_length and avoid being truncated.
-        summary_max_tokens = max_length * 4
-
-        # Add max_length instruction to prompt if specified
-        if max_length:
-            summary_prompt = (
-                f"{summary_prompt}\n\nPlease keep the summary under {max_length} words."
-            )
+            summary_max_tokens = 1200
+        summary_max_tokens = max(1, summary_max_tokens)
 
         summary_model_preset = None
         summary_model_preset_id = (

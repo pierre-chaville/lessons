@@ -55,13 +55,14 @@ async def test_generate_summary_updates_summary_only(monkeypatch):
         "edited_transcript_markdown",
         lambda _edited: "Edited markdown",
     )
+    monkeypatch.setattr(summary_service, "load_glossary_rules", lambda _session: [])
     monkeypatch.setattr(
         summary_service,
         "load_config",
         lambda: {
             "provider": "OpenAI",
             "summary": {
-                "prompts": [{"name": "Default", "text": "Summarize this", "max_length": 120}],
+                "prompts": [{"name": "Default", "text": "Summarize this", "max_tokens": 1200}],
             },
             "alignment": {"summary_min_score": 0.2},
         },
@@ -120,6 +121,7 @@ async def test_generate_brief_updates_brief_only(monkeypatch):
             "brief": {"prompt": "Write a short brief", "max_tokens": 120},
         },
     )
+    monkeypatch.setattr(summary_service, "load_glossary_rules", lambda _session: [])
 
     def _fake_get_llm_model(**kwargs):
         requested_task_names.append(kwargs.get("task_name"))

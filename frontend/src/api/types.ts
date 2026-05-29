@@ -588,12 +588,13 @@ export interface SummaryPromptConfig {
   name: string
   text: string
   model_preset_id: number | null
-  max_length: number
+  max_tokens: number
 }
 
 export interface TranscribeConfig {
   model: string
   language: string
+  removed_audience_segment_text?: string
 }
 
 export interface AppConfig {

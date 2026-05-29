@@ -709,6 +709,8 @@
     "computeType": "Type de Calcul",
     "language": "Langue",
     "languageDesc": "Code de langue (ex: fr, en, es)",
+    "removedAudienceSegmentText": "Texte de remplacement des questions de l'audience",
+    "removedAudienceSegmentTextDesc": "Texte inséré pour les segments hors orateur principal supprimés de la transcription",
     "beamSize": "Taille du Faisceau",
     "vadFilter": "Activer le Filtre VAD",
     "initialPrompt": "Prompt Initial",
@@ -753,10 +755,10 @@
     "sourceTypeDescription": "Description du type de source",
     "noSourceTypes": "Aucun type de source défini. Cliquez sur 'Ajouter un Type' pour en ajouter un.",
     "extractionPromptDesc": "Chaque prompt d'extraction de sources a son propre preset de modèle et ses tokens max",
-    "summaryPromptDesc": "Chaque prompt de résumé a son propre preset de modèle et sa longueur maximale",
+    "summaryPromptDesc": "Chaque prompt de résumé a son propre preset de modèle et ses tokens max",
     "briefPromptDesc": "Instructions du prompt pour le résumé bref (le modèle est choisi via un preset)",
-    "maxLength": "Longueur Max (mots)",
-    "maxLengthDesc": "Longueur cible du résumé en mots (backend: max tokens = 2 x cette valeur)"
+    "maxLength": "Tokens max",
+    "maxLengthDesc": "Nombre maximal de tokens pour la réponse du modèle de résumé"
   },
   "modelPresets": {
     "title": "Presets de Modèle",

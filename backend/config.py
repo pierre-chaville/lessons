@@ -12,8 +12,8 @@ from models import AppConfig
 
 CONFIG_FILE = Path(__file__).parent / "data/config.yaml"
 CONFIG_RECORD_ID = 1
-MIN_SUMMARY_PROMPT_MAX_LENGTH = 50
-DEFAULT_SUMMARY_PROMPT_MAX_LENGTH = 300
+MIN_SUMMARY_PROMPT_MAX_TOKENS = 1
+DEFAULT_SUMMARY_PROMPT_MAX_TOKENS = 1200
 DEFAULT_BRIEF_MAX_TOKENS = 1000
 DEFAULT_EDITION_PROMPT_MAX_TOKENS = 16000
 MIN_EDITION_PROMPT_MAX_TOKENS = 256
@@ -54,7 +54,7 @@ DEFAULT_CONFIG = {
                 "name": "Default",
                 "text": "Please provide a concise summary of the following lesson transcript.",
                 "model_preset_id": None,
-                "max_length": 300,
+                "max_tokens": DEFAULT_SUMMARY_PROMPT_MAX_TOKENS,
             }
         ],
     },
@@ -86,6 +86,7 @@ DEFAULT_CONFIG = {
     "transcribe": {
         "model": "nova-3",
         "language": "fr",
+        "removed_audience_segment_text": "[portion supprimée - question de l'audiebce]",
     },
     "alignment": {
         "edited_min_score": DEFAULT_EDITED_MIN_ALIGNMENT_SCORE,
@@ -139,9 +140,13 @@ def _migrate_summary_prompt_model_presets(config: Dict[str, Any]) -> Dict[str, A
         return migrated
 
     summary_copy = dict(summary)
-    legacy_max_length = summary_copy.get(
-        "max_length", DEFAULT_SUMMARY_PROMPT_MAX_LENGTH
-    )
+    legacy_max_tokens = summary_copy.get("max_tokens")
+    if legacy_max_tokens is None:
+        legacy_max_length = summary_copy.get("max_length")
+        try:
+            legacy_max_tokens = int(legacy_max_length) * 4
+        except (TypeError, ValueError):
+            legacy_max_tokens = DEFAULT_SUMMARY_PROMPT_MAX_TOKENS
     prompts = summary_copy.get("prompts", [])
     if not prompts and summary_copy.get("prompt"):
         prompts = [{"name": "Default", "text": summary_copy.get("prompt")}]
@@ -152,9 +157,7 @@ def _migrate_summary_prompt_model_presets(config: Dict[str, Any]) -> Dict[str, A
             continue
         prompt_copy = dict(prompt)
         prompt_copy.setdefault("model_preset_id", None)
-        prompt_copy.setdefault(
-            "max_length", legacy_max_length or DEFAULT_SUMMARY_PROMPT_MAX_LENGTH
-        )
+        prompt_copy.setdefault("max_tokens", legacy_max_tokens)
         normalized_prompts.append(prompt_copy)
     if normalized_prompts:
         summary_copy["prompts"] = normalized_prompts
@@ -205,7 +208,7 @@ def _migrate_correction_prompt_model_presets(config: Dict[str, Any]) -> Dict[str
 
 
 def _normalize_summary_prompt_limits(config: Dict[str, Any]) -> Dict[str, Any]:
-    """Normalize per-prompt summary max_length to a safe integer minimum."""
+    """Normalize per-prompt summary max_tokens to a safe integer minimum."""
     if not config:
         return {}
 
@@ -225,14 +228,20 @@ def _normalize_summary_prompt_limits(config: Dict[str, Any]) -> Dict[str, Any]:
         if not isinstance(prompt, dict):
             continue
         prompt_copy = dict(prompt)
-        raw_max_length = prompt_copy.get(
-            "max_length", DEFAULT_SUMMARY_PROMPT_MAX_LENGTH
-        )
+        raw_max_tokens = prompt_copy.get("max_tokens")
+        if raw_max_tokens is None and "max_length" in prompt_copy:
+            try:
+                raw_max_tokens = int(prompt_copy.get("max_length")) * 4
+            except (TypeError, ValueError):
+                raw_max_tokens = DEFAULT_SUMMARY_PROMPT_MAX_TOKENS
+        if raw_max_tokens is None:
+            raw_max_tokens = DEFAULT_SUMMARY_PROMPT_MAX_TOKENS
         try:
-            prompt_max_length = int(raw_max_length)
+            prompt_max_tokens = int(raw_max_tokens)
         except (TypeError, ValueError):
-            prompt_max_length = DEFAULT_SUMMARY_PROMPT_MAX_LENGTH
-        prompt_copy["max_length"] = max(MIN_SUMMARY_PROMPT_MAX_LENGTH, prompt_max_length)
+            prompt_max_tokens = DEFAULT_SUMMARY_PROMPT_MAX_TOKENS
+        prompt_copy["max_tokens"] = max(MIN_SUMMARY_PROMPT_MAX_TOKENS, prompt_max_tokens)
+        prompt_copy.pop("max_length", None)
         normalized_prompts.append(prompt_copy)
 
     if normalized_prompts:

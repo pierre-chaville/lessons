@@ -26,6 +26,24 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+REMOVED_AUDIENCE_SEGMENT_TEXT = "[portion supprimée - question de l'audiebce]"
+
+
+def _resolve_main_speaker(utterances: List[Any]) -> Optional[Any]:
+    """Infer the main speaker as the one with the longest total duration."""
+    speaker_durations: Dict[Any, float] = {}
+    for utterance in utterances:
+        speaker = getattr(utterance, "speaker", None)
+        if speaker is None:
+            continue
+        start = float(getattr(utterance, "start", 0.0) or 0.0)
+        end = float(getattr(utterance, "end", 0.0) or 0.0)
+        duration = max(0.0, end - start)
+        speaker_durations[speaker] = speaker_durations.get(speaker, 0.0) + duration
+    if not speaker_durations:
+        return None
+    return max(speaker_durations, key=speaker_durations.get)
+
 
 def _get_api_key() -> str:
     """Get the Deepgram API key from environment."""
@@ -39,6 +57,7 @@ def transcribe_audio(
     audio_bytes: bytes,
     model: Optional[str] = None,
     language: Optional[str] = None,
+    removed_audience_segment_text: Optional[str] = None,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """
     Transcribe audio using Deepgram's batch (pre-recorded) API.
@@ -64,6 +83,7 @@ def transcribe_audio(
             utterances=True,
             # language='multi' # language or "fr",
             language=language or "fr",
+            diarize=True,
             request_options={
                 "timeout_in_seconds": 600,
                 "max_retries": 3,
@@ -73,13 +93,32 @@ def transcribe_audio(
 
         # Extract segments from utterances
         seg_list = []
+        replacement_text = (
+            removed_audience_segment_text.strip()
+            if isinstance(removed_audience_segment_text, str)
+            and removed_audience_segment_text.strip()
+            else REMOVED_AUDIENCE_SEGMENT_TEXT
+        )
+
         if result.utterances:
+            main_speaker = _resolve_main_speaker(result.utterances)
+            logger.info("Detected main speaker for filtering: %s", main_speaker)
             for utterance in result.utterances:
+                speaker = getattr(utterance, "speaker", None)
+                keep_utterance = (
+                    main_speaker is None
+                    or speaker is None
+                    or speaker == main_speaker
+                )
                 seg_list.append(
                     {
                         "start": utterance.start,
                         "end": utterance.end,
-                        "text": utterance.transcript,
+                        "text": (
+                            utterance.transcript
+                            if keep_utterance
+                            else replacement_text
+                        ),
                     }
                 )
         elif result.channels:
@@ -175,6 +214,9 @@ def transcribe_lesson(
         transcribe_config = config.get("transcribe", {})
         model = transcribe_config.get("model", "nova-3")
         language = transcribe_config.get("language", "fr")
+        removed_audience_segment_text = transcribe_config.get(
+            "removed_audience_segment_text", REMOVED_AUDIENCE_SEGMENT_TEXT
+        )
 
         mem_before_transcription = get_rss_memory_mb()
         logger.info(
@@ -182,7 +224,12 @@ def transcribe_lesson(
             lesson_id,
             format_memory_mb(mem_before_transcription),
         )
-        segments_data, metadata = transcribe_audio(audio_bytes, model=model, language=language)
+        segments_data, metadata = transcribe_audio(
+            audio_bytes,
+            model=model,
+            language=language,
+            removed_audience_segment_text=removed_audience_segment_text,
+        )
         glossary_rules = load_glossary_rules(session)
         segments_data, glossary_report = apply_glossary_to_segments_with_report(
             segments_data, glossary_rules
