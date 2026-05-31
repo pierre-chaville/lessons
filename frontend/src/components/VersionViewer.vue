@@ -40,11 +40,44 @@ const asSegments = computed<TranscriptSegment[]>(() => {
   return version.value.content as TranscriptSegment[]
 })
 
+const asEditedMarkdown = computed(() => {
+  if (!version.value) return ''
+  const content = version.value.content
+  if (content && typeof content === 'object' && 'markdown' in content) {
+    const markdown = (content as { markdown?: unknown }).markdown
+    return typeof markdown === 'string' ? markdown : ''
+  }
+  return typeof content === 'string' ? content : ''
+})
+
 const formatTimestamp = (seconds?: number): string => {
   if (seconds === undefined || seconds === null) return '--:--'
   const mins = Math.floor(seconds / 60)
   const secs = Math.floor(seconds % 60)
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+}
+
+const isLegacyBackfillWithoutContent = (candidate: LessonVersion | null): boolean => {
+  if (!candidate) return false
+  if (candidate.content !== null && candidate.content !== undefined) return false
+  if (candidate.version_number !== 1) return false
+  return candidate.sealed_reason === 'backfill'
+}
+
+const fallbackContentFromCurrentLesson = (contentType: ContentType, lesson: Record<string, unknown>): unknown => {
+  if (contentType === 'title' || contentType === 'brief' || contentType === 'summary') {
+    const value = lesson[contentType]
+    return typeof value === 'string' ? value : ''
+  }
+  if (contentType === 'corrected_transcript') {
+    const value = lesson.corrected_transcript
+    return Array.isArray(value) ? value : []
+  }
+  if (contentType === 'edited_transcript') {
+    const value = lesson.edited_transcript
+    return value && typeof value === 'object' ? value : { markdown: '' }
+  }
+  return null
 }
 
 const loadVersion = async () => {
@@ -55,7 +88,16 @@ const loadVersion = async () => {
   loading.value = true
   error.value = null
   try {
-    version.value = await lessonsApi.getVersion(props.lessonHashid, props.versionId)
+    const loadedVersion = await lessonsApi.getVersion(props.lessonHashid, props.versionId)
+    if (isLegacyBackfillWithoutContent(loadedVersion)) {
+      try {
+        const lesson = await lessonsApi.get(props.lessonHashid)
+        loadedVersion.content = fallbackContentFromCurrentLesson(props.contentType, lesson as Record<string, unknown>)
+      } catch {
+        // Keep empty content if lesson fetch fails.
+      }
+    }
+    version.value = loadedVersion
   } catch (e: any) {
     version.value = null
     error.value = e?.response?.data?.detail || t('history.versionLoadFailed')
@@ -99,6 +141,12 @@ watch(
       v-else-if="contentType === 'summary'"
       class="prose prose-indigo max-w-none dark:prose-invert"
       v-html="renderMarkdown(asText)"
+    />
+
+    <div
+      v-else-if="contentType === 'edited_transcript'"
+      class="prose prose-indigo max-w-none dark:prose-invert"
+      v-html="renderMarkdown(asEditedMarkdown)"
     />
 
     <div v-else class="space-y-3">
