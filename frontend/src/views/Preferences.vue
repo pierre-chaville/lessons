@@ -42,7 +42,7 @@ const config = ref<AppConfig>({
   transcribe: {
     model: 'nova-3',
     language: 'fr',
-    removed_audience_segment_text: "[portion supprimée - question de l'audiebce]",
+    audience_segment_prefix: '[audience]',
   },
   alignment: {
     edited_min_score: 0.2,
@@ -101,13 +101,17 @@ const normalizeConfigShape = () => {
     config.value.transcribe = {
       model: 'nova-3',
       language: 'fr',
-      removed_audience_segment_text: "[portion supprimée - question de l'audiebce]",
+      audience_segment_prefix: '[audience]',
     }
   }
   if (!config.value.transcribe.model) config.value.transcribe.model = 'nova-3'
   if (!config.value.transcribe.language) config.value.transcribe.language = 'fr'
-  if (!config.value.transcribe.removed_audience_segment_text) {
-    config.value.transcribe.removed_audience_segment_text = "[portion supprimée - question de l'audiebce]"
+  if (!config.value.transcribe.audience_segment_prefix) {
+    if (config.value.transcribe.removed_audience_segment_text) {
+      config.value.transcribe.audience_segment_prefix = config.value.transcribe.removed_audience_segment_text
+    } else {
+      config.value.transcribe.audience_segment_prefix = '[audience]'
+    }
   }
   if (!config.value.alignment) {
     config.value.alignment = { edited_min_score: 0.2, summary_min_score: 0.2 }
@@ -780,15 +784,15 @@ watch(
 
                 <div>
                   <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {{ t('preferences.removedAudienceSegmentText') }}
+                    {{ t('preferences.audienceSegmentPrefix') }}
                   </label>
                   <input
-                    v-model="config.transcribe.removed_audience_segment_text"
+                    v-model="config.transcribe.audience_segment_prefix"
                     type="text"
                     class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
                   />
                   <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    {{ t('preferences.removedAudienceSegmentTextDesc') }}
+                    {{ t('preferences.audienceSegmentPrefixDesc') }}
                   </p>
                 </div>
               </div>

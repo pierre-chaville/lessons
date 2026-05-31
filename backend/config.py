@@ -86,7 +86,7 @@ DEFAULT_CONFIG = {
     "transcribe": {
         "model": "nova-3",
         "language": "fr",
-        "removed_audience_segment_text": "[portion supprimée - question de l'audiebce]",
+        "audience_segment_prefix": "[audience]",
     },
     "alignment": {
         "edited_min_score": DEFAULT_EDITED_MIN_ALIGNMENT_SCORE,

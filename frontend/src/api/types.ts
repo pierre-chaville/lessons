@@ -594,6 +594,7 @@ export interface SummaryPromptConfig {
 export interface TranscribeConfig {
   model: string
   language: string
+  audience_segment_prefix?: string
   removed_audience_segment_text?: string
 }
 

@@ -26,7 +26,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-REMOVED_AUDIENCE_SEGMENT_TEXT = "[portion supprimée - question de l'audiebce]"
+DEFAULT_AUDIENCE_SEGMENT_PREFIX = "[audience]"
 
 
 def _resolve_main_speaker(utterances: List[Any]) -> Optional[Any]:
@@ -57,7 +57,7 @@ def transcribe_audio(
     audio_bytes: bytes,
     model: Optional[str] = None,
     language: Optional[str] = None,
-    removed_audience_segment_text: Optional[str] = None,
+    audience_segment_prefix: Optional[str] = None,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """
     Transcribe audio using Deepgram's batch (pre-recorded) API.
@@ -93,11 +93,11 @@ def transcribe_audio(
 
         # Extract segments from utterances
         seg_list = []
-        replacement_text = (
-            removed_audience_segment_text.strip()
-            if isinstance(removed_audience_segment_text, str)
-            and removed_audience_segment_text.strip()
-            else REMOVED_AUDIENCE_SEGMENT_TEXT
+        audience_prefix = (
+            audience_segment_prefix.strip()
+            if isinstance(audience_segment_prefix, str)
+            and audience_segment_prefix.strip()
+            else DEFAULT_AUDIENCE_SEGMENT_PREFIX
         )
 
         if result.utterances:
@@ -117,7 +117,11 @@ def transcribe_audio(
                         "text": (
                             utterance.transcript
                             if keep_utterance
-                            else replacement_text
+                            else (
+                                f"{audience_prefix} {utterance.transcript}".strip()
+                                if utterance.transcript
+                                else audience_prefix
+                            )
                         ),
                     }
                 )
@@ -214,9 +218,13 @@ def transcribe_lesson(
         transcribe_config = config.get("transcribe", {})
         model = transcribe_config.get("model", "nova-3")
         language = transcribe_config.get("language", "fr")
-        removed_audience_segment_text = transcribe_config.get(
-            "removed_audience_segment_text", REMOVED_AUDIENCE_SEGMENT_TEXT
-        )
+        audience_segment_prefix = transcribe_config.get("audience_segment_prefix")
+        if not audience_segment_prefix:
+            # Backward compatibility with previous configuration key.
+            audience_segment_prefix = transcribe_config.get(
+                "removed_audience_segment_text",
+                DEFAULT_AUDIENCE_SEGMENT_PREFIX,
+            )
 
         mem_before_transcription = get_rss_memory_mb()
         logger.info(
@@ -228,7 +236,7 @@ def transcribe_lesson(
             audio_bytes,
             model=model,
             language=language,
-            removed_audience_segment_text=removed_audience_segment_text,
+            audience_segment_prefix=audience_segment_prefix,
         )
         glossary_rules = load_glossary_rules(session)
         segments_data, glossary_report = apply_glossary_to_segments_with_report(
