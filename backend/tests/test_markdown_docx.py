@@ -202,6 +202,24 @@ def test_docx_import_escapes_literal_markdown_control_chars():
     assert converted == r"Price \*value\* and key\_name *\*wrapped\* \_token\_*"
 
 
+def test_docx_import_moves_trailing_space_outside_closing_emphasis_markers():
+    document = Document()
+    heading = document.add_heading(level=2)
+    lead = heading.add_run("De Mara au Sinaï : ce qui change avec ")
+    lead.bold = True
+    tail = heading.add_run("Matan Torah ")
+    tail.bold = True
+    tail.italic = True
+
+    output = BytesIO()
+    document.save(output)
+
+    converted = docx_bytes_to_markdown(output.getvalue())
+
+    assert "Matan Torah *" not in converted
+    assert converted.endswith("*Matan Torah*")
+
+
 def test_hebrew_runs_are_explicitly_marked_rtl():
     markdown = "Texte mixte: שלוש רגלים et encore."
     docx_bytes = markdown_to_docx_bytes(markdown)

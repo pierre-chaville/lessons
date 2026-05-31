@@ -379,6 +379,27 @@ def _inline_runs_to_markdown(paragraph, *, suppress_bold: bool = False) -> str:
         # Close in reverse order to keep markdown nesting balanced.
         return ("*" if close_italic else "") + ("**" if close_bold else "")
 
+    def _append_closing_markers_preserving_spacing(markers: str) -> None:
+        """
+        Keep trailing whitespace outside closing emphasis markers.
+
+        External DOCX often stores words as styled runs ending with a space.
+        If we emit the closing marker after that space, markdown emphasis breaks
+        (e.g. `*word *`). We move trailing spaces after the marker instead
+        (e.g. `*word* `).
+        """
+        if not markers:
+            return
+        trailing_ws = ""
+        if parts:
+            match = re.search(r"\s+$", parts[-1])
+            if match:
+                trailing_ws = match.group(0)
+                parts[-1] = parts[-1][: -len(trailing_ws)]
+        parts.append(markers)
+        if trailing_ws:
+            parts.append(trailing_ws)
+
     for run in paragraph.runs:
         text = (run.text or "").replace("\r", "")
         text = _BIDI_CONTROL_RE.sub("", text)
@@ -389,7 +410,7 @@ def _inline_runs_to_markdown(paragraph, *, suppress_bold: bool = False) -> str:
         want_italic = bool(run.italic)
 
         # Close styles that are no longer active.
-        parts.append(
+        _append_closing_markers_preserving_spacing(
             _close_markers(
                 close_bold=active_bold and not want_bold,
                 close_italic=active_italic and not want_italic,
@@ -407,7 +428,9 @@ def _inline_runs_to_markdown(paragraph, *, suppress_bold: bool = False) -> str:
         active_italic = want_italic
 
     if active_bold or active_italic:
-        parts.append(_close_markers(close_bold=active_bold, close_italic=active_italic))
+        _append_closing_markers_preserving_spacing(
+            _close_markers(close_bold=active_bold, close_italic=active_italic)
+        )
 
     return "".join(parts).strip()
 
