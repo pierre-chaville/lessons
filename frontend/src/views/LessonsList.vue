@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, watch, onBeforeUnmount } from 'vue'
+import { ref, onMounted, computed, watch, onBeforeUnmount, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   DocumentTextIcon,
@@ -15,6 +15,8 @@ import {
   ArrowsUpDownIcon,
 } from '@heroicons/vue/24/outline'
 import { Menu, MenuButton, MenuItems, MenuItem } from '@headlessui/vue'
+import { driver } from 'driver.js'
+import 'driver.js/dist/driver.css'
 import LessonDetail from './LessonDetail.vue'
 import CreateLessonModal from '../components/CreateLessonModal.vue'
 import CourseTreeItem from '@/components/CourseTreeItem.vue'
@@ -185,6 +187,14 @@ const lessonsFetchSeq = ref(0)
 const MIN_PANEL_WIDTH = 240
 const MAX_PANEL_WIDTH = 560
 const PANEL_STATE_KEY_PREFIX = 'lessons.courses-panel.v1'
+const HOME_TOUR_STATE_KEY_PREFIX = 'lessons.home-tour.v1'
+
+const getHomeTourStateKey = (): string => {
+  const userId = user.value?.id ?? 'anonymous'
+  return `${HOME_TOUR_STATE_KEY_PREFIX}:${userId}`
+}
+
+let homeTourInstance: ReturnType<typeof driver> | null = null
 
 const getPanelStateKey = (): string => {
   const userId = user.value?.id ?? 'anonymous'
@@ -623,6 +633,131 @@ const startResize = (event: MouseEvent) => {
   window.addEventListener('mouseup', stopResize)
 }
 
+const startHomeTour = async () => {
+  await nextTick()
+  homeTourInstance?.destroy()
+  homeTourInstance = driver({
+    showProgress: true,
+    allowClose: true,
+    steps: [
+      {
+        element: '[data-tour="courses-tree"]',
+        popover: {
+          title: t('lessons.tour.treeTitle'),
+          description: t('lessons.tour.treeDescription'),
+          side: 'right',
+          align: 'start',
+        },
+      },
+      {
+        element: '[data-tour="search-input"]',
+        popover: {
+          title: t('lessons.tour.searchTitle'),
+          description: t('lessons.tour.searchDescription'),
+          side: 'bottom',
+          align: 'start',
+        },
+      },
+      {
+        element: '[data-tour="sort-menu"]',
+        popover: {
+          title: t('lessons.tour.sortTitle'),
+          description: t('lessons.tour.sortDescription'),
+          side: 'bottom',
+          align: 'end',
+        },
+      },
+      {
+        element: '[data-tour="facets-row"]',
+        popover: {
+          title: t('lessons.tour.facetsTitle'),
+          description: t('lessons.tour.facetsDescription'),
+          side: 'bottom',
+          align: 'start',
+        },
+      },
+      {
+        element: '[data-tour="lessons-list"]',
+        popover: {
+          title: t('lessons.tour.listTitle'),
+          description: t('lessons.tour.listDescription'),
+          side: 'top',
+          align: 'start',
+        },
+      },
+      {
+        element: '[data-tour="help-button"]',
+        popover: {
+          title: t('lessons.tour.helpTitle'),
+          description: t('lessons.tour.helpDescription'),
+          side: 'bottom',
+          align: 'end',
+        },
+      },
+      {
+        element: '[data-tour="theme-toggle"]',
+        popover: {
+          title: t('lessons.tour.themeTitle'),
+          description: t('lessons.tour.themeDescription'),
+          side: 'bottom',
+          align: 'end',
+        },
+      },
+    ],
+  })
+  homeTourInstance.drive()
+  localStorage.setItem(getHomeTourStateKey(), 'seen')
+}
+
+const startLessonDetailTour = async () => {
+  await nextTick()
+  homeTourInstance?.destroy()
+  homeTourInstance = driver({
+    showProgress: true,
+    allowClose: true,
+    steps: [
+      {
+        element: '[data-tour="detail-header"]',
+        popover: {
+          title: t('lessons.tour.detailHeaderTitle'),
+          description: t('lessons.tour.detailHeaderDescription'),
+          side: 'bottom',
+          align: 'start',
+        },
+      },
+      {
+        element: '[data-tour="detail-workflow"]',
+        popover: {
+          title: t('lessons.tour.detailWorkflowTitle'),
+          description: t('lessons.tour.detailWorkflowDescription'),
+          side: 'left',
+          align: 'start',
+        },
+      },
+      {
+        element: '[data-tour="detail-tabs"]',
+        popover: {
+          title: t('lessons.tour.detailTabsTitle'),
+          description: t('lessons.tour.detailTabsDescription'),
+          side: 'bottom',
+          align: 'start',
+        },
+      },
+      {
+        element: '[data-tour="detail-content"]',
+        popover: {
+          title: t('lessons.tour.detailContentTitle'),
+          description: t('lessons.tour.detailContentDescription'),
+          side: 'top',
+          align: 'start',
+        },
+      },
+    ],
+  })
+  homeTourInstance.drive()
+}
+
+
 onMounted(async () => {
   window.addEventListener('popstate', handlePopState)
   restorePanelState()
@@ -645,17 +780,23 @@ onMounted(async () => {
     } else {
       await fetchLessonByHashid(hashid, historyRoute, false)
     }
+  } else if (localStorage.getItem(getHomeTourStateKey()) !== 'seen') {
+    await startHomeTour()
   }
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('popstate', handlePopState)
   stopResize()
+  homeTourInstance?.destroy()
+  homeTourInstance = null
 })
 
 defineExpose({
   isViewingDetail: computed(() => selectedLessonDetail.value !== null),
   openCreateModal,
+  startHomeTour,
+  startLessonDetailTour,
 })
 </script>
 
@@ -686,6 +827,7 @@ defineExpose({
   <div v-else ref="layoutRef" class="flex min-h-0">
     <!-- Left panel: Course tree -->
     <aside
+      data-tour="courses-tree"
       class="flex-shrink-0 bg-white dark:bg-gray-800 shadow-sm rounded-lg overflow-hidden transition-colors"
       :style="{ width: `${panelWidth}px` }"
     >
@@ -749,6 +891,7 @@ defineExpose({
             <MagnifyingGlassIcon class="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
             <input
               v-model="titleQuery"
+              data-tour="search-input"
               type="text"
               :placeholder="t('lessons.searchTitlePlaceholder')"
               class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 pl-8 pr-8 py-1.5 text-sm text-gray-700 dark:text-gray-200 placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
@@ -769,6 +912,7 @@ defineExpose({
             </span>
             <Menu as="div" class="relative">
               <MenuButton
+                data-tour="sort-menu"
                 class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                 :title="t('lessons.sort')"
               >
@@ -809,7 +953,7 @@ defineExpose({
           </div>
         </div>
 
-        <div class="mt-2 flex flex-wrap items-center gap-2">
+        <div data-tour="facets-row" class="mt-2 flex flex-wrap items-center gap-2">
           <div class="inline-flex items-center gap-1">
             <Menu as="div" class="relative">
               <MenuButton class="inline-flex items-center gap-1.5 rounded-md border border-gray-300 dark:border-gray-600 px-2.5 py-1.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700">
@@ -950,7 +1094,7 @@ defineExpose({
         {{ t('lessons.noLessons') }}
       </div>
 
-      <div v-else class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+      <div v-else data-tour="lessons-list" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         <div
           v-for="lesson in sortedLessons"
           :key="lesson.id"
@@ -1002,4 +1146,5 @@ defineExpose({
       </div>
     </div>
   </div>
+
 </template>

@@ -19,6 +19,7 @@
     "@milkdown/plugin-slash": "^7.20.0",
     "axios": "^1.6.2",
     "diff-match-patch": "^1.0.5",
+    "driver.js": "^1.4.0",
     "marked": "^11.2.0",
     "vue": "^3.3.10",
     "vue-i18n": "^9.8.0",

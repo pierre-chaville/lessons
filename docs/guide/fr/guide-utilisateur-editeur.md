@@ -1,4 +1,4 @@
-# Guide Utilisateur
+# Guide Utilisateur (Editeur)
 
 ## Objectif de l'application
 
@@ -115,15 +115,9 @@ Les sections disponibles sont :
 | Section | Description | Rôles requis |
 |---|---|---|
 | **Sessions** | Page d'accueil avec arborescence des parcours et liste des sessions | Tous |
-| **Livrets** | Création de livrets multi-sessions, export document et pilotage de tâches par lot | Éditeur, Éditeur en chef, Admin |
 | **Parcours** | Gestion de l'arborescence des parcours | Tous (lecture), Éditeur en chef/Admin (modification) |
 | **Thèmes** | Gestion des thèmes | Tous (lecture), Éditeur en chef/Admin (modification) |
-| **Glossaire** | Dictionnaire des termes/variantes utilisé par le pipeline | Lecture selon droits, création/modification selon permissions Glossaire |
 | **Traitement** | Suivi des tâches en cours | Éditeur, Éditeur en chef, Admin |
-| **Utilisateurs** | Gestion des utilisateurs | Éditeur en chef, Admin |
-| **Journal d'audit** | Consultation des événements d'audit globaux (acteur, action, entité, payload) | Admin |
-| **Modèles** | Gestion des presets de modèles IA (provider/model/coûts/thinking mode) | Lecture selon droits, édition selon permissions |
-| **Préférences** | Configuration de l'application | Éditeur en chef, Admin |
 
 ---
 
@@ -454,145 +448,6 @@ Dans la section **Thèmes** :
 - **Supprimer un thème** : cliquez sur le bouton de suppression (les sessions associées perdront ce thème)
 
 ![Page d'acceuil](./images/themes.png)
-
----
-
-## Gérer le glossaire
-
-Dans la section **Glossaire** :
-
-- **Créer une entrée** avec :
-  - Forme standard
-  - Variantes (virgules ou retours à la ligne)
-  - Option casse exacte
-- **Modifier** et **supprimer** des entrées existantes
-- **Exporter en YAML** et **importer un YAML** du glossaire
-
----
-
-## Gérer les livrets
-
-La section **Livrets** permet de composer des documents à partir de plusieurs sessions.
-
-### Liste des livrets
-
-- Créer un livret avec titre, sous-titre, description
-- Choisir les champs de template à inclure (titre, date, durée, transcription corrigée, version rédigée, résumé bref, résumé, statut, thèmes, parcours)
-- Suivre le statut du livret : **Brouillon**, **Prêt**, **Archivé**
-
-### Détail d'un livret
-
-- Ajouter des sessions via une modale avec arborescence des parcours
-- Ajouter des **chapitres** (titres/sous-titres/texte, option nouvelle page)
-- Réordonner les éléments (flèches ou glisser-déposer)
-- Retirer des sessions ou chapitres
-- Ouvrir directement une session depuis un élément du livret
-- Lancer des tâches pipeline **en lot** sur les sessions incluses (transcription, correction, rédaction, extraction, vérification, résumé, résumé bref)
-- Exporter le livret en **PDF**, **Markdown** ou **Word**
-- Exporter/importer en **CSV** la composition du livret
-
-> Passage en statut **Prêt** : toutes les sessions incluses doivent être au statut **Validée**.
-
----
-
-## Journal d'audit global
-
-La section **Journal d'audit** (Admin) permet de consulter les événements techniques et fonctionnels :
-
-- Filtres par acteur, préfixe d'action et période (dates)
-- Affichage de l'entité concernée (ex. session)
-- Bouton pour afficher/masquer le payload JSON de chaque événement
-
----
-
-## Presets de modèles (Modèles)
-
-La section **Modèles** centralise les presets de modèles IA réutilisables dans les préférences et les tâches :
-
-- Créer/modifier/supprimer un preset avec :
-  - Nom, fournisseur, ID modèle
-  - Température
-  - Coûts input/output par million de tokens
-  - `thinking_mode` (JSON)
-- Les utilisateurs sans droit d'édition voient la section en lecture seule
-
----
-
-## Gestion des utilisateurs
-
-La section **Utilisateurs** (accessible aux rôles Éditeur en chef et Admin) permet de :
-
-- **Voir** la liste de tous les utilisateurs et leurs rôles
-- **Inviter un utilisateur** : envoyer un email d'invitation
-- **Créer un utilisateur** : créer un compte directement avec un mot de passe
-- **Modifier le rôle** d'un utilisateur
-- **Supprimer un utilisateur**
-
-![Page d'acceuil](./images/users.png)
-
-### Rôles disponibles
-
-| Rôle | Description |
-|---|---|
-| **Lecteur** | Peut consulter les sessions, parcours, thèmes et sources |
-| **Éditeur** | Peut modifier les sessions auxquelles il est assigné comme éditeur (transcription, texte rédigé, résumé), lancer des tâches sur ces sessions et changer le statut |
-| **Éditeur en chef** | Peut créer/supprimer des sessions, parcours, thèmes, gérer les tâches et les utilisateurs. Peut valider ou demander des révisions |
-| **Admin** | Accès complet à toutes les fonctionnalités et la configuration, y compris la réouverture de sessions validées |
-
-> **Note** : Un Éditeur en chef ne peut pas attribuer le rôle Admin, ni modifier les utilisateurs ayant le rôle Admin.
-
-![Page d'acceuil](./images/new_user.png)
-
----
-
-## Préférences
-
-La section **Préférences** (accessible aux rôles Éditeur en chef en lecture, Admin en modification) permet de configurer :
-
-- L'édition est **auto-enregistrée**
-- Import/export global de la configuration en **YAML**
-- Lien avec les **presets de modèles** définis dans la section Modèles
-
-### Transcription
-
-- Modèle de transcription
-- Langue de transcription
-- Préfixe des segments audience
-
-### Correction
-
-- **Prompts multiples** nommés
-- Pour chaque prompt : preset modèle + tokens max
-- Éditeur visuel (WYSIWYG) ou Markdown pour éditer les prompts
-
-### Rédaction
-
-- **Prompts multiples** nommés
-- Pour chaque prompt : preset modèle + tokens max
-- Éditeur visuel (WYSIWYG) ou Markdown
-
-### Sources
-
-- **Extraction des sources** :
-  - Prompts multiples avec preset modèle + tokens max
-- **Vérification des sources** :
-  - Prompts multiples avec preset modèle + tokens max
-- Référentiel des types de sources (Tanakh, Mishnah, Talmud, etc.)
-
-### Résumé
-
-- Prompts multiples avec preset modèle + tokens max
-
-### Résumé bref
-
-- Preset de modèle dédié
-- Tokens max
-- Prompt dédié (éditeur visuel ou Markdown)
-
-### Alignement
-
-- Seuil minimum d'alignement **version rédigée ↔ transcription**
-- Seuil minimum d'alignement **résumé ↔ version rédigée**
 
 ---
 

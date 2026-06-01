@@ -3,7 +3,6 @@ import { ref, computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import {
   BookOpenIcon,
-  MagnifyingGlassIcon,
   AcademicCapIcon,
   TagIcon,
   DocumentTextIcon,
@@ -28,7 +27,6 @@ const isCollapsed = ref(false);
 const allNavigationItems = [
   { key: 'lessons',     label: 'nav.lessons',     icon: BookOpenIcon,         route: '/lessons',     always: true },
   { key: 'booklets',    label: 'nav.booklets',    icon: BookOpenIcon,         route: '/booklets',    always: false },
-  { key: 'search',      label: 'nav.search',       icon: MagnifyingGlassIcon,  route: '/search',      always: true },
   { key: 'courses',     label: 'nav.courses',      icon: AcademicCapIcon,      route: '/courses',     always: true },
   { key: 'themes',      label: 'nav.themes',       icon: TagIcon,              route: '/themes',      always: true },
   { key: 'glossary',    label: 'nav.glossary',     icon: BookOpenIcon,         route: '/glossary',    always: false },

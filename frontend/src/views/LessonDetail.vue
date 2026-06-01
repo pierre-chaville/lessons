@@ -2659,7 +2659,7 @@ const saveParagraph = async () => {
       </div>
 
       <!-- Lesson Header -->
-      <div class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-6 mb-6 transition-colors">
+      <div data-tour="detail-header" class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-6 mb-6 transition-colors">
         <div class="mb-4">
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div class="flex items-start gap-4 min-w-0">
@@ -2791,13 +2791,14 @@ const saveParagraph = async () => {
           </div>
 
           <!-- Right: workflow -->
-          <div class="lg:col-span-1">
+          <div data-tour="detail-workflow" class="lg:col-span-1">
             <div class="mb-3 flex items-center justify-between gap-3">
               <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200">
                 {{ t('lessons.workflow') }}
               </h3>
               <button
                 v-if="!isEditingLesson && canEditLesson"
+                data-tour="detail-process-button"
                 @click="openProcessModal"
                 :disabled="isProcessing"
                 :class="[
@@ -2913,7 +2914,7 @@ const saveParagraph = async () => {
       </div>
 
       <!-- Content Section with Toggle -->
-      <div v-if="availableViews.length > 0" class="bg-white dark:bg-gray-800 shadow-sm rounded-lg overflow-hidden transition-colors">
+      <div data-tour="detail-tabs" v-if="availableViews.length > 0" class="bg-white dark:bg-gray-800 shadow-sm rounded-lg overflow-hidden transition-colors">
         <!-- Toggle Switch & Audio Player -->
         <div class="border-b border-gray-200 dark:border-gray-700 p-4">
           <div class="flex items-center justify-between gap-4 flex-wrap">
@@ -3107,7 +3108,7 @@ const saveParagraph = async () => {
         </div>
         
         <!-- Content Panels -->
-        <div class="p-6">
+        <div data-tour="detail-content" class="p-6">
           <!-- Global floating now-playing bar -->
           <div
             v-if="isPlaying && (activeView === 'transcript' || activeView === 'edited' || (activeView === 'summary' && showSummaryWithEdited))"

@@ -1,8 +1,9 @@
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import { SignedIn, SignedOut, SignInButton, UserButton } from '@clerk/vue';
 import { useI18n } from 'vue-i18n';
 import { Menu, MenuButton, MenuItems, MenuItem } from '@headlessui/vue';
+import { marked } from 'marked';
 import {
   ChevronDownIcon,
   LanguageIcon,
@@ -13,6 +14,8 @@ import {
   ArrowDownTrayIcon,
   ArrowUpTrayIcon,
   InformationCircleIcon,
+  QuestionMarkCircleIcon,
+  XMarkIcon,
 } from '@heroicons/vue/24/outline';
 import { useAuth } from '@/composables/useAuth';
 import { usePermissions } from '@/composables/usePermissions';
@@ -81,15 +84,97 @@ const usersListRef = ref(null);
 const modelPresetsRef = ref(null);
 const bookletsListRef = ref(null);
 const selectedBookletId = ref(null);
+const isHelpDrawerOpen = ref(false);
+const helpMarkdownContent = ref('');
+const helpHtmlContent = ref('');
+const isHelpContentLoading = ref(false);
+const lessonsHelpVideoUrl = import.meta.env.VITE_HELP_VIDEO_LESSONS_URL || import.meta.env.VITE_LESSONS_HELP_VIDEO_URL || '';
+
+const HELP_MARKDOWN_FILES = import.meta.glob('./help/*/*.md', {
+  query: '?raw',
+  import: 'default',
+});
 
 // Check if we're viewing a lesson detail
 const isViewingDetail = computed(() => {
   return lessonsListRef.value?.isViewingDetail || false;
 });
 
+const helpPageConfig = computed(() => {
+  if (currentRoute.value === '/lessons') {
+    return {
+      slug: isViewingDetail.value ? 'lesson-detail' : 'lessons',
+      supportsTour: true,
+      videoUrl: !isViewingDetail.value ? lessonsHelpVideoUrl : '',
+    };
+  }
+  if (currentRoute.value === '/search') return { slug: 'search', supportsTour: false, videoUrl: '' };
+  if (currentRoute.value === '/courses') return { slug: 'courses', supportsTour: false, videoUrl: '' };
+  if (currentRoute.value === '/themes') return { slug: 'themes', supportsTour: false, videoUrl: '' };
+  if (currentRoute.value === '/glossary') return { slug: 'glossary', supportsTour: false, videoUrl: '' };
+  if (currentRoute.value === '/booklets' || currentRoute.value === '/booklets/detail') {
+    return { slug: 'booklets', supportsTour: false, videoUrl: '' };
+  }
+  if (currentRoute.value === '/processing') return { slug: 'processing', supportsTour: false, videoUrl: '' };
+  if (currentRoute.value === '/users') return { slug: 'users', supportsTour: false, videoUrl: '' };
+  if (currentRoute.value === '/admin/audit-log') return { slug: 'audit-log', supportsTour: false, videoUrl: '' };
+  if (currentRoute.value === '/model-presets') return { slug: 'model-presets', supportsTour: false, videoUrl: '' };
+  if (currentRoute.value === '/preferences') return { slug: 'preferences', supportsTour: false, videoUrl: '' };
+  return { slug: 'lessons', supportsTour: false, videoUrl: '' };
+});
+
+const resolveHelpPath = (language, slug) => {
+  const exact = `./help/${language}/${slug}.md`;
+  if (HELP_MARKDOWN_FILES[exact]) return exact;
+  const fallbackEnglish = `./help/en/${slug}.md`;
+  if (HELP_MARKDOWN_FILES[fallbackEnglish]) return fallbackEnglish;
+  return null;
+};
+
+const loadHelpContent = async () => {
+  const path = resolveHelpPath(locale.value, helpPageConfig.value.slug);
+  if (!path) {
+    helpMarkdownContent.value = '';
+    helpHtmlContent.value = '';
+    return;
+  }
+  isHelpContentLoading.value = true;
+  try {
+    const loader = HELP_MARKDOWN_FILES[path];
+    const raw = await loader();
+    helpMarkdownContent.value = typeof raw === 'string' ? raw : String(raw ?? '');
+    helpHtmlContent.value = marked.parse(helpMarkdownContent.value);
+  } finally {
+    isHelpContentLoading.value = false;
+  }
+};
+
+const openHelpDrawer = async () => {
+  isHelpDrawerOpen.value = true;
+  await loadHelpContent();
+};
+
+const closeHelpDrawer = () => {
+  isHelpDrawerOpen.value = false;
+};
+
+const startCurrentPageTour = () => {
+  if (!helpPageConfig.value.supportsTour) return;
+  if (currentRoute.value === '/lessons') {
+    if (isViewingDetail.value) {
+      lessonsListRef.value?.startLessonDetailTour?.();
+    } else {
+      lessonsListRef.value?.startHomeTour?.();
+    }
+  }
+};
+
 // Handle navigation
 const handleNavigation = (route) => {
   currentRoute.value = route;
+  if (isHelpDrawerOpen.value) {
+    void loadHelpContent();
+  }
   // Update URL without lesson ID when navigating to main routes
   if (route === '/lessons') {
     // Only update if we're not on a lesson detail page
@@ -202,6 +287,15 @@ onBeforeUnmount(() => {
   window.removeEventListener('popstate', handleAppPopState);
 });
 
+watch(
+  () => [currentRoute.value, locale.value, isViewingDetail.value],
+  () => {
+    if (isHelpDrawerOpen.value) {
+      void loadHelpContent();
+    }
+  }
+);
+
 
 </script>
 
@@ -250,8 +344,17 @@ onBeforeUnmount(() => {
           </div>
           
           <div class="flex items-center gap-3">
+            <button
+              data-tour="help-button"
+              @click="openHelpDrawer"
+              :title="t('help.open')"
+              class="inline-flex items-center justify-center rounded-md p-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            >
+              <QuestionMarkCircleIcon class="h-5 w-5" />
+            </button>
             <!-- Dark Mode Toggle -->
             <button
+              data-tour="theme-toggle"
               @click="toggleDarkMode"
               class="inline-flex items-center justify-center rounded-md p-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
               :title="isDarkMode ? t('theme.light') : t('theme.dark')"
@@ -586,6 +689,73 @@ onBeforeUnmount(() => {
           <LessonsList ref="lessonsListRef" />
         </div>
       </div>
+    </div>
+
+    <div v-if="isHelpDrawerOpen" class="fixed inset-0 z-50">
+      <div class="absolute inset-0 bg-black/40" @click="closeHelpDrawer"></div>
+      <aside class="absolute right-0 top-0 h-full w-full max-w-xl bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 shadow-xl overflow-y-auto">
+        <div class="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
+          <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
+            {{ t('help.drawerTitle') }}
+          </h3>
+          <button
+            @click="closeHelpDrawer"
+            :title="t('help.close')"
+            class="rounded-md p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+          >
+            <XMarkIcon class="h-5 w-5" />
+          </button>
+        </div>
+
+        <div class="px-5 py-4 space-y-6">
+          <section v-if="helpPageConfig.supportsTour" class="space-y-2">
+            <h4 class="text-sm font-semibold text-gray-900 dark:text-white">
+              {{ t('help.guidedTourTitle') }}
+            </h4>
+            <p class="text-sm text-gray-600 dark:text-gray-300">
+              {{ t('help.guidedTourDescription') }}
+            </p>
+            <button
+              @click="closeHelpDrawer(); startCurrentPageTour()"
+              class="inline-flex items-center gap-2 rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-500"
+            >
+              {{ t('lessons.startTour') }}
+            </button>
+          </section>
+
+          <section v-if="helpPageConfig.videoUrl" class="space-y-2">
+            <h4 class="text-sm font-semibold text-gray-900 dark:text-white">
+              {{ t('help.videoTitle') }}
+            </h4>
+            <div class="aspect-video rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
+              <iframe
+                :src="helpPageConfig.videoUrl"
+                class="h-full w-full"
+                :title="t('help.videoTitle')"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowfullscreen
+              ></iframe>
+            </div>
+          </section>
+
+          <section class="space-y-2">
+            <h4 class="text-sm font-semibold text-gray-900 dark:text-white">
+              {{ t('help.explanationTitle') }}
+            </h4>
+            <p v-if="isHelpContentLoading" class="text-sm text-gray-600 dark:text-gray-300">
+              {{ t('help.loading') }}
+            </p>
+            <div
+              v-else-if="helpHtmlContent"
+              class="prose prose-sm max-w-none text-gray-700 dark:prose-invert dark:text-gray-200"
+              v-html="helpHtmlContent"
+            ></div>
+            <p v-else class="text-sm text-gray-600 dark:text-gray-300">
+              {{ t('help.noContent') }}
+            </p>
+          </section>
+        </div>
+      </aside>
     </div>
     </div>
   </SignedIn>
