@@ -3,6 +3,7 @@
 import gc
 import signal
 import sys
+import threading
 import time
 from datetime import datetime
 from sqlmodel import Session, select
@@ -20,6 +21,7 @@ from services import (
 )
 from services import lessons as lesson_service
 from services.llm_utils import get_token_usage_tracker, reset_token_usage_tracker
+from services.rag_embeddings import rebuild_stale_rag_embeddings
 from memory_usage import format_memory_mb, get_rss_memory_mb
 import logging
 
@@ -52,6 +54,8 @@ TASK_TYPE_TO_WORKFLOW_STEP = {
     "brief": "brief",
 }
 LLM_TASK_TYPES = {"correction", "edition", "summary", "brief", "extraction", "sources"}
+RAG_EMBEDDING_REFRESH_INTERVAL_SECONDS = 15 * 60
+RAG_EMBEDDING_REFRESH_SLEEP_SECONDS = 5
 
 
 def _build_pricing_map(session: Session) -> dict[tuple[str, str], ModelPreset]:
@@ -656,9 +660,35 @@ def process_task(session: Session, task: Task):
         )
 
 
+def rag_embedding_refresh_loop():
+    """Periodically refresh stale RAG embeddings in the worker process."""
+    logger.info("RAG embedding refresh loop started")
+    while not should_stop:
+        try:
+            with Session(engine) as session:
+                logger.info("Starting periodic RAG embedding refresh")
+                stats = rebuild_stale_rag_embeddings(session)
+                logger.info("RAG embedding refresh finished: %s", stats)
+        except Exception as e:
+            logger.error("Error in RAG embedding refresh loop: %s", str(e), exc_info=True)
+
+        slept = 0
+        while slept < RAG_EMBEDDING_REFRESH_INTERVAL_SECONDS and not should_stop:
+            time.sleep(RAG_EMBEDDING_REFRESH_SLEEP_SECONDS)
+            slept += RAG_EMBEDDING_REFRESH_SLEEP_SECONDS
+
+    logger.info("RAG embedding refresh loop stopped")
+
+
 def worker_loop():
     """Main worker loop that polls for tasks"""
     logger.info("Worker started, polling for tasks...")
+    rag_thread = threading.Thread(
+        target=rag_embedding_refresh_loop,
+        name="rag-embedding-refresh",
+        daemon=True,
+    )
+    rag_thread.start()
 
     try:
         with Session(engine) as session:
@@ -690,6 +720,7 @@ def worker_loop():
             time.sleep(5)
 
     logger.info("Worker stopped")
+    rag_thread.join(timeout=2)
 
 
 def main():

@@ -1,7 +1,7 @@
 """Pydantic schemas for search API responses."""
 
-from pydantic import BaseModel
-from typing import List, Optional
+from pydantic import BaseModel, Field
+from typing import List, Optional, Literal
 from datetime import datetime
 
 from schemas.theme import ThemeResponse
@@ -32,3 +32,29 @@ class SearchLessonResult(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class RagSearchRequest(BaseModel):
+    question: str = Field(..., min_length=1)
+    lesson_ids: Optional[List[int]] = None
+    variant: Literal["edited", "summary"] = "edited"
+
+
+class RagSearchCitation(BaseModel):
+    reference_number: int
+    chunk_id: int
+    lesson_id: int
+    lesson_hashid: str = ""
+    lesson_title: str
+    lesson_course_path: Optional[str] = None
+    lesson_date: datetime
+    variant: Literal["edited", "summary"]
+    chunk_index: int
+    previous_paragraph: str = ""
+    snippet: str
+    score: float
+
+
+class RagSearchResponse(BaseModel):
+    answer: str
+    citations: List[RagSearchCitation] = []

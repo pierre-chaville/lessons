@@ -5,8 +5,8 @@ from sqlmodel import Session
 from typing import List, Optional
 
 from database import get_session
-from schemas.search import SearchLessonResult
-from services.search import search_lessons
+from schemas.search import SearchLessonResult, RagSearchRequest, RagSearchResponse
+from services.search import answer_rag_question, search_lessons
 
 router = APIRouter(prefix="/search", tags=["Search"])
 
@@ -36,4 +36,18 @@ def search_corrected_transcript(
         theme_id=theme_id,
         threshold=threshold,
         max_matches_per_lesson=max_matches_per_lesson,
+    )
+
+
+@router.post("/ai", response_model=RagSearchResponse)
+def ai_assistant_search(
+    payload: RagSearchRequest,
+    session: Session = Depends(get_session),
+):
+    """Answer a natural language question using RAG over indexed lesson chunks."""
+    return answer_rag_question(
+        question=payload.question,
+        lesson_ids=payload.lesson_ids,
+        variant=payload.variant,
+        session=session,
     )

@@ -8,6 +8,7 @@ import {
   PencilIcon,
   DocumentTextIcon,
   BookOpenIcon,
+  MagnifyingGlassIcon,
   TrashIcon,
 } from '@heroicons/vue/24/outline'
 import { configApi } from '@/api/config'
@@ -20,6 +21,18 @@ import { parse, stringify } from 'yaml'
 
 const { t } = useI18n()
 const { can } = usePermissions()
+const DEFAULT_RAG_LLM_PROMPT = `You are an AI assistant for a corpus of Torah lessons.
+
+Answer the user's question using only the provided lesson excerpts. If the excerpts do not contain enough information, say so clearly.
+
+When you use information from an excerpt, cite it inline with its bracket number, for example [1] or [2]. Write the answer in the same language as the user's question.
+
+Question:
+{question}
+
+Lesson excerpts:
+{context}
+`
 
 const config = ref<AppConfig>({
   correction: {
@@ -48,6 +61,17 @@ const config = ref<AppConfig>({
     edited_min_score: 0.2,
     summary_min_score: 0.2,
   },
+  rag: {
+    chunk_target_chars: 1100,
+    chunk_max_chars: 1500,
+    embedding_model: 'google/gemini-embedding-001',
+    retrieval_k: 40,
+    full_text_search_k: 40,
+    reranking_model: 'cohere/rerank-4-pro',
+    reranking_top_n: 8,
+    llm_model: 'openai/gpt-5.4',
+    llm_prompt: DEFAULT_RAG_LLM_PROMPT,
+  },
 })
 
 const isLoading = ref(true)
@@ -63,7 +87,7 @@ const hasPendingAutoSave = ref(false)
 const importInputRef = ref<HTMLInputElement | null>(null)
 const modelPresets = ref<ModelPreset[]>([])
 type PromptGroupKey = 'correction' | 'edition' | 'extraction' | 'sources' | 'summary'
-type PromptEditorTarget = { kind: 'brief' } | { kind: 'group'; group: PromptGroupKey; index: number }
+type PromptEditorTarget = { kind: 'brief' } | { kind: 'rag' } | { kind: 'group'; group: PromptGroupKey; index: number }
 
 const isPromptEditorOpen = ref(false)
 const promptEditorTitle = ref('')
@@ -77,8 +101,9 @@ const renderMarkdown = (markdown: string | null | undefined): string => {
   return marked(markdown) as string
 }
 
-const promptPreviewKey = (group: PromptGroupKey | 'brief', index?: number): string => {
+const promptPreviewKey = (group: PromptGroupKey | 'brief' | 'rag', index?: number): string => {
   if (group === 'brief') return 'brief'
+  if (group === 'rag') return 'rag'
   return `${group}-${index ?? 0}`
 }
 
@@ -87,11 +112,11 @@ const isPromptPreviewLong = (text: string | null | undefined): boolean => {
   return text.split(/\r?\n/).length > 3
 }
 
-const isPromptPreviewExpanded = (group: PromptGroupKey | 'brief', index?: number): boolean => {
+const isPromptPreviewExpanded = (group: PromptGroupKey | 'brief' | 'rag', index?: number): boolean => {
   return !!expandedPromptPreviews.value[promptPreviewKey(group, index)]
 }
 
-const togglePromptPreview = (group: PromptGroupKey | 'brief', index?: number) => {
+const togglePromptPreview = (group: PromptGroupKey | 'brief' | 'rag', index?: number) => {
   const key = promptPreviewKey(group, index)
   expandedPromptPreviews.value[key] = !expandedPromptPreviews.value[key]
 }
@@ -124,6 +149,34 @@ const normalizeConfigShape = () => {
   }
   config.value.alignment.edited_min_score = Math.max(0, Math.min(1, config.value.alignment.edited_min_score))
   config.value.alignment.summary_min_score = Math.max(0, Math.min(1, config.value.alignment.summary_min_score))
+  if (!config.value.rag) {
+    config.value.rag = {
+      chunk_target_chars: 1100,
+      chunk_max_chars: 1500,
+      embedding_model: 'google/gemini-embedding-001',
+      retrieval_k: 40,
+      full_text_search_k: 40,
+      reranking_model: 'cohere/rerank-4-pro',
+      reranking_top_n: 8,
+      llm_model: 'openai/gpt-5.4',
+      llm_prompt: DEFAULT_RAG_LLM_PROMPT,
+    }
+  }
+  const rag = config.value.rag
+  if (typeof rag.chunk_target_chars !== 'number') rag.chunk_target_chars = 1100
+  if (typeof rag.chunk_max_chars !== 'number') rag.chunk_max_chars = 1500
+  if (typeof rag.retrieval_k !== 'number') rag.retrieval_k = 40
+  if (typeof rag.full_text_search_k !== 'number') rag.full_text_search_k = 40
+  if (typeof rag.reranking_top_n !== 'number') rag.reranking_top_n = 8
+  rag.chunk_target_chars = Math.max(1, Math.floor(rag.chunk_target_chars))
+  rag.chunk_max_chars = Math.max(rag.chunk_target_chars, Math.floor(rag.chunk_max_chars))
+  rag.retrieval_k = Math.max(1, Math.floor(rag.retrieval_k))
+  rag.full_text_search_k = Math.max(1, Math.floor(rag.full_text_search_k))
+  rag.reranking_top_n = Math.max(1, Math.min(rag.retrieval_k + rag.full_text_search_k, Math.floor(rag.reranking_top_n)))
+  if (!rag.embedding_model?.trim()) rag.embedding_model = 'google/gemini-embedding-001'
+  if (!rag.reranking_model?.trim()) rag.reranking_model = 'cohere/rerank-4-pro'
+  if (!rag.llm_model?.trim()) rag.llm_model = 'openai/gpt-5.4'
+  if (!rag.llm_prompt?.trim()) rag.llm_prompt = DEFAULT_RAG_LLM_PROMPT
   if (!config.value.brief) config.value.brief = { model_preset_id: null, max_tokens: 1000, prompt: '' }
   // Backward compatibility: migrate legacy summary.brief to top-level brief.
   const summaryWithLegacyBrief = config.value.summary as typeof config.value.summary & {
@@ -563,6 +616,14 @@ const openBriefPromptEditor = () => {
   isPromptEditorOpen.value = true
 }
 
+const openRagPromptEditor = () => {
+  promptEditorDraft.value = config.value.rag.llm_prompt || ''
+  promptEditorMode.value = 'visual'
+  promptEditorTarget.value = { kind: 'rag' }
+  promptEditorTitle.value = t('preferences.editPromptWysiwyg')
+  isPromptEditorOpen.value = true
+}
+
 const closePromptEditor = () => {
   isPromptEditorOpen.value = false
   promptEditorTarget.value = null
@@ -574,6 +635,8 @@ const savePromptEditor = () => {
 
   if (target.kind === 'brief') {
     config.value.brief.prompt = promptEditorDraft.value
+  } else if (target.kind === 'rag') {
+    config.value.rag.llm_prompt = promptEditorDraft.value
   } else {
     const prompt = getPromptList(target.group)[target.index]
     if (prompt) prompt.text = promptEditorDraft.value
@@ -728,6 +791,17 @@ watch(
               ]">
                 <DocumentTextIcon class="h-5 w-5" />
                 {{ t('preferences.brief') }}
+              </div>
+            </Tab>
+            <Tab v-slot="{ selected }" class="w-full rounded-md py-2.5 text-sm font-medium leading-5 transition-colors focus:outline-none">
+              <div :class="[
+                'flex items-center justify-center gap-2',
+                selected
+                  ? 'bg-white dark:bg-gray-800 text-indigo-700 dark:text-indigo-400 shadow'
+                  : 'text-gray-700 dark:text-gray-300 hover:bg-white/[0.12] dark:hover:bg-gray-600'
+              ]">
+                <MagnifyingGlassIcon class="h-5 w-5" />
+                {{ t('preferences.rag') }}
               </div>
             </Tab>
             <Tab v-slot="{ selected }" class="w-full rounded-md py-2.5 text-sm font-medium leading-5 transition-colors focus:outline-none">
@@ -1655,6 +1729,189 @@ watch(
                   </div>
                   <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
                     {{ t('preferences.briefPromptDesc') }}
+                  </p>
+                </div>
+              </div>
+            </TabPanel>
+
+            <!-- RAG Tab -->
+            <TabPanel class="rounded-lg bg-white dark:bg-gray-800 p-6 shadow">
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                {{ t('preferences.ragSettings') }}
+              </h2>
+
+              <div class="space-y-6">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      {{ t('preferences.ragChunkTargetChars') }}
+                    </label>
+                    <input
+                      v-model.number="config.rag.chunk_target_chars"
+                      type="number"
+                      min="1"
+                      step="50"
+                      class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                    />
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t('preferences.ragChunkTargetCharsDesc') }}
+                    </p>
+                  </div>
+
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      {{ t('preferences.ragChunkMaxChars') }}
+                    </label>
+                    <input
+                      v-model.number="config.rag.chunk_max_chars"
+                      type="number"
+                      min="1"
+                      step="50"
+                      class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                    />
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t('preferences.ragChunkMaxCharsDesc') }}
+                    </p>
+                  </div>
+
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      {{ t('preferences.ragRetrievalK') }}
+                    </label>
+                    <input
+                      v-model.number="config.rag.retrieval_k"
+                      type="number"
+                      min="1"
+                      step="1"
+                      class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                    />
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t('preferences.ragRetrievalKDesc') }}
+                    </p>
+                  </div>
+
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      {{ t('preferences.ragFullTextSearchK') }}
+                    </label>
+                    <input
+                      v-model.number="config.rag.full_text_search_k"
+                      type="number"
+                      min="1"
+                      step="1"
+                      class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                    />
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t('preferences.ragFullTextSearchKDesc') }}
+                    </p>
+                  </div>
+
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      {{ t('preferences.ragRerankingTopN') }}
+                    </label>
+                    <input
+                      v-model.number="config.rag.reranking_top_n"
+                      type="number"
+                      min="1"
+                      step="1"
+                      class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                    />
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t('preferences.ragRerankingTopNDesc') }}
+                    </p>
+                  </div>
+                </div>
+
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    {{ t('preferences.ragEmbeddingModel') }}
+                  </label>
+                  <input
+                    v-model="config.rag.embedding_model"
+                    type="text"
+                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                    placeholder="google/gemini-embedding-001"
+                  />
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('preferences.ragEmbeddingModelDesc') }}
+                  </p>
+                </div>
+
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    {{ t('preferences.ragRerankingModel') }}
+                  </label>
+                  <input
+                    v-model="config.rag.reranking_model"
+                    type="text"
+                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                    placeholder="cohere/rerank-4-pro"
+                  />
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('preferences.ragRerankingModelDesc') }}
+                  </p>
+                </div>
+
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    {{ t('preferences.ragLlmModel') }}
+                  </label>
+                  <input
+                    v-model="config.rag.llm_model"
+                    type="text"
+                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                    placeholder="openai/gpt-5.4"
+                  />
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('preferences.ragLlmModelDesc') }}
+                  </p>
+                </div>
+
+                <div>
+                  <div class="flex items-center justify-between mb-2">
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {{ t('preferences.ragLlmPrompt') }}
+                    </label>
+                    <button
+                      type="button"
+                      @click="openRagPromptEditor"
+                      class="px-3 py-1 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 border border-indigo-300 dark:border-indigo-600 rounded-md hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
+                    >
+                      {{ t('preferences.editPromptWysiwyg') }}
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    @click="openRagPromptEditor"
+                    class="w-full text-left px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600/60 transition-colors"
+                  >
+                    <div
+                      v-if="config.rag.llm_prompt"
+                      :class="[
+                        'prose prose-sm max-w-none dark:prose-invert text-gray-900 dark:text-gray-100',
+                        { 'prompt-preview-content--collapsed': !isPromptPreviewExpanded('rag') }
+                      ]"
+                      v-html="renderMarkdown(config.rag.llm_prompt)"
+                    />
+                    <p
+                      v-else
+                      class="text-sm text-gray-500 dark:text-gray-400 italic"
+                    >
+                      {{ t('preferences.emptyPromptClickToEdit') }}
+                    </p>
+                  </button>
+                  <div v-if="isPromptPreviewLong(config.rag.llm_prompt)" class="mt-2 flex justify-end">
+                    <button
+                      type="button"
+                      @click="togglePromptPreview('rag')"
+                      class="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline"
+                    >
+                      {{ isPromptPreviewExpanded('rag') ? t('preferences.showLess') : t('preferences.showMore') }}
+                    </button>
+                  </div>
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('preferences.ragLlmPromptDesc') }}
                   </p>
                 </div>
               </div>

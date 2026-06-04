@@ -25,6 +25,26 @@ DEFAULT_SOURCES_PROMPT_MAX_TOKENS = 4000
 MIN_SOURCES_PROMPT_MAX_TOKENS = 256
 DEFAULT_EDITED_MIN_ALIGNMENT_SCORE = 0.2
 DEFAULT_SUMMARY_MIN_ALIGNMENT_SCORE = 0.2
+DEFAULT_RAG_CHUNK_TARGET_CHARS = 1100
+DEFAULT_RAG_CHUNK_MAX_CHARS = 1500
+DEFAULT_RAG_EMBEDDING_MODEL = "google/gemini-embedding-001"
+DEFAULT_RAG_RETRIEVAL_K = 40
+DEFAULT_RAG_FULL_TEXT_SEARCH_K = 40
+DEFAULT_RAG_RERANKING_MODEL = "cohere/rerank-4-pro"
+DEFAULT_RAG_RERANKING_TOP_N = 8
+DEFAULT_RAG_LLM_MODEL = "openai/gpt-5.4"
+DEFAULT_RAG_LLM_PROMPT = """You are an AI assistant for a corpus of Torah lessons.
+
+Answer the user's question using only the provided lesson excerpts. If the excerpts do not contain enough information, say so clearly.
+
+When you use information from an excerpt, cite it inline with its bracket number, for example [1] or [2]. Write the answer in the same language as the user's question.
+
+Question:
+{question}
+
+Lesson excerpts:
+{context}
+"""
 
 # Default configuration
 DEFAULT_CONFIG = {
@@ -91,6 +111,17 @@ DEFAULT_CONFIG = {
     "alignment": {
         "edited_min_score": DEFAULT_EDITED_MIN_ALIGNMENT_SCORE,
         "summary_min_score": DEFAULT_SUMMARY_MIN_ALIGNMENT_SCORE,
+    },
+    "rag": {
+        "chunk_target_chars": DEFAULT_RAG_CHUNK_TARGET_CHARS,
+        "chunk_max_chars": DEFAULT_RAG_CHUNK_MAX_CHARS,
+        "embedding_model": DEFAULT_RAG_EMBEDDING_MODEL,
+        "retrieval_k": DEFAULT_RAG_RETRIEVAL_K,
+        "full_text_search_k": DEFAULT_RAG_FULL_TEXT_SEARCH_K,
+        "reranking_model": DEFAULT_RAG_RERANKING_MODEL,
+        "reranking_top_n": DEFAULT_RAG_RERANKING_TOP_N,
+        "llm_model": DEFAULT_RAG_LLM_MODEL,
+        "llm_prompt": DEFAULT_RAG_LLM_PROMPT,
     },
 }
 
@@ -580,6 +611,69 @@ def _normalize_alignment_config(config: Dict[str, Any]) -> Dict[str, Any]:
     return normalized
 
 
+def _normalize_rag_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize RAG search tuning settings."""
+    if not config:
+        return {}
+
+    normalized = dict(config)
+    rag = normalized.get("rag")
+    if not isinstance(rag, dict):
+        normalized["rag"] = dict(DEFAULT_CONFIG["rag"])
+        return normalized
+
+    rag_copy = dict(rag)
+
+    def _positive_int(raw: Any, default: int) -> int:
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            value = default
+        return max(1, value)
+
+    chunk_target_chars = _positive_int(
+        rag_copy.get("chunk_target_chars", DEFAULT_RAG_CHUNK_TARGET_CHARS),
+        DEFAULT_RAG_CHUNK_TARGET_CHARS,
+    )
+    chunk_max_chars = _positive_int(
+        rag_copy.get("chunk_max_chars", DEFAULT_RAG_CHUNK_MAX_CHARS),
+        DEFAULT_RAG_CHUNK_MAX_CHARS,
+    )
+    rag_copy["chunk_target_chars"] = chunk_target_chars
+    rag_copy["chunk_max_chars"] = max(chunk_target_chars, chunk_max_chars)
+
+    retrieval_k = _positive_int(
+        rag_copy.get("retrieval_k", DEFAULT_RAG_RETRIEVAL_K),
+        DEFAULT_RAG_RETRIEVAL_K,
+    )
+    full_text_search_k = _positive_int(
+        rag_copy.get("full_text_search_k", DEFAULT_RAG_FULL_TEXT_SEARCH_K),
+        DEFAULT_RAG_FULL_TEXT_SEARCH_K,
+    )
+    reranking_top_n = _positive_int(
+        rag_copy.get("reranking_top_n", DEFAULT_RAG_RERANKING_TOP_N),
+        DEFAULT_RAG_RERANKING_TOP_N,
+    )
+    rag_copy["retrieval_k"] = retrieval_k
+    rag_copy["full_text_search_k"] = full_text_search_k
+    rag_copy["reranking_top_n"] = min(
+        retrieval_k + full_text_search_k,
+        reranking_top_n,
+    )
+
+    for key, default in (
+        ("embedding_model", DEFAULT_RAG_EMBEDDING_MODEL),
+        ("reranking_model", DEFAULT_RAG_RERANKING_MODEL),
+        ("llm_model", DEFAULT_RAG_LLM_MODEL),
+        ("llm_prompt", DEFAULT_RAG_LLM_PROMPT),
+    ):
+        value = rag_copy.get(key)
+        rag_copy[key] = value.strip() if isinstance(value, str) and value.strip() else default
+
+    normalized["rag"] = rag_copy
+    return normalized
+
+
 def _normalize_sources_prompt_limits(config: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize sources prompt-level max_tokens and model_preset_id."""
     if not config:
@@ -670,6 +764,7 @@ def load_config() -> Dict[str, Any]:
                 merged = _normalize_sources_prompt_limits(merged)
                 merged = _normalize_brief_config(merged)
                 merged = _normalize_alignment_config(merged)
+                merged = _normalize_rag_config(merged)
                 merged = _sanitize_config(merged)
                 _save_db_config(session, merged)
                 return merged
@@ -688,6 +783,7 @@ def load_config() -> Dict[str, Any]:
             merged = _normalize_sources_prompt_limits(merged)
             merged = _normalize_brief_config(merged)
             merged = _normalize_alignment_config(merged)
+            merged = _normalize_rag_config(merged)
             cleaned = _sanitize_config(merged)
             if cleaned != db_config or "api_key" in db_config:
                 _save_db_config(session, cleaned)
@@ -709,6 +805,7 @@ def save_config(config: Dict[str, Any]) -> bool:
             normalized = _normalize_sources_prompt_limits(normalized)
             normalized = _normalize_brief_config(normalized)
             normalized = _normalize_alignment_config(normalized)
+            normalized = _normalize_rag_config(normalized)
             cleaned = _sanitize_config(normalized)
             _save_db_config(session, cleaned)
         return True
@@ -740,6 +837,7 @@ def update_config(updates: Dict[str, Any]) -> Dict[str, Any]:
     config = _normalize_sources_prompt_limits(config)
     config = _normalize_brief_config(config)
     config = _normalize_alignment_config(config)
+    config = _normalize_rag_config(config)
     save_config(config)
     return config
 

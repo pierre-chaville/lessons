@@ -42,6 +42,7 @@ def _normalize_config_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     normalized = config_service._normalize_sources_prompt_limits(normalized)
     normalized = config_service._normalize_brief_config(normalized)
     normalized = config_service._normalize_alignment_config(normalized)
+    normalized = config_service._normalize_rag_config(normalized)
     normalized = config_service._sanitize_config(normalized)
     return normalized
 
