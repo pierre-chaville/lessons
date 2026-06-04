@@ -92,6 +92,44 @@ def _create_versioning_tables() -> None:
         """))
 
 
+def _create_lesson_chunk_table() -> None:
+    """Create RAG chunk storage with pgvector and full-text search support."""
+    if engine.dialect.name != "postgresql":
+        logger.warning("Skipping lesson_chunk creation: pgvector requires PostgreSQL")
+        return
+
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS lesson_chunk (
+                id BIGSERIAL PRIMARY KEY,
+                variant VARCHAR NOT NULL CHECK (variant IN ('edited', 'summary')),
+                previous_paragraph TEXT NOT NULL DEFAULT '',
+                content TEXT NOT NULL,
+                embedding vector NOT NULL,
+                lesson_id INTEGER NOT NULL REFERENCES lesson(id) ON DELETE CASCADE,
+                chunk_index INTEGER NOT NULL,
+                content_tsv TSVECTOR GENERATED ALWAYS AS (
+                    to_tsvector('simple', coalesce(content, ''))
+                ) STORED,
+                created_at TIMESTAMP NOT NULL DEFAULT now(),
+                updated_at TIMESTAMP NOT NULL DEFAULT now(),
+                UNIQUE (lesson_id, variant, chunk_index)
+            )
+        """))
+        conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_lesson_chunk_lesson_variant
+            ON lesson_chunk (lesson_id, variant)
+        """))
+        conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_lesson_chunk_variant_chunk
+            ON lesson_chunk (variant, chunk_index)
+        """))
+        conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_lesson_chunk_content_tsv
+            ON lesson_chunk USING GIN (content_tsv)
+        """))
+
+
 def _ensure_content_version_lesson_fk_cascade() -> None:
     """Ensure content_version.lesson_id FK is ON DELETE CASCADE (PostgreSQL)."""
     if engine.dialect.name != "postgresql":
@@ -208,6 +246,19 @@ def _run_migrations():
             with engine.begin() as conn:
                 conn.execute(text("ALTER TABLE lesson ADD COLUMN step_statuses JSON"))
             logger.info("Migration: added 'step_statuses' column to lesson table")
+        rag_hash_columns = {
+            "rag_summary_current_hash": "VARCHAR",
+            "rag_summary_stored_hash": "VARCHAR",
+            "rag_edited_current_hash": "VARCHAR",
+            "rag_edited_stored_hash": "VARCHAR",
+        }
+        with engine.begin() as conn:
+            for column_name, column_type in rag_hash_columns.items():
+                if column_name not in columns:
+                    conn.execute(text(
+                        f"ALTER TABLE lesson ADD COLUMN {column_name} {column_type}"
+                    ))
+                    logger.info("Migration: added '%s' column to lesson table", column_name)
 
     if "course" in tables:
         columns = {col["name"] for col in inspector.get_columns("course")}
@@ -247,6 +298,11 @@ def _run_migrations():
                 )
         except SQLAlchemyError as exc:
             logger.warning("Versioning migration step failed/skipped: %s", exc)
+
+        try:
+            _create_lesson_chunk_table()
+        except SQLAlchemyError as exc:
+            logger.warning("RAG chunk table migration step failed/skipped: %s", exc)
 
     if "model_preset" in tables:
         columns = {col["name"] for col in inspector.get_columns("model_preset")}

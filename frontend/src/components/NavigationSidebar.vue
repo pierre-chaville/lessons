@@ -10,6 +10,7 @@ import {
   ClipboardDocumentListIcon,
   Cog6ToothIcon,
   CpuChipIcon,
+  SparklesIcon,
   ChevronLeftIcon,
   ChevronRightIcon
 } from '@heroicons/vue/24/outline';
@@ -26,6 +27,7 @@ const isCollapsed = ref(false);
 
 const allNavigationItems = [
   { key: 'lessons',     label: 'nav.lessons',     icon: BookOpenIcon,         route: '/lessons',     always: true },
+  { key: 'assistant',   label: 'nav.assistant',   icon: SparklesIcon,         route: '/assistant',   always: true },
   { key: 'booklets',    label: 'nav.booklets',    icon: BookOpenIcon,         route: '/booklets',    always: false },
   { key: 'courses',     label: 'nav.courses',      icon: AcademicCapIcon,      route: '/courses',     always: true },
   { key: 'themes',      label: 'nav.themes',       icon: TagIcon,              route: '/themes',      always: true },

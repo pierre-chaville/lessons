@@ -51,6 +51,13 @@ class Lesson(SQLModel, table=True):
         default=None, sa_column=Column(JSON)
     )
 
+    # RAG indexing hashes. Current hashes are recomputed from content + embedding
+    # model; stored hashes mark the last successful embedding generation.
+    rag_summary_current_hash: Optional[str] = None
+    rag_summary_stored_hash: Optional[str] = None
+    rag_edited_current_hash: Optional[str] = None
+    rag_edited_stored_hash: Optional[str] = None
+
     # JSON field for themes (stored as JSON array of theme IDs)
     themes_json: Optional[str] = Field(default=None)
 

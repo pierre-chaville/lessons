@@ -22,6 +22,7 @@ import { usePermissions } from '@/composables/usePermissions';
 import NavigationSidebar from './components/NavigationSidebar.vue';
 import LessonsList from './views/LessonsList.vue';
 import SearchLessons from './views/SearchLessons.vue';
+import AIAssistant from './views/AIAssistant.vue';
 import CoursesList from './views/CoursesList.vue';
 import ThemesList from './views/ThemesList.vue';
 import GlossaryList from './views/GlossaryList.vue';
@@ -54,7 +55,7 @@ const getInitialRoute = () => {
   const path = raw.length > 1 && raw.endsWith('/') ? raw.slice(0, -1) : raw;
 
   // Known routes
-  const routes = ['/search', '/courses', '/themes', '/glossary', '/booklets', '/booklets/detail', '/processing', '/users', '/admin/audit-log', '/model-presets', '/preferences'];
+  const routes = ['/search', '/assistant', '/courses', '/themes', '/glossary', '/booklets', '/booklets/detail', '/processing', '/users', '/admin/audit-log', '/model-presets', '/preferences'];
   const match = routes.find(r => path === r);
   if (match) return match;
 
@@ -109,6 +110,7 @@ const helpPageConfig = computed(() => {
     };
   }
   if (currentRoute.value === '/search') return { slug: 'search', supportsTour: false, videoUrl: '' };
+  if (currentRoute.value === '/assistant') return { slug: 'assistant', supportsTour: false, videoUrl: '' };
   if (currentRoute.value === '/courses') return { slug: 'courses', supportsTour: false, videoUrl: '' };
   if (currentRoute.value === '/themes') return { slug: 'themes', supportsTour: false, videoUrl: '' };
   if (currentRoute.value === '/glossary') return { slug: 'glossary', supportsTour: false, videoUrl: '' };
@@ -193,6 +195,8 @@ const pageTitle = computed(() => {
       return t('lessons.title');
     case '/search':
       return t('search.title');
+    case '/assistant':
+      return t('assistant.title');
     case '/courses':
       return t('courses.title');
     case '/themes':
@@ -432,6 +436,11 @@ watch(
         </div>
       </div>
 
+      <!-- AI Assistant View -->
+      <div v-else-if="currentRoute === '/assistant'">
+        <AIAssistant />
+      </div>
+
       <!-- Courses View -->
       <div v-else-if="currentRoute === '/courses'">
         <!-- Header -->
@@ -655,7 +664,7 @@ watch(
       </div>
 
       <!-- Placeholder for other views -->
-      <main v-else-if="!isViewingDetail && currentRoute !== '/lessons' && currentRoute !== '/search' && currentRoute !== '/courses' && currentRoute !== '/themes' && currentRoute !== '/glossary' && currentRoute !== '/booklets' && currentRoute !== '/booklets/detail' && currentRoute !== '/processing' && currentRoute !== '/users' && currentRoute !== '/admin/audit-log' && currentRoute !== '/model-presets' && currentRoute !== '/preferences'" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main v-else-if="!isViewingDetail && currentRoute !== '/lessons' && currentRoute !== '/search' && currentRoute !== '/assistant' && currentRoute !== '/courses' && currentRoute !== '/themes' && currentRoute !== '/glossary' && currentRoute !== '/booklets' && currentRoute !== '/booklets/detail' && currentRoute !== '/processing' && currentRoute !== '/users' && currentRoute !== '/admin/audit-log' && currentRoute !== '/model-presets' && currentRoute !== '/preferences'" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-8 text-center transition-colors">
           <h2 class="text-2xl font-bold text-gray-900 dark:text-white mb-4">
             {{ pageTitle }}

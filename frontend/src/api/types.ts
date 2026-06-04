@@ -514,6 +514,32 @@ export interface SearchParams {
   theme_id?: number
 }
 
+export interface RagSearchRequest {
+  question: string
+  lesson_ids?: number[]
+  variant?: 'edited' | 'summary'
+}
+
+export interface RagSearchCitation {
+  reference_number: number
+  chunk_id: number
+  lesson_id: number
+  lesson_hashid: string
+  lesson_title: string
+  lesson_course_path: string | null
+  lesson_date: string
+  variant: 'edited' | 'summary'
+  chunk_index: number
+  previous_paragraph: string
+  snippet: string
+  score: number
+}
+
+export interface RagSearchResponse {
+  answer: string
+  citations: RagSearchCitation[]
+}
+
 // ── Config ────────────────────────────────────────────────────────────────────
 
 export interface LLMConfig {
@@ -598,6 +624,18 @@ export interface TranscribeConfig {
   removed_audience_segment_text?: string
 }
 
+export interface RagConfig {
+  chunk_target_chars: number
+  chunk_max_chars: number
+  embedding_model: string
+  retrieval_k: number
+  full_text_search_k: number
+  reranking_model: string
+  reranking_top_n: number
+  llm_model: string
+  llm_prompt: string
+}
+
 export interface AppConfig {
   correction: CorrectionConfig
   edition: EditionConfig
@@ -611,6 +649,7 @@ export interface AppConfig {
     edited_min_score: number
     summary_min_score: number
   }
+  rag: RagConfig
 }
 
 export interface ModelPreset {
