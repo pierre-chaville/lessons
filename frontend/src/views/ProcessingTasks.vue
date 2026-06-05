@@ -19,6 +19,7 @@ import { usersApi, type ClerkUser } from '@/api/users'
 import { useAuth } from '@/composables/useAuth'
 import { useToast } from '@/composables/useToast'
 import { usePermissions } from '@/composables/usePermissions'
+import { formatApiDateTime, parseApiDateTime } from '@/utils/dateTime'
 import type { LessonListItem, Task, TaskStatus, TaskType } from '@/api/types'
 
 const { t } = useI18n()
@@ -111,8 +112,8 @@ const getLauncherLabel = (task: Task): string => {
 const matchesCreatedRange = (task: Task): boolean => {
   if (selectedCreatedRange.value === 'all') return true
 
-  const createdAt = new Date(task.created_at)
-  if (Number.isNaN(createdAt.getTime())) return false
+  const createdAt = parseApiDateTime(task.created_at)
+  if (!createdAt) return false
 
   if (selectedCreatedRange.value === 'today') {
     const startOfToday = new Date()
@@ -165,8 +166,7 @@ const confirmDelete = async () => {
 }
 
 const formatDate = (dateString: string | null | undefined): string => {
-  if (!dateString) return '-'
-  return new Date(dateString).toLocaleString()
+  return formatApiDateTime(dateString)
 }
 
 const formatDuration = (seconds: number | null | undefined): string => {

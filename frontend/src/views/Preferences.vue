@@ -10,12 +10,14 @@ import {
   BookOpenIcon,
   MagnifyingGlassIcon,
   TrashIcon,
+  ClockIcon,
 } from '@heroicons/vue/24/outline'
 import { configApi } from '@/api/config'
 import { modelPresetsApi } from '@/api/modelPresets'
 import { usePermissions } from '@/composables/usePermissions'
 import type { AppConfig, ModelPreset } from '@/api/types'
 import MilkdownEditor from '@/components/MilkdownEditor.vue'
+import PreferenceVersionHistoryPanel from '@/components/PreferenceVersionHistoryPanel.vue'
 import { marked } from 'marked'
 import { parse, stringify } from 'yaml'
 
@@ -95,6 +97,14 @@ const promptEditorDraft = ref('')
 const promptEditorTarget = ref<PromptEditorTarget | null>(null)
 const promptEditorMode = ref<'visual' | 'markdown'>('visual')
 const expandedPromptPreviews = ref<Record<string, boolean>>({})
+const isHistoryOpen = ref(false)
+const selectedPreferenceVersionId = ref<string | null>(null)
+const activePreferenceCompare = ref<{
+  versionAId: string
+  versionBId: string
+  fromVersionNumber?: number | null
+  toVersionNumber?: number | null
+} | null>(null)
 
 const renderMarkdown = (markdown: string | null | undefined): string => {
   if (!markdown) return ''
@@ -438,6 +448,30 @@ const saveConfig = async (showSuccess = false) => {
   }
 }
 
+const openPreferencesHistory = async () => {
+  if (autoSaveTimeout) {
+    clearTimeout(autoSaveTimeout)
+    autoSaveTimeout = null
+    await saveConfig()
+  }
+  selectedPreferenceVersionId.value = null
+  activePreferenceCompare.value = null
+  isHistoryOpen.value = true
+}
+
+const closePreferencesHistory = () => {
+  isHistoryOpen.value = false
+  selectedPreferenceVersionId.value = null
+  activePreferenceCompare.value = null
+}
+
+const onPreferencesRestored = async () => {
+  await loadConfig()
+  saveMessage.value = t('preferences.restoreSuccess')
+  if (autoSaveMessageTimeout) clearTimeout(autoSaveMessageTimeout)
+  autoSaveMessageTimeout = setTimeout(() => { saveMessage.value = '' }, 3000)
+}
+
 const queueAutoSave = () => {
   if (!can('configuration', 'update')) return
   if (!isConfigInitialized.value || isHydratingConfig.value || isLoading.value) return
@@ -691,6 +725,15 @@ watch(
             @change="importConfigYaml"
           />
 
+          <button
+            @click="openPreferencesHistory"
+            :disabled="isSaving || isLoading"
+            class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md transition-colors disabled:opacity-50"
+          >
+            <ClockIcon class="h-4 w-4" />
+            {{ t('history.historyButton') }}
+          </button>
+
           <!-- Export Button (admin only) -->
           <button
             v-if="can('configuration', 'update')"
@@ -720,6 +763,17 @@ watch(
       <div class="text-center">
         <CogIcon class="h-12 w-12 text-gray-400 dark:text-gray-500 animate-spin mx-auto mb-4" />
         <p class="text-gray-600 dark:text-gray-400">{{ t('preferences.loading') }}</p>
+      </div>
+    </div>
+
+    <div v-else-if="isHistoryOpen" class="flex-1 overflow-y-auto p-6">
+      <div class="max-w-6xl mx-auto">
+        <PreferenceVersionHistoryPanel
+          v-model:selected-version-id="selectedPreferenceVersionId"
+          v-model:active-compare="activePreferenceCompare"
+          @close="closePreferencesHistory"
+          @restored="onPreferencesRestored"
+        />
       </div>
     </div>
 

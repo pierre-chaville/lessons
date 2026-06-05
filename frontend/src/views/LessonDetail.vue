@@ -40,6 +40,7 @@ import { usersApi, type ClerkUser } from '@/api/users'
 import { useToast } from '@/composables/useToast'
 import { usePermissions } from '@/composables/usePermissions'
 import { useAuth } from '@/composables/useAuth'
+import { formatApiDateTime } from '@/utils/dateTime'
 import VersionHistoryPanel from '@/components/VersionHistoryPanel.vue'
 import MilkdownEditor from '@/components/MilkdownEditor.vue'
 import LessonDocumentModal from '@/components/LessonDocumentModal.vue'
@@ -3303,7 +3304,7 @@ const saveParagraph = async () => {
                 <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
                   <tr v-for="row in workflowAuditLog" :key="row.id">
                     <td class="px-3 py-2 text-xs text-gray-700 dark:text-gray-300">
-                      {{ new Date(row.occurred_at).toLocaleString() }}
+                      {{ formatApiDateTime(row.occurred_at) }}
                     </td>
                     <td class="px-3 py-2 text-xs text-gray-700 dark:text-gray-300">
                       {{ workflowActorName(row.actor_id) }} ({{ workflowActorRole(row.actor_role) }})

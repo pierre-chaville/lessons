@@ -265,6 +265,7 @@ export type ContentType =
   | 'summary'
 
 export type VersionSource = 'human' | 'pipeline' | 'restore'
+export type PreferenceVersionSource = 'human' | 'system' | 'restore'
 
 export interface LessonVersion {
   id: string
@@ -272,6 +273,25 @@ export interface LessonVersion {
   content_type: ContentType
   version_number: number
   version_source: VersionSource
+  created_at: string
+  last_edited_at: string | null
+  edit_count: number
+  is_sealed: boolean
+  sealed_at: string | null
+  sealed_reason: string | null
+  created_by_id: string | null
+  change_summary: string | null
+  parent_version_id: string | null
+  restored_from_id: string | null
+  restored_from_version_number?: number | null
+  is_current: boolean
+  content?: unknown
+}
+
+export interface PreferenceVersion {
+  id: string
+  version_number: number
+  version_source: PreferenceVersionSource
   created_at: string
   last_edited_at: string | null
   edit_count: number

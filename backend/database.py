@@ -92,6 +92,47 @@ def _create_versioning_tables() -> None:
         """))
 
 
+def _create_preference_versioning_table() -> None:
+    """Create global preferences version table + indexes."""
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS preference_version (
+                id UUID PRIMARY KEY,
+                content JSONB NOT NULL,
+                version_number INTEGER NOT NULL,
+                version_source VARCHAR NOT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT now(),
+                last_edited_at TIMESTAMP NULL,
+                edit_count INTEGER NOT NULL DEFAULT 1,
+                is_sealed BOOLEAN NOT NULL DEFAULT false,
+                sealed_at TIMESTAMP NULL,
+                sealed_reason VARCHAR NULL,
+                created_by_id VARCHAR NULL,
+                change_summary VARCHAR NULL,
+                parent_version_id UUID NULL REFERENCES preference_version(id),
+                restored_from_id UUID NULL REFERENCES preference_version(id),
+                is_current BOOLEAN NOT NULL DEFAULT false
+            )
+        """))
+        conn.execute(text("""
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_preference_version_number
+            ON preference_version (version_number)
+        """))
+        conn.execute(text("""
+            CREATE UNIQUE INDEX IF NOT EXISTS ix_one_current_preference_version
+            ON preference_version (is_current)
+            WHERE is_current = true
+        """))
+        conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_preference_version_created_at
+            ON preference_version (created_at)
+        """))
+        conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_preference_version_created_by_id
+            ON preference_version (created_by_id)
+        """))
+
+
 def _create_lesson_chunk_table() -> None:
     """Create RAG chunk storage with pgvector and full-text search support."""
     if engine.dialect.name != "postgresql":
@@ -303,6 +344,14 @@ def _run_migrations():
             _create_lesson_chunk_table()
         except SQLAlchemyError as exc:
             logger.warning("RAG chunk table migration step failed/skipped: %s", exc)
+
+    try:
+        had_preference_version = "preference_version" in tables
+        _create_preference_versioning_table()
+        if not had_preference_version:
+            logger.info("Migration: ensured preference versioning schema")
+    except SQLAlchemyError as exc:
+        logger.warning("Preference versioning migration step failed/skipped: %s", exc)
 
     if "model_preset" in tables:
         columns = {col["name"] for col in inspector.get_columns("model_preset")}

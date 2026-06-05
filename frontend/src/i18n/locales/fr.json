@@ -730,6 +730,9 @@
       "summary_created": "Version du résumé créée",
       "summary_sealed": "Session du résumé scellée",
       "summary_restored": "Résumé restauré",
+      "preferences_created": "Version des préférences créée",
+      "preferences_sealed": "Session des préférences scellée",
+      "preferences_restored": "Préférences restaurées",
       "pipeline_rerun_requested": "Relance du pipeline demandée",
       "user_role_changed": "Rôle utilisateur modifié"
     }
@@ -747,6 +750,9 @@
     "exportFailed": "Échec de l'export de la configuration en YAML. Veuillez réessayer.",
     "importSuccess": "Configuration importée depuis YAML avec succès",
     "importFailed": "Échec de l'import de la configuration YAML. Veuillez vérifier le format du fichier et réessayer.",
+    "restoreSuccess": "Préférences restaurées avec succès",
+    "historyTitle": "Historique des préférences",
+    "sourceSystem": "Système",
     "reset": "Réinitialiser",
     "resetting": "Réinitialisation...",
     "saveSuccess": "Configuration enregistrée avec succès",

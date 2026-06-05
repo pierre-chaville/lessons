@@ -29,6 +29,7 @@ Thumbs.db
 
 # Python
 venv/
+.venv/
 env/
 *.egg-info/
 .pytest_cache/
