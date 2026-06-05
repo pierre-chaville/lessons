@@ -54,6 +54,7 @@ TASK_TYPE_TO_WORKFLOW_STEP = {
     "brief": "brief",
 }
 LLM_TASK_TYPES = {"correction", "edition", "summary", "brief", "extraction", "sources"}
+TASK_POLL_SLEEP_SECONDS = 5
 RAG_EMBEDDING_REFRESH_INTERVAL_SECONDS = 15 * 60
 RAG_EMBEDDING_REFRESH_SLEEP_SECONDS = 5
 
@@ -169,11 +170,22 @@ def set_lesson_process_status(session: Session, lesson_id: int, status: str | No
         session.refresh(lesson)
 
 
-def get_pending_task(session: Session) -> Task:
-    """Get the oldest pending task"""
+def task_uses_flex(task: Task) -> bool:
+    """Return whether a task was requested with OpenRouter flex mode."""
+    params = task.parameters or {}
+    if not isinstance(params, dict):
+        return False
+    return bool(params.get("use_flex", False))
+
+
+def get_pending_task(session: Session, use_flex: bool | None = None) -> Task | None:
+    """Get the oldest pending task, optionally scoped to flex/non-flex mode."""
     statement = select(Task).where(Task.status == "pending").order_by(Task.created_at)
-    result = session.exec(statement).first()
-    return result
+    pending_tasks = session.exec(statement)
+    for task in pending_tasks:
+        if use_flex is None or task_uses_flex(task) == use_flex:
+            return task
+    return None
 
 
 def fail_stale_running_tasks(session: Session):
@@ -714,15 +726,45 @@ def rag_embedding_refresh_loop():
     logger.info("RAG embedding refresh loop stopped")
 
 
+def task_worker_loop(worker_name: str, use_flex: bool):
+    """Poll and process one task queue serially."""
+    mode_label = "flex" if use_flex else "non-flex"
+    logger.info("%s task worker started, polling for %s tasks...", worker_name, mode_label)
+    while not should_stop:
+        try:
+            found_task = False
+            with Session(engine) as session:
+                task = get_pending_task(session, use_flex=use_flex)
+
+                if task:
+                    found_task = True
+                    logger.info(
+                        "%s found pending %s task %s of type '%s'",
+                        worker_name,
+                        mode_label,
+                        task.id,
+                        task.task_type,
+                    )
+                    process_task(session, task)
+
+            if not found_task:
+                time.sleep(TASK_POLL_SLEEP_SECONDS)
+
+        except Exception as e:
+            logger.error(
+                "Error in %s task worker loop: %s",
+                worker_name,
+                str(e),
+                exc_info=True,
+            )
+            time.sleep(TASK_POLL_SLEEP_SECONDS)
+
+    logger.info("%s task worker stopped", worker_name)
+
+
 def worker_loop():
-    """Main worker loop that polls for tasks"""
-    logger.info("Worker started, polling for tasks...")
-    rag_thread = threading.Thread(
-        target=rag_embedding_refresh_loop,
-        name="rag-embedding-refresh",
-        daemon=True,
-    )
-    rag_thread.start()
+    """Main worker supervisor that runs flex and non-flex task loops."""
+    logger.info("Worker started, polling for flex and non-flex tasks...")
 
     try:
         with Session(engine) as session:
@@ -734,26 +776,36 @@ def worker_loop():
             exc_info=True,
         )
 
+    rag_thread = threading.Thread(
+        target=rag_embedding_refresh_loop,
+        name="rag-embedding-refresh",
+        daemon=True,
+    )
+    task_threads = [
+        threading.Thread(
+            target=task_worker_loop,
+            args=("non-flex", False),
+            name="task-worker-non-flex",
+            daemon=True,
+        ),
+        threading.Thread(
+            target=task_worker_loop,
+            args=("flex", True),
+            name="task-worker-flex",
+            daemon=True,
+        ),
+    ]
+
+    rag_thread.start()
+    for task_thread in task_threads:
+        task_thread.start()
+
     while not should_stop:
-        try:
-            with Session(engine) as session:
-                # Get the next pending task
-                task = get_pending_task(session)
-
-                if task:
-                    logger.info(
-                        f"Found pending task {task.id} of type '{task.task_type}'"
-                    )
-                    process_task(session, task)
-                else:
-                    # No tasks found, sleep for a bit
-                    time.sleep(5)
-
-        except Exception as e:
-            logger.error(f"Error in worker loop: {str(e)}", exc_info=True)
-            time.sleep(5)
+        time.sleep(1)
 
     logger.info("Worker stopped")
+    for task_thread in task_threads:
+        task_thread.join(timeout=2)
     rag_thread.join(timeout=2)
 
 

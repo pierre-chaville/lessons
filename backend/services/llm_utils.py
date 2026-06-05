@@ -1,6 +1,6 @@
 """Utility functions for LLM operations using LangChain"""
 from typing import Union, Optional, Dict, Any
-from threading import Lock
+from threading import Lock, local
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain_core.callbacks import BaseCallbackHandler
@@ -16,13 +16,25 @@ from config import load_config
 
 logger = logging.getLogger(__name__)
 _token_usage_lock = Lock()
-_token_usage: Dict[str, Any] = {
-    "input_tokens": 0,
-    "output_tokens": 0,
-    "completion_tokens": 0,
-    "total_tokens": 0,
-    "model_usage": {},
-}
+_token_usage_local = local()
+
+
+def _new_token_usage_state() -> Dict[str, Any]:
+    return {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "model_usage": {},
+    }
+
+
+def _get_token_usage_state() -> Dict[str, Any]:
+    state = getattr(_token_usage_local, "state", None)
+    if state is None:
+        state = _new_token_usage_state()
+        _token_usage_local.state = state
+    return state
 
 
 def _default_model_for_provider(provider: str) -> str:
@@ -37,21 +49,18 @@ def _default_model_for_provider(provider: str) -> str:
 def reset_token_usage_tracker() -> None:
     """Reset token usage tracker for the current context."""
     with _token_usage_lock:
-        _token_usage["input_tokens"] = 0
-        _token_usage["output_tokens"] = 0
-        _token_usage["completion_tokens"] = 0
-        _token_usage["total_tokens"] = 0
-        _token_usage["model_usage"] = {}
+        _token_usage_local.state = _new_token_usage_state()
 
 
 def get_token_usage_tracker() -> Dict[str, Any]:
     """Get aggregated token usage for the current context."""
     with _token_usage_lock:
+        token_usage = _get_token_usage_state()
         return {
-            "input_tokens": int(_token_usage.get("input_tokens", 0)),
-            "output_tokens": int(_token_usage.get("output_tokens", 0)),
-            "completion_tokens": int(_token_usage.get("completion_tokens", 0)),
-            "total_tokens": int(_token_usage.get("total_tokens", 0)),
+            "input_tokens": int(token_usage.get("input_tokens", 0)),
+            "output_tokens": int(token_usage.get("output_tokens", 0)),
+            "completion_tokens": int(token_usage.get("completion_tokens", 0)),
+            "total_tokens": int(token_usage.get("total_tokens", 0)),
             "model_usage": {
                 k: {
                     "provider": v.get("provider"),
@@ -64,7 +73,7 @@ def get_token_usage_tracker() -> Dict[str, Any]:
                     "completion_tokens": int(v.get("completion_tokens", 0)),
                     "total_tokens": int(v.get("total_tokens", 0)),
                 }
-                for k, v in (_token_usage.get("model_usage", {}) or {}).items()
+                for k, v in (token_usage.get("model_usage", {}) or {}).items()
             },
         }
 
@@ -77,22 +86,24 @@ def _accumulate_token_usage(
     model: Optional[str] = None,
     service_tier: Optional[str] = None,
     service_tier_source: Optional[str] = None,
+    state: Optional[Dict[str, Any]] = None,
 ) -> None:
     with _token_usage_lock:
+        token_usage = state or _get_token_usage_state()
         input_int = max(0, int(input_tokens or 0))
         output_int = max(0, int(output_tokens or 0))
         total_int = max(0, int(total_tokens or 0))
 
-        _token_usage["input_tokens"] += input_int
-        _token_usage["output_tokens"] += output_int
+        token_usage["input_tokens"] += input_int
+        token_usage["output_tokens"] += output_int
         # Keep completion_tokens as alias of output_tokens for compatibility.
-        _token_usage["completion_tokens"] += output_int
-        _token_usage["total_tokens"] += total_int
+        token_usage["completion_tokens"] += output_int
+        token_usage["total_tokens"] += total_int
 
         if provider and model:
             tier = service_tier.strip().lower() if service_tier else None
             key = f"{provider.strip().lower()}::{model.strip()}::{tier or 'default'}"
-            model_usage = _token_usage.setdefault("model_usage", {})
+            model_usage = token_usage.setdefault("model_usage", {})
             if key not in model_usage:
                 model_usage[key] = {
                     "provider": provider.strip(),
@@ -251,6 +262,7 @@ class TokenUsageCallbackHandler(BaseCallbackHandler):
         self.requested_service_tier = (
             requested_service_tier.strip().lower() if requested_service_tier else None
         )
+        self._token_usage_state = _get_token_usage_state()
 
     def on_llm_end(self, response, **kwargs) -> None:
         usage = _extract_usage_from_llm_result(response)
@@ -266,6 +278,7 @@ class TokenUsageCallbackHandler(BaseCallbackHandler):
             service_tier_source="response" if response_service_tier else (
                 "request" if service_tier else None
             ),
+            state=self._token_usage_state,
         )
 
 def _load_api_key_from_env_file(key_name: str) -> str:
