@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from typing import Dict, Any
+import copy
 import json
 import yaml
 from sqlmodel import Session
@@ -736,6 +737,63 @@ def _save_db_config(session: Session, config: Dict[str, Any]) -> None:
     else:
         record.data = config
     session.commit()
+
+
+def _save_db_config_in_session(session: Session, config: Dict[str, Any]) -> None:
+    record = session.get(AppConfig, CONFIG_RECORD_ID)
+    if record is None:
+        record = AppConfig(id=CONFIG_RECORD_ID, data=config)
+        session.add(record)
+    else:
+        record.data = config
+    session.flush()
+
+
+def normalize_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize, migrate, and sanitize a full configuration snapshot."""
+    config = _sanitize_config(config or {})
+    config = _migrate_legacy_brief_config(config)
+    config = _migrate_summary_prompt_model_presets(config)
+    config = _migrate_correction_prompt_model_presets(config)
+    config = _migrate_edition_prompt_model_presets(config)
+    config = _migrate_extraction_prompt_model_presets(config)
+    config = _migrate_sources_prompt_model_presets(config)
+    normalized = merge_dicts(copy.deepcopy(DEFAULT_CONFIG), config)
+    normalized = _normalize_summary_prompt_limits(normalized)
+    normalized = _normalize_correction_prompt_limits(normalized)
+    normalized = _normalize_edition_prompt_limits(normalized)
+    normalized = _normalize_extraction_prompt_limits(normalized)
+    normalized = _normalize_sources_prompt_limits(normalized)
+    normalized = _normalize_brief_config(normalized)
+    normalized = _normalize_alignment_config(normalized)
+    normalized = _normalize_rag_config(normalized)
+    return _sanitize_config(normalized)
+
+
+def load_config_from_session(session: Session) -> Dict[str, Any]:
+    """Load configuration using an existing transaction/session."""
+    _load_env_file()
+    db_config = _get_db_config(session)
+    if not db_config:
+        file_config = {}
+        if CONFIG_FILE.exists():
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                file_config = yaml.safe_load(f) or {}
+        normalized = normalize_config(file_config)
+        _save_db_config_in_session(session, normalized)
+        return normalized
+
+    normalized = normalize_config(db_config)
+    if normalized != db_config or "api_key" in db_config:
+        _save_db_config_in_session(session, normalized)
+    return normalized
+
+
+def save_config_in_session(session: Session, config: Dict[str, Any]) -> Dict[str, Any]:
+    """Save a full configuration snapshot using an existing transaction/session."""
+    normalized = normalize_config(config)
+    _save_db_config_in_session(session, normalized)
+    return normalized
 
 
 def load_config() -> Dict[str, Any]:

@@ -225,6 +225,8 @@
     "editionPromptType": "Edition Prompt Type",
     "extractionPromptType": "Extraction Prompt Type",
     "sourcesPromptType": "Sources Prompt Type",
+    "useFlexMode": "Use OpenRouter flex mode",
+    "useFlexModeDesc": "Applies to OpenRouter-backed AI tasks when the selected model supports flex.",
     "createTasks": "Create Tasks",
     "creating": "Creating...",
     "selectAtLeastOneProcess": "Please select at least one process",
@@ -728,6 +730,9 @@
       "summary_created": "Summary version created",
       "summary_sealed": "Summary session sealed",
       "summary_restored": "Summary restored",
+      "preferences_created": "Preferences version created",
+      "preferences_sealed": "Preferences session sealed",
+      "preferences_restored": "Preferences restored",
       "pipeline_rerun_requested": "Pipeline rerun requested",
       "user_role_changed": "User role changed"
     }
@@ -745,6 +750,9 @@
     "exportFailed": "Failed to export configuration to YAML. Please try again.",
     "importSuccess": "Configuration imported from YAML successfully",
     "importFailed": "Failed to import YAML configuration. Please verify the file format and try again.",
+    "restoreSuccess": "Preferences restored successfully",
+    "historyTitle": "Preferences history",
+    "sourceSystem": "System",
     "reset": "Reset to Defaults",
     "resetting": "Resetting...",
     "saveSuccess": "Configuration saved successfully",
@@ -879,6 +887,7 @@
       "temperature": "Temperature",
       "costInputPerMTokens": "Input Cost / 1M Tokens",
       "costOutputPerMTokens": "Output Cost / 1M Tokens",
+      "flexCostRatio": "Flex Cost Ratio",
       "thinkingMode": "Thinking Mode"
     },
     "placeholders": {

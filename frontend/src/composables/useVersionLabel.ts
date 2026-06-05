@@ -1,17 +1,18 @@
 import type { ComposerTranslation } from 'vue-i18n'
 import type { LessonVersion } from '@/api/types'
+import { formatApiDateTime, parseApiDateTime } from '@/utils/dateTime'
 
 type AuthorResolver = (createdById: string | null) => string
 
 const formatDateTime = (iso: string | null): string => {
-  if (!iso) return 'n/a'
-  return new Date(iso).toLocaleString()
+  return formatApiDateTime(iso, 'n/a')
 }
 
 const sessionDurationMinutes = (version: LessonVersion): number => {
   if (!version.last_edited_at) return 0
-  const startedAt = new Date(version.created_at).getTime()
-  const endedAt = new Date(version.last_edited_at).getTime()
+  const startedAt = parseApiDateTime(version.created_at)?.getTime()
+  const endedAt = parseApiDateTime(version.last_edited_at)?.getTime()
+  if (startedAt === undefined || endedAt === undefined) return 0
   const diffMinutes = (endedAt - startedAt) / 60000
   return Math.max(0, Math.ceil(diffMinutes))
 }

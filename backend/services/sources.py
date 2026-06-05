@@ -258,6 +258,7 @@ async def verify_single_source(
         temperature=sources_config.get("_resolved_temperature"),
         max_tokens=sources_config.get("_resolved_max_tokens"),
         thinking_mode=sources_config.get("_resolved_thinking_mode"),
+        use_flex=bool(sources_config.get("_use_flex", False)),
     )
     llm_with_structure = llm.with_structured_output(SourceVerificationOutput)
 
@@ -375,6 +376,7 @@ async def _prefetch_sefaria_texts(
 async def verify_sources_async(
     sources: List[Source],
     prompt_type: Optional[str] = None,
+    use_flex: bool = False,
     session: Optional[Session] = None,
 ) -> List[Source]:
     """
@@ -462,6 +464,7 @@ async def verify_sources_async(
             "_resolved_temperature": resolved_temperature,
             "_resolved_max_tokens": sources_max_tokens,
             "_resolved_thinking_mode": resolved_thinking_mode,
+            "_use_flex": use_flex,
         }
 
         # --- Phase 1: Pre-fetch all Sefaria texts (cache + API) ---
@@ -498,6 +501,7 @@ async def verify_sources_async(
 def verify_sources(
     sources: List[Source],
     prompt_type: Optional[str] = None,
+    use_flex: bool = False,
     session: Optional[Session] = None,
 ) -> List[Source]:
     """
@@ -511,12 +515,20 @@ def verify_sources(
     Returns:
         List of updated Source objects with verification results
     """
-    return asyncio.run(verify_sources_async(sources, prompt_type=prompt_type, session=session))
+    return asyncio.run(
+        verify_sources_async(
+            sources,
+            prompt_type=prompt_type,
+            use_flex=use_flex,
+            session=session,
+        )
+    )
 
 
 async def verify_lesson_sources_async(
     lesson_id: int,
     prompt_type: Optional[str] = None,
+    use_flex: bool = False,
     session: Optional[Session] = None,
 ) -> bool:
     """
@@ -566,7 +578,12 @@ async def verify_lesson_sources_async(
             ))
 
         # Verify sources (handles Sefaria pre-fetch + LLM)
-        verified_sources = await verify_sources_async(all_sources, prompt_type=prompt_type, session=session)
+        verified_sources = await verify_sources_async(
+            all_sources,
+            prompt_type=prompt_type,
+            use_flex=use_flex,
+            session=session,
+        )
 
         # Write verification results back to the lesson_source rows
         for ls_row, verified in zip(db_sources, verified_sources):
@@ -598,6 +615,7 @@ async def verify_lesson_sources_async(
 def verify_lesson_sources(
     lesson_id: int,
     prompt_type: Optional[str] = None,
+    use_flex: bool = False,
     session: Optional[Session] = None,
 ) -> bool:
     """
@@ -611,4 +629,11 @@ def verify_lesson_sources(
     Returns:
         True if verification was successful, False otherwise
     """
-    return asyncio.run(verify_lesson_sources_async(lesson_id, prompt_type=prompt_type, session=session))
+    return asyncio.run(
+        verify_lesson_sources_async(
+            lesson_id,
+            prompt_type=prompt_type,
+            use_flex=use_flex,
+            session=session,
+        )
+    )

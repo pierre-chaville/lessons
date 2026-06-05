@@ -11,6 +11,7 @@ from models.model_preset import ModelPreset
 from models.glossary import GlossaryEntry
 from models.sefaria_cache import SefariaCache
 from models.versioning import ContentVersion, ContentType, VersionSource
+from models.preference_versioning import PreferenceVersion, PreferenceVersionSource
 from models.audit import AuditLog
 from models.booklet import (
     Booklet,
@@ -36,6 +37,8 @@ __all__ = [
     "ContentVersion",
     "ContentType",
     "VersionSource",
+    "PreferenceVersion",
+    "PreferenceVersionSource",
     "AuditLog",
     "Booklet",
     "BookletItem",

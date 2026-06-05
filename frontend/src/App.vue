@@ -587,7 +587,7 @@ watch(
       <!-- Processing View -->
       <div v-else-if="currentRoute === '/processing'">
         <!-- Header -->
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-0">
+        <div class="w-full px-4 sm:px-6 lg:px-8 py-8 pb-0">
           <div class="mb-6 flex justify-between items-center">
             <h2 class="text-xl font-semibold text-gray-900 dark:text-white">
               {{ t('processing.title') }}
@@ -595,7 +595,7 @@ watch(
           </div>
         </div>
         <!-- Content -->
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8">
+        <div class="w-full px-4 sm:px-6 lg:px-8 pb-8">
           <ProcessingTasks />
         </div>
       </div>

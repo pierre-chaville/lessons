@@ -205,7 +205,7 @@ ANTHROPIC_API_KEY=your-anthropic-key
 
 1. **Grouping**: The transcript segments are split into groups of `segments_per_group` segments
 2. **Parallel Processing**: Multiple groups are processed in parallel with a maximum of `max_concurrency` concurrent LLM calls
-3. **Structured Output**: LangChain's structured output ensures the LLM returns properly formatted corrections with segment IDs
+3. **Compact Output**: The LLM returns only changed segments as `id|corrected text` lines; unchanged segments are omitted
 4. **Merging**: Corrected segments are merged back into the original order and saved to `lesson.corrected_transcript`
 5. **Metadata**: The correction settings (model, temperature, prompt, provider) are saved to `lesson.correction_metadata`
 

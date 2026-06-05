@@ -19,6 +19,7 @@ import { usersApi, type ClerkUser } from '@/api/users'
 import { useAuth } from '@/composables/useAuth'
 import { useToast } from '@/composables/useToast'
 import { usePermissions } from '@/composables/usePermissions'
+import { formatApiDateTime, parseApiDateTime } from '@/utils/dateTime'
 import type { LessonListItem, Task, TaskStatus, TaskType } from '@/api/types'
 
 const { t } = useI18n()
@@ -111,8 +112,8 @@ const getLauncherLabel = (task: Task): string => {
 const matchesCreatedRange = (task: Task): boolean => {
   if (selectedCreatedRange.value === 'all') return true
 
-  const createdAt = new Date(task.created_at)
-  if (Number.isNaN(createdAt.getTime())) return false
+  const createdAt = parseApiDateTime(task.created_at)
+  if (!createdAt) return false
 
   if (selectedCreatedRange.value === 'today') {
     const startOfToday = new Date()
@@ -165,8 +166,7 @@ const confirmDelete = async () => {
 }
 
 const formatDate = (dateString: string | null | undefined): string => {
-  if (!dateString) return '-'
-  return new Date(dateString).toLocaleString()
+  return formatApiDateTime(dateString)
 }
 
 const formatDuration = (seconds: number | null | undefined): string => {
@@ -405,45 +405,59 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- Tasks Table -->
-    <div v-else class="bg-white dark:bg-gray-800 shadow-sm rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+    <div v-else class="bg-white dark:bg-gray-800 shadow-sm rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden min-w-0">
       <div class="overflow-x-auto">
-        <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+        <table class="w-full table-fixed divide-y divide-gray-200 dark:divide-gray-700">
+          <colgroup>
+            <col class="w-14" />
+            <col class="w-24" />
+            <col class="w-24" />
+            <col class="w-32" />
+            <col class="w-16" />
+            <col />
+            <col class="w-32" />
+            <col class="w-20" />
+            <col class="w-20" />
+            <col class="w-20" />
+            <col class="w-24" />
+            <col class="w-14" />
+          </colgroup>
           <thead class="bg-gray-50 dark:bg-gray-900/50">
             <tr>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400">
+              <th class="px-2 py-3 text-left text-xs font-medium leading-tight text-gray-500 dark:text-gray-400">
                 {{ t('processing.taskId') }}
               </th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400">
+              <th class="px-2 py-3 text-left text-xs font-medium leading-tight text-gray-500 dark:text-gray-400">
                 {{ t('processing.taskType') }}
               </th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400">
+              <th class="px-2 py-3 text-left text-xs font-medium leading-tight text-gray-500 dark:text-gray-400">
                 {{ t('processing.status') }}
               </th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400">
+              <th class="px-2 py-3 text-left text-xs font-medium leading-tight text-gray-500 dark:text-gray-400">
                 {{ t('processing.launchedBy') }}
               </th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400">
+              <th class="px-2 py-3 text-left text-xs font-medium leading-tight text-gray-500 dark:text-gray-400">
                 {{ t('processing.lessonId') }}
               </th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400">
+              <th class="px-2 py-3 text-left text-xs font-medium leading-tight text-gray-500 dark:text-gray-400">
                 {{ t('processing.lessonLabel') }}
               </th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400">
+              <th class="px-2 py-3 text-left text-xs font-medium leading-tight text-gray-500 dark:text-gray-400">
                 {{ t('processing.started') }}
               </th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400">
+              <th class="px-2 py-3 text-left text-xs font-medium leading-tight text-gray-500 dark:text-gray-400">
                 {{ t('processing.duration') }}
               </th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400">
+              <th class="px-2 py-3 text-right text-xs font-medium leading-tight text-gray-500 dark:text-gray-400">
                 {{ t('processing.inputTokens') }}
               </th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400">
+              <th class="px-2 py-3 text-right text-xs font-medium leading-tight text-gray-500 dark:text-gray-400">
                 {{ t('processing.outputTokens') }}
               </th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400">
+              <th class="px-2 py-3 text-right text-xs font-medium leading-tight text-gray-500 dark:text-gray-400">
                 {{ t('processing.estimatedCost') }}
               </th>
-              <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400">
+              <th class="px-2 py-3 text-right text-xs font-medium leading-tight text-gray-500 dark:text-gray-400">
                 {{ t('processing.actions') }}
               </th>
             </tr>
@@ -451,36 +465,36 @@ onBeforeUnmount(() => {
           <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
             <template v-for="task in filteredTasks" :key="task.id">
               <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
-                <td class="px-4 py-3 text-sm text-gray-900 dark:text-white font-medium">
+                <td class="px-2 py-3 text-sm text-gray-900 dark:text-white font-medium truncate">
                   {{ task.id }}
                 </td>
-                <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
-                  <div class="flex items-center gap-2">
+                <td class="px-2 py-3 text-sm text-gray-700 dark:text-gray-300">
+                  <div class="flex min-w-0 items-center gap-2">
                     <component
                       :is="getTaskTypeIcon(task.task_type)"
                       class="h-4 w-4 text-indigo-600 dark:text-indigo-400 flex-shrink-0"
                     />
-                    <span>{{ t(`processing.taskTypes.${task.task_type}`) }}</span>
+                    <span class="truncate">{{ t(`processing.taskTypes.${task.task_type}`) }}</span>
                   </div>
                 </td>
-                <td class="px-4 py-3 text-sm">
+                <td class="px-2 py-3 text-sm">
                   <span
                     :class="[
-                      'inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium',
+                      'inline-flex max-w-full items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium',
                       getStatusColor(task.status),
                     ]"
                   >
-                    <component :is="getStatusIcon(task.status)" class="h-4 w-4" />
-                    {{ t(`processing.statuses.${task.status}`) }}
+                    <component :is="getStatusIcon(task.status)" class="h-4 w-4 flex-shrink-0" />
+                    <span class="truncate">{{ t(`processing.statuses.${task.status}`) }}</span>
                   </span>
                 </td>
-                <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                <td class="px-2 py-3 text-sm text-gray-700 dark:text-gray-300 truncate" :title="getLauncherLabel(task)">
                   {{ getLauncherLabel(task) }}
                 </td>
-                <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
+                <td class="px-2 py-3 text-sm text-gray-700 dark:text-gray-300 truncate">
                   {{ getTaskLessonId(task) ?? '-' }}
                 </td>
-                <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 max-w-xs">
+                <td class="px-2 py-3 text-sm text-gray-700 dark:text-gray-300 min-w-0">
                   <a
                     v-if="getLessonHashid(task)"
                     :href="`/lessons/${getLessonHashid(task)}`"
@@ -493,22 +507,22 @@ onBeforeUnmount(() => {
                     {{ getLessonLabel(task) }}
                   </span>
                 </td>
-                <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                <td class="px-2 py-3 text-sm text-gray-700 dark:text-gray-300 truncate" :title="formatDate(task.start_date)">
                   {{ formatDate(task.start_date) }}
                 </td>
-                <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                <td class="px-2 py-3 text-sm text-gray-700 dark:text-gray-300 truncate">
                   {{ formatDuration(task.duration) }}
                 </td>
-                <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                <td class="px-2 py-3 text-sm text-right text-gray-700 dark:text-gray-300 truncate">
                   {{ formatInteger(getTokenCount(task, 'input_tokens')) }}
                 </td>
-                <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                <td class="px-2 py-3 text-sm text-right text-gray-700 dark:text-gray-300 truncate">
                   {{ formatInteger(getTokenCount(task, 'output_tokens')) }}
                 </td>
-                <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                <td class="px-2 py-3 text-sm text-right text-gray-700 dark:text-gray-300 truncate">
                   {{ formatEstimatedCost(task) }}
                 </td>
-                <td class="px-4 py-3 text-right">
+                <td class="px-2 py-3 text-right">
                   <button
                     v-if="can('tasks', 'cancel') && canDelete(task)"
                     @click="openDeleteModal(task)"

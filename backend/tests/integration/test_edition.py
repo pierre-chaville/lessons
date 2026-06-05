@@ -170,7 +170,7 @@ def main():
     print(f"\n🔄 Running edition (this may take a moment)...")
     print(f"   - Words per group: {words_per_group}")
     print(f"   - Max concurrency: {max_concurrency}")
-    print(f"   - Processing with segment numbers (reduces timestamp errors)\n")
+    print(f"   - Processing transcript text without timestamps\n")
 
     success = edit_transcript(
         lesson_id=lesson_id,

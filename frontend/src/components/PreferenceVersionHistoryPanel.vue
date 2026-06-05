@@ -2,16 +2,13 @@
 import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
 import { useI18n } from 'vue-i18n'
-import type { ContentType, LessonVersion } from '@/api/types'
+import type { PreferenceVersion } from '@/api/types'
 import { formatApiDateTime } from '@/utils/dateTime'
-import VersionTimeline from '@/components/VersionTimeline.vue'
-import VersionViewer from '@/components/VersionViewer.vue'
-import VersionDiffViewer from '@/components/VersionDiffViewer.vue'
+import PreferenceVersionTimeline from '@/components/PreferenceVersionTimeline.vue'
+import PreferenceVersionViewer from '@/components/PreferenceVersionViewer.vue'
+import PreferenceVersionDiffViewer from '@/components/PreferenceVersionDiffViewer.vue'
 
 const props = defineProps<{
-  lessonId: number
-  lessonHashid: string
-  contentType: ContentType
   selectedVersionId: string | null
   activeCompare: {
     versionAId: string
@@ -37,7 +34,7 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
-const versions = ref<LessonVersion[]>([])
+const versions = ref<PreferenceVersion[]>([])
 const isTimelineExpandedMobile = ref(false)
 
 const selectedVersion = computed(() => {
@@ -46,22 +43,11 @@ const selectedVersion = computed(() => {
   return versions.value.find((v) => v.id === props.selectedVersionId) ?? null
 })
 
-const contentTypeLabel = computed(() => {
-  const map: Record<ContentType, string> = {
-    title: t('history.contentTypeTitle'),
-    corrected_transcript: t('history.contentTypeCorrectedTranscript'),
-    edited_transcript: t('history.contentTypeEditedTranscript'),
-    brief: t('history.contentTypeBrief'),
-    summary: t('history.contentTypeSummary'),
-  }
-  return map[props.contentType] ?? props.contentType
-})
-
 const selectedVersionLabel = computed(() => {
   if (!selectedVersion.value) return ''
   const actor =
-    selectedVersion.value.version_source === 'pipeline'
-      ? t('history.pipeline')
+    selectedVersion.value.version_source === 'system'
+      ? t('audit.system')
       : selectedVersion.value.created_by_id || t('audit.system')
   const seal = selectedVersion.value.is_sealed ? t('history.sealed') : t('history.current')
   const timestamp = formatApiDateTime(selectedVersion.value.created_at, 'n/a')
@@ -108,9 +94,7 @@ const compareTitle = computed(() => {
 })
 
 const onPanelKeydown = (event: KeyboardEvent) => {
-  if (event.key === 'Escape' && props.activeCompare) {
-    clearCompare()
-  }
+  if (event.key === 'Escape' && props.activeCompare) clearCompare()
 }
 
 onMounted(() => {
@@ -149,9 +133,9 @@ watch(
   <div class="space-y-4">
     <div class="flex items-center justify-between gap-3">
       <div class="text-sm text-gray-600 dark:text-gray-300">
-        <span class="font-medium text-gray-900 dark:text-white">{{ t('lessons.title') }}</span>
+        <span class="font-medium text-gray-900 dark:text-white">{{ t('preferences.title') }}</span>
         <span class="mx-2">></span>
-        <span>{{ t('history.historyForLabel', { contentType: contentTypeLabel }) }}</span>
+        <span>{{ t('preferences.historyTitle') }}</span>
       </div>
       <button
         @click="emit('close')"
@@ -187,10 +171,7 @@ watch(
           <span>{{ isTimelineExpandedMobile ? '−' : '+' }}</span>
         </button>
         <div :class="isTimelineExpandedMobile ? 'block' : 'hidden md:block'">
-          <VersionTimeline
-            :lesson-id="lessonId"
-            :lesson-hashid="lessonHashid"
-            :content-type="contentType"
+          <PreferenceVersionTimeline
             :selected-version-id="selectedVersionId"
             :active-compare="activeCompare"
             @update:selected-version-id="onSelectVersion"
@@ -214,17 +195,13 @@ watch(
               {{ t('history.backToVersionView') }}
             </button>
           </div>
-          <VersionDiffViewer
-            :lesson-hashid="lessonHashid"
+          <PreferenceVersionDiffViewer
             :version-a-id="activeCompare.versionAId"
             :version-b-id="activeCompare.versionBId"
-            :content-type="contentType"
           />
         </div>
-        <VersionViewer
+        <PreferenceVersionViewer
           v-else
-          :lesson-hashid="lessonHashid"
-          :content-type="contentType"
           :version-id="selectedVersionId ?? selectedVersion?.id ?? null"
         />
       </section>

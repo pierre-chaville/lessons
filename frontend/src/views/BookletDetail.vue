@@ -85,6 +85,7 @@ const selectedCorrectionPrompt = ref('')
 const selectedEditionPrompt = ref('')
 const selectedExtractionPrompt = ref('')
 const selectedSourcesPrompt = ref('')
+const useFlexMode = ref(false)
 const chapterForm = ref({
   chapter_title: '',
   chapter_subtitle: '',
@@ -566,6 +567,7 @@ const openProcessModal = async () => {
     summary: false,
     brief: false,
   }
+  useFlexMode.value = false
   showProcessModal.value = true
   try {
     const config = await configApi.get()
@@ -621,6 +623,7 @@ const launchBookletTasks = async () => {
       segments_per_group: 100,
       max_concurrency: 10,
       prompt_type: selectedCorrectionPrompt.value,
+      use_flex: useFlexMode.value,
     }
   }
   if (selected.includes('edition')) {
@@ -628,22 +631,31 @@ const launchBookletTasks = async () => {
       words_per_group: 1000,
       max_concurrency: 10,
       prompt_type: selectedEditionPrompt.value,
+      use_flex: useFlexMode.value,
     }
   }
   if (selected.includes('extraction')) {
     taskParametersByType.extraction = {
       max_concurrency: 10,
       prompt_type: selectedExtractionPrompt.value,
+      use_flex: useFlexMode.value,
     }
   }
   if (selected.includes('sources')) {
     taskParametersByType.sources = {
       prompt_type: selectedSourcesPrompt.value,
+      use_flex: useFlexMode.value,
     }
   }
   if (selected.includes('summary')) {
     taskParametersByType.summary = {
       prompt_type: selectedSummaryPrompt.value,
+      use_flex: useFlexMode.value,
+    }
+  }
+  if (selected.includes('brief')) {
+    taskParametersByType.brief = {
+      use_flex: useFlexMode.value,
     }
   }
 
@@ -1037,13 +1049,23 @@ watch(() => props.bookletId, loadDetail)
                 </p>
               </div>
             </div>
-            <button
-              @click="selectAllProcesses"
-              class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 rounded-md transition-colors flex-shrink-0"
-            >
-              <CheckCircleIcon class="h-3.5 w-3.5" />
-              {{ t('lessons.selectAllRemaining') }}
-            </button>
+            <div class="flex flex-col sm:flex-row items-end sm:items-center gap-2 flex-shrink-0">
+              <label class="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-md cursor-pointer transition-colors">
+                <input
+                  type="checkbox"
+                  v-model="useFlexMode"
+                  class="w-3.5 h-3.5 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                />
+                {{ t('lessons.useFlexMode') }}
+              </label>
+              <button
+                @click="selectAllProcesses"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 rounded-md transition-colors"
+              >
+                <CheckCircleIcon class="h-3.5 w-3.5" />
+                {{ t('lessons.selectAllRemaining') }}
+              </button>
+            </div>
           </div>
 
           <div class="space-y-2 mb-6">

@@ -20,6 +20,7 @@ class ModelPreset(SQLModel, table=True):
     temperature: float = Field(default=0.7)
     cost_input_per_m_tokens: float = Field(default=0.0)
     cost_output_per_m_tokens: float = Field(default=0.0)
+    flex_cost_ratio: float = Field(default=0.5)
     thinking_mode: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
     created_at: datetime = Field(
         default_factory=datetime.utcnow,

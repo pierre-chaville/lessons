@@ -151,6 +151,7 @@ def create_model_preset(
     temperature: float = 0.7,
     cost_input_per_m_tokens: float = 0.0,
     cost_output_per_m_tokens: float = 0.0,
+    flex_cost_ratio: float = 0.5,
     thinking_mode: Optional[dict] = None,
 ) -> ModelPreset:
     """Create a new model preset."""
@@ -161,6 +162,7 @@ def create_model_preset(
         temperature=temperature,
         cost_input_per_m_tokens=cost_input_per_m_tokens,
         cost_output_per_m_tokens=cost_output_per_m_tokens,
+        flex_cost_ratio=flex_cost_ratio,
         thinking_mode=thinking_mode or {},
     )
     session.add(preset)
@@ -189,6 +191,7 @@ def update_model_preset(
     temperature: Optional[float] = None,
     cost_input_per_m_tokens: Optional[float] = None,
     cost_output_per_m_tokens: Optional[float] = None,
+    flex_cost_ratio: Optional[float] = None,
     thinking_mode: Optional[dict] = None,
 ) -> Optional[ModelPreset]:
     """Update an existing model preset."""
@@ -208,6 +211,8 @@ def update_model_preset(
         preset.cost_input_per_m_tokens = cost_input_per_m_tokens
     if cost_output_per_m_tokens is not None:
         preset.cost_output_per_m_tokens = cost_output_per_m_tokens
+    if flex_cost_ratio is not None:
+        preset.flex_cost_ratio = flex_cost_ratio
     if thinking_mode is not None:
         preset.thinking_mode = thinking_mode
     preset.updated_at = datetime.utcnow()

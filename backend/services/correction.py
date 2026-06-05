@@ -1,7 +1,7 @@
 """Lesson transcript correction using LLM"""
 import asyncio
+import json
 from typing import List, Optional
-from pydantic import BaseModel, Field
 from sqlmodel import Session
 import sys
 from pathlib import Path
@@ -29,33 +29,90 @@ MAX_RETRIES = 5
 INITIAL_RETRY_DELAY = 1  # seconds
 MAX_RETRY_DELAY = 60  # seconds
 
-
-# Input/Output models for structured output
-class SegmentInput(BaseModel):
-    """Input segment with ID for correction"""
-    id: int = Field(description="Segment index in the group")
-    text: str = Field(description="Original text to be corrected")
-
-
-class SegmentOutput(BaseModel):
-    """Output segment with corrected text"""
-    id: int = Field(description="Segment index matching the input")
-    text: str = Field(description="Corrected text")
+COMPACT_CORRECTION_OUTPUT_INSTRUCTIONS = (
+    "Return only corrected segments in this compact format: one changed segment "
+    "per line as <id>|<corrected text>. Omit unchanged segments. If no segment "
+    "needs correction, return exactly NONE. Do not return JSON, Markdown, code "
+    "fences, explanations, or unchanged segments."
+)
 
 
-class TranscriptGroup(BaseModel):
-    """Input: Group of segments to correct"""
-    segments: List[SegmentInput] = Field(description="List of segments to review")
+def _segment_text(segment: Segment) -> str:
+    text = segment["text"] if isinstance(segment, dict) else segment.text
+    return text or ""
 
 
-class CorrectedTranscriptGroup(BaseModel):
-    """Output: Group of corrected segments"""
-    segments: List[SegmentOutput] = Field(description="List of corrected segments (excluding segments that do not need correction)")
+def _response_text(response) -> str:
+    content = response.content if hasattr(response, "content") else response
+    return str(content or "").strip()
+
+
+def _parse_legacy_json_corrections(output: str, group_size: int) -> dict[int, str]:
+    try:
+        payload = json.loads(output)
+    except json.JSONDecodeError:
+        return {}
+
+    if isinstance(payload, dict):
+        rows = payload.get("segments", [])
+    elif isinstance(payload, list):
+        rows = payload
+    else:
+        return {}
+
+    corrections: dict[int, str] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        try:
+            segment_id = int(row.get("id"))
+        except (TypeError, ValueError):
+            continue
+        corrected_text = str(row.get("text") or "").strip()
+        if 1 <= segment_id <= group_size and corrected_text:
+            corrections[segment_id] = corrected_text
+    return corrections
+
+
+def _parse_compact_corrections(output: str, group_size: int) -> dict[int, str]:
+    stripped_output = output.strip()
+    if not stripped_output or stripped_output.upper() == "NONE":
+        return {}
+
+    legacy_corrections = _parse_legacy_json_corrections(stripped_output, group_size)
+    if legacy_corrections:
+        return legacy_corrections
+
+    corrections: dict[int, str] = {}
+    for raw_line in stripped_output.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("```") or line.upper() == "NONE":
+            continue
+        if "|" not in line:
+            logger.warning("Ignoring unparsable correction line: %s", line[:120])
+            continue
+
+        id_part, corrected_text = line.split("|", 1)
+        id_part = id_part.strip().lstrip("-*").strip()
+        if id_part.endswith("."):
+            id_part = id_part[:-1].strip()
+        if not id_part.isdigit():
+            logger.warning("Ignoring correction with invalid segment id: %s", line[:120])
+            continue
+
+        segment_id = int(id_part)
+        corrected_text = corrected_text.strip()
+        if not 1 <= segment_id <= group_size:
+            logger.warning("Ignoring correction id outside group range: %s", segment_id)
+            continue
+        if corrected_text:
+            corrections[segment_id] = corrected_text
+    return corrections
 
 
 async def correct_segment_group_with_retry(
     group: List[tuple[int, Segment]],
-    llm_with_structure,
+    llm,
     correction_prompt: str,
     max_retries: int = MAX_RETRIES
 ) -> List[tuple[int, str]]:
@@ -64,7 +121,7 @@ async def correct_segment_group_with_retry(
     
     Args:
         group: List of tuples (original_index, Segment or dict)
-        llm_with_structure: LLM model with structured output
+        llm: LLM model
         correction_prompt: Prompt for correction
         max_retries: Maximum number of retry attempts
         
@@ -75,7 +132,7 @@ async def correct_segment_group_with_retry(
     
     for attempt in range(max_retries):
         try:
-            return await correct_segment_group(group, llm_with_structure, correction_prompt)
+            return await correct_segment_group(group, llm, correction_prompt)
         
         except Exception as e:
             last_error = e
@@ -119,44 +176,37 @@ async def correct_segment_group_with_retry(
 
 async def correct_segment_group(
     group: List[tuple[int, Segment]],
-    llm_with_structure,
+    llm,
     correction_prompt: str
 ) -> List[tuple[int, str]]:
     """
-    Correct a group of segments using the LLM with structured output.
+    Correct a group of segments using the LLM.
     
     Args:
         group: List of tuples (original_index, Segment or dict)
-        llm_with_structure: LLM model with structured output
+        llm: LLM model
         correction_prompt: Prompt for correction
         
     Returns:
         List of tuples (original_index, corrected_text)
     """
     try:
-        # Prepare input data - handle both Segment objects and dicts
-        # Use 1-based IDs to match the numbering shown to the LLM
-        input_segments = []
-        for i, (_, segment) in enumerate(group):
-            if isinstance(segment, dict):
-                text = segment['text']
-            else:
-                text = segment.text
-            input_segments.append(SegmentInput(id=i+1, text=text))
-        
-        input_data = TranscriptGroup(segments=input_segments)
-        
         # Create the prompt with the segments (numbered 1, 2, 3, ...)
-        segments_text = "\n".join([
-            f"{seg.id}. {seg.text}" 
-            for seg in input_segments
-        ])
+        segments_text = "\n".join(
+            f"{i + 1}. {_segment_text(segment)}"
+            for i, (_, segment) in enumerate(group)
+        )
         
-        full_prompt = f"{correction_prompt}\n\nSegments to review:\n{segments_text}"
+        full_prompt = (
+            f"{correction_prompt}\n\n"
+            f"{COMPACT_CORRECTION_OUTPUT_INSTRUCTIONS}\n\n"
+            f"Segments to review:\n{segments_text}"
+        )
         
-        # Call LLM with structured output
-        result = await llm_with_structure.ainvoke(full_prompt)
-        
+        # Call LLM with compact text output.
+        response = await llm.ainvoke(full_prompt)
+        output = _response_text(response)
+        corrections_by_id = _parse_compact_corrections(output, len(group))
         # Map corrected segments back to original indices
         # Note: LLM only returns segments that need correction
         # Segments not in the response don't need correction and use original text
@@ -165,18 +215,14 @@ async def correct_segment_group(
         
         for i, (original_idx, segment) in enumerate(group):
             # Find the corrected segment by id (1-based)
-            corrected_segment = next(
-                (seg for seg in result.segments if seg.id == i+1),
-                None
-            )
-            if corrected_segment:
+            corrected_text = corrections_by_id.get(i + 1)
+            if corrected_text is not None:
                 # Use corrected text from LLM
-                corrected.append((original_idx, corrected_segment.text))
+                corrected.append((original_idx, corrected_text))
                 corrected_count += 1
             else:
                 # Segment not returned by LLM = doesn't need correction, use original
-                original_text = segment['text'] if isinstance(segment, dict) else segment.text
-                corrected.append((original_idx, original_text))
+                corrected.append((original_idx, _segment_text(segment)))
         
         # Log correction statistics
         logger.info(
@@ -191,8 +237,7 @@ async def correct_segment_group(
         # Return original texts on error
         result = []
         for original_idx, segment in group:
-            text = segment['text'] if isinstance(segment, dict) else segment.text
-            result.append((original_idx, text))
+            result.append((original_idx, _segment_text(segment)))
         return result
 
 
@@ -201,6 +246,7 @@ async def correct_transcript_async(
     segments_per_group: int = 100,
     max_concurrency: int = 10,
     prompt_type: Optional[str] = None,
+    use_flex: bool = False,
     session: Optional[Session] = None,
 ) -> bool:
     """
@@ -295,12 +341,14 @@ async def correct_transcript_async(
                 temperature=correction_model_preset.temperature,
                 max_tokens=correction_prompt_max_tokens,
                 thinking_mode=correction_model_preset.thinking_mode or None,
+                use_flex=use_flex,
             )
         else:
-            llm = get_llm_model(task_name='correction', max_tokens=correction_prompt_max_tokens)
-        
-        # Add structured output
-        llm_with_structure = llm.with_structured_output(CorrectedTranscriptGroup)
+            llm = get_llm_model(
+                task_name='correction',
+                max_tokens=correction_prompt_max_tokens,
+                use_flex=use_flex,
+            )
         
         # Split segments into groups
         segments = lesson.transcript
@@ -321,7 +369,7 @@ async def correct_transcript_async(
         async def process_with_semaphore(group):
             async with semaphore:
                 return await correct_segment_group_with_retry(
-                    group, llm_with_structure, correction_prompt
+                    group, llm, correction_prompt
                 )
         
         # Process all groups in parallel (with concurrency limit)
@@ -420,6 +468,7 @@ def correct_transcript(
     segments_per_group: int = 10,
     max_concurrency: int = 10,
     prompt_type: Optional[str] = None,
+    use_flex: bool = False,
     session: Optional[Session] = None,
 ) -> bool:
     """
@@ -441,6 +490,7 @@ def correct_transcript(
             segments_per_group=segments_per_group,
             max_concurrency=max_concurrency,
             prompt_type=prompt_type,
+            use_flex=use_flex,
             session=session,
         )
     )

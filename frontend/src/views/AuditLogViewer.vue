@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { auditApi } from '@/api/audit'
 import { usersApi, type ClerkUser } from '@/api/users'
 import { lessonsApi } from '@/api/lessons'
+import { formatApiDateTime } from '@/utils/dateTime'
 import type { AuditLogRow } from '@/api/types'
 
 const rows = ref<AuditLogRow[]>([])
@@ -146,7 +147,7 @@ onMounted(async () => {
           <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
             <tr v-for="row in displayedRows" :key="row.id">
               <td class="px-3 py-2 text-xs text-gray-700 dark:text-gray-300">
-                {{ new Date(row.occurred_at).toLocaleString() }}
+                {{ formatApiDateTime(row.occurred_at) }}
               </td>
               <td class="px-3 py-2 text-xs text-gray-700 dark:text-gray-300">
                 {{ actorName(row.actor_id) }} ({{ row.actor_role }})
