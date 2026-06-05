@@ -1,6 +1,7 @@
 """Lesson transcript edition using LLM - rewrite in written style."""
 
 import asyncio
+import re
 from datetime import datetime
 from typing import List, Optional
 from sqlmodel import Session
@@ -35,16 +36,77 @@ logger = logging.getLogger(__name__)
 MAX_RETRIES = 5
 INITIAL_RETRY_DELAY = 1  # seconds
 MAX_RETRY_DELAY = 60  # seconds
+MAX_EDITED_PARAGRAPH_CHARS = 1200
+TARGET_EDITED_PARAGRAPH_CHARS = 550
 
 PLAIN_TEXT_OUTPUT_INSTRUCTIONS = (
     "Return only the edited text. Do not include JSON, metadata, timestamps, "
-    "segment identifiers, source lists, or code fences."
+    "segment identifiers, source lists, or code fences. Separate the edited text "
+    "into natural paragraphs with blank lines. Avoid very long paragraphs; aim for "
+    "roughly 400-700 characters per paragraph."
 )
 
 
 def _segment_text(segment: Segment) -> str:
     text = segment["text"] if isinstance(segment, dict) else segment.text
     return text or ""
+
+
+def _split_text_into_sentence_paragraphs(
+    text: str,
+    target_chars: int = TARGET_EDITED_PARAGRAPH_CHARS,
+) -> list[str]:
+    sentences = [
+        part.strip()
+        for part in re.split(r"(?<=[.!?…])\s+", text.strip())
+        if part.strip()
+    ]
+    if len(sentences) <= 1:
+        return [text.strip()] if text.strip() else []
+
+    paragraphs: list[str] = []
+    current = ""
+    for sentence in sentences:
+        candidate = f"{current} {sentence}".strip() if current else sentence
+        if current and len(candidate) > target_chars:
+            paragraphs.append(current)
+            current = sentence
+        else:
+            current = candidate
+    if current:
+        paragraphs.append(current)
+    return paragraphs
+
+
+def _split_oversized_markdown_paragraphs(
+    markdown: str,
+    max_chars: int = MAX_EDITED_PARAGRAPH_CHARS,
+) -> str:
+    blocks = re.split(r"\n\s*\n+", str(markdown or "").strip())
+    normalized_blocks: list[str] = []
+
+    for block in blocks:
+        compact_block = " ".join(
+            line.strip() for line in block.splitlines() if line.strip()
+        ).strip()
+        if not compact_block:
+            continue
+        if len(compact_block) <= max_chars:
+            normalized_blocks.append(compact_block)
+            continue
+        normalized_blocks.extend(_split_text_into_sentence_paragraphs(compact_block))
+
+    return "\n\n".join(normalized_blocks).strip()
+
+
+def _has_oversized_markdown_paragraph(
+    markdown: str,
+    max_chars: int = MAX_EDITED_PARAGRAPH_CHARS,
+) -> bool:
+    return any(
+        len(" ".join(line.strip() for line in block.splitlines() if line.strip())) > max_chars
+        for block in re.split(r"\n\s*\n+", str(markdown or "").strip())
+    )
 
 
 async def edit_segment_group_with_retry(
@@ -143,6 +205,7 @@ async def edit_segment_group(
     group: List[Segment],
     llm,
     edition_prompt: str,
+    retry_for_paragraphs: bool = True,
 ) -> str:
     """
     Edit a group of segments using the LLM.
@@ -157,11 +220,12 @@ async def edit_segment_group(
     """
     try:
         # Create prompt with transcript text only.
-        segments_text = "\n".join(
+        segment_lines = [
             text.strip()
             for segment in group
             if (text := _segment_text(segment).strip())
-        )
+        ]
+        segments_text = "- " + "\n- ".join(segment_lines) if segment_lines else ""
         full_prompt = (
             f"{edition_prompt}\n\n"
             f"{PLAIN_TEXT_OUTPUT_INSTRUCTIONS}\n\n"
@@ -174,6 +238,25 @@ async def edit_segment_group(
         markdown = markdown.strip()
         if not markdown:
             raise ValueError("Edition output is empty")
+        if retry_for_paragraphs and _has_oversized_markdown_paragraph(markdown):
+            logger.warning(
+                "Edition output contains oversized paragraph; retrying group once with stricter paragraphing."
+            )
+            retry_prompt = (
+                f"{full_prompt}\n\n"
+                "IMPORTANT: Your previous output had a paragraph that was too long. "
+                "Rewrite the same edited text again, split into natural paragraphs of "
+                "roughly 400-700 characters, separated by blank lines."
+            )
+            retry_response = await llm.ainvoke(retry_prompt)
+            retry_markdown = (
+                retry_response.content
+                if hasattr(retry_response, "content")
+                else str(retry_response)
+            ).strip()
+            if retry_markdown:
+                markdown = retry_markdown
+        markdown = _split_oversized_markdown_paragraphs(markdown)
         return markdown
 
     except Exception as e:
@@ -350,7 +433,9 @@ async def edit_transcript_async(
         results = await asyncio.gather(*tasks)
 
         markdown = "\n\n".join(part.strip() for part in results if isinstance(part, str) and part.strip()).strip()
+        markdown = _split_oversized_markdown_paragraphs(markdown)
         markdown, markdown_report = apply_glossary_to_text_with_report(markdown, glossary_rules)
+        markdown = _split_oversized_markdown_paragraphs(markdown)
         if not markdown:
             raise ValueError("Edited transcript markdown is empty")
 
