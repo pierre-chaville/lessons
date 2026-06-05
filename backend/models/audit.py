@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from sqlalchemy import BigInteger, Column, DateTime, Index, String
+from sqlalchemy import BigInteger, Column, DateTime, Index, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import JSON
 from sqlmodel import Field, SQLModel
@@ -35,7 +35,11 @@ class AuditLog(SQLModel, table=True):
 
     id: Optional[int] = Field(
         default=None,
-        sa_column=Column(BigInteger, primary_key=True, autoincrement=True),
+        sa_column=Column(
+            BigInteger().with_variant(Integer(), "sqlite"),
+            primary_key=True,
+            autoincrement=True,
+        ),
     )
     occurred_at: datetime = Field(
         default_factory=datetime.utcnow,

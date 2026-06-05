@@ -645,8 +645,9 @@ def process_task(session: Session, task: Task):
             )
 
         step = TASK_TYPE_TO_WORKFLOW_STEP.get(task.task_type)
-        if lesson_id and step and task.status in {"completed", "failed"}:
-            next_status = "to_review" if task.status == "completed" else "failed"
+        task_status = getattr(task, "status", None)
+        if lesson_id and step and task_status in {"completed", "failed"}:
+            next_status = "to_review" if task_status == "completed" else "failed"
             try:
                 lesson_service.set_lesson_step_status(
                     session=session,
