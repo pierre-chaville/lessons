@@ -97,6 +97,9 @@ def _calculate_estimated_cost(
         output_tokens = int(usage.get("output_tokens") or 0)
         completion_tokens = int(usage.get("completion_tokens") or output_tokens)
         total_tokens = int(usage.get("total_tokens") or (input_tokens + output_tokens))
+        service_tier = (usage.get("service_tier") or "").strip().lower() or None
+        service_tier_source = (usage.get("service_tier_source") or "").strip().lower() or None
+        flex_used = service_tier == "flex" or bool(usage.get("flex_used", False))
 
         if not provider or not model:
             continue
@@ -108,19 +111,32 @@ def _calculate_estimated_cost(
 
         input_cost = (input_tokens / 1_000_000) * float(preset.cost_input_per_m_tokens or 0.0)
         output_cost = (output_tokens / 1_000_000) * float(preset.cost_output_per_m_tokens or 0.0)
-        model_cost = input_cost + output_cost
+        base_model_cost = input_cost + output_cost
+        flex_cost_ratio = (
+            float(preset.flex_cost_ratio)
+            if getattr(preset, "flex_cost_ratio", None) is not None
+            else 0.5
+        )
+        applied_cost_ratio = flex_cost_ratio if flex_used else 1.0
+        model_cost = base_model_cost * applied_cost_ratio
         total_cost += model_cost
 
         breakdown.append(
             {
                 "provider": provider,
                 "model": model,
+                "service_tier": service_tier,
+                "service_tier_source": service_tier_source,
+                "flex_used": flex_used,
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
                 "completion_tokens": completion_tokens,
                 "total_tokens": total_tokens,
                 "cost_input_per_m_tokens": float(preset.cost_input_per_m_tokens or 0.0),
                 "cost_output_per_m_tokens": float(preset.cost_output_per_m_tokens or 0.0),
+                "flex_cost_ratio": flex_cost_ratio,
+                "applied_cost_ratio": applied_cost_ratio,
+                "base_estimated_cost_usd": round(base_model_cost, 8),
                 "estimated_cost_usd": round(model_cost, 8),
             }
         )
@@ -257,6 +273,7 @@ def process_correction_task(session: Session, task: Task):
         segments_per_group = params.get("segments_per_group", 10)
         max_concurrency = params.get("max_concurrency", 10)
         prompt_type = params.get("prompt_type")
+        use_flex = bool(params.get("use_flex", False))
 
         if not lesson_id:
             raise ValueError("lesson_id is required in task parameters")
@@ -268,6 +285,7 @@ def process_correction_task(session: Session, task: Task):
             segments_per_group=segments_per_group,
             max_concurrency=max_concurrency,
             prompt_type=prompt_type,
+            use_flex=use_flex,
             session=session,
         )
 
@@ -284,6 +302,7 @@ def process_correction_task(session: Session, task: Task):
                         "lesson_id": lesson_id,
                         "segments_per_group": segments_per_group,
                         "max_concurrency": max_concurrency,
+                        "use_flex": use_flex,
                     },
                     token_usage,
                 ),
@@ -315,6 +334,7 @@ def process_edition_task(session: Session, task: Task):
             words_per_group = params.get("segments_per_group", 1000)
         max_concurrency = params.get("max_concurrency", 10)
         prompt_type = params.get("prompt_type")
+        use_flex = bool(params.get("use_flex", False))
 
         if not lesson_id:
             raise ValueError("lesson_id is required in task parameters")
@@ -327,6 +347,7 @@ def process_edition_task(session: Session, task: Task):
             words_per_group=words_per_group,
             max_concurrency=max_concurrency,
             prompt_type=prompt_type,
+            use_flex=use_flex,
             session=session,
         )
 
@@ -351,6 +372,7 @@ def process_edition_task(session: Session, task: Task):
                     "lesson_id": lesson_id,
                     "words_per_group": words_per_group,
                     "max_concurrency": max_concurrency,
+                    "use_flex": use_flex,
                 },
                 get_token_usage_tracker(),
             ),
@@ -370,6 +392,7 @@ def process_summary_task(session: Session, task: Task):
         params = task.parameters or {}
         lesson_id = params.get("lesson_id")
         prompt_type = params.get("prompt_type")  # Get the prompt type from parameters
+        use_flex = bool(params.get("use_flex", False))
 
         if not lesson_id:
             raise ValueError("lesson_id is required in task parameters")
@@ -379,6 +402,7 @@ def process_summary_task(session: Session, task: Task):
         success = generate_summary(
             lesson_id=lesson_id,
             prompt_type=prompt_type,
+            use_flex=use_flex,
             session=session,
         )
 
@@ -393,6 +417,7 @@ def process_summary_task(session: Session, task: Task):
                         "message": "Summary generated successfully",
                         "lesson_id": lesson_id,
                         "prompt_type": prompt_type,
+                        "use_flex": use_flex,
                     },
                     get_token_usage_tracker(),
                 ),
@@ -418,6 +443,7 @@ def process_brief_task(session: Session, task: Task):
     try:
         params = task.parameters or {}
         lesson_id = params.get("lesson_id")
+        use_flex = bool(params.get("use_flex", False))
 
         if not lesson_id:
             raise ValueError("lesson_id is required in task parameters")
@@ -425,6 +451,7 @@ def process_brief_task(session: Session, task: Task):
         reset_token_usage_tracker()
         success = generate_brief(
             lesson_id=lesson_id,
+            use_flex=use_flex,
             session=session,
         )
 
@@ -438,6 +465,7 @@ def process_brief_task(session: Session, task: Task):
                     {
                         "message": "Brief generated successfully",
                         "lesson_id": lesson_id,
+                        "use_flex": use_flex,
                     },
                     get_token_usage_tracker(),
                 ),
@@ -465,6 +493,7 @@ def process_extraction_task(session: Session, task: Task):
         lesson_id = params.get("lesson_id")
         max_concurrency = params.get("max_concurrency", 10)
         prompt_type = params.get("prompt_type")
+        use_flex = bool(params.get("use_flex", False))
 
         if not lesson_id:
             raise ValueError("lesson_id is required in task parameters")
@@ -474,6 +503,7 @@ def process_extraction_task(session: Session, task: Task):
             lesson_id=lesson_id,
             max_concurrency=max_concurrency,
             prompt_type=prompt_type,
+            use_flex=use_flex,
             session=session,
         )
 
@@ -488,6 +518,7 @@ def process_extraction_task(session: Session, task: Task):
                         "message": "Source extraction completed successfully",
                         "lesson_id": lesson_id,
                         "max_concurrency": max_concurrency,
+                        "use_flex": use_flex,
                     },
                     get_token_usage_tracker(),
                 ),
@@ -515,6 +546,7 @@ def process_sources_task(session: Session, task: Task):
         params = task.parameters or {}
         lesson_id = params.get("lesson_id")
         prompt_type = params.get("prompt_type")
+        use_flex = bool(params.get("use_flex", False))
 
         if not lesson_id:
             raise ValueError("lesson_id is required in task parameters")
@@ -524,6 +556,7 @@ def process_sources_task(session: Session, task: Task):
         success = verify_lesson_sources(
             lesson_id=lesson_id,
             prompt_type=prompt_type,
+            use_flex=use_flex,
             session=session,
         )
 
@@ -537,6 +570,7 @@ def process_sources_task(session: Session, task: Task):
                     {
                         "message": "Source verification completed successfully",
                         "lesson_id": lesson_id,
+                        "use_flex": use_flex,
                     },
                     get_token_usage_tracker(),
                 ),

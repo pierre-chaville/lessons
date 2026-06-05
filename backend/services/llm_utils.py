@@ -16,7 +16,7 @@ from config import load_config
 
 logger = logging.getLogger(__name__)
 _token_usage_lock = Lock()
-_token_usage: Dict[str, int] = {
+_token_usage: Dict[str, Any] = {
     "input_tokens": 0,
     "output_tokens": 0,
     "completion_tokens": 0,
@@ -56,6 +56,9 @@ def get_token_usage_tracker() -> Dict[str, Any]:
                 k: {
                     "provider": v.get("provider"),
                     "model": v.get("model"),
+                    "service_tier": v.get("service_tier"),
+                    "service_tier_source": v.get("service_tier_source"),
+                    "flex_used": bool(v.get("flex_used", False)),
                     "input_tokens": int(v.get("input_tokens", 0)),
                     "output_tokens": int(v.get("output_tokens", 0)),
                     "completion_tokens": int(v.get("completion_tokens", 0)),
@@ -72,6 +75,8 @@ def _accumulate_token_usage(
     total_tokens: int = 0,
     provider: Optional[str] = None,
     model: Optional[str] = None,
+    service_tier: Optional[str] = None,
+    service_tier_source: Optional[str] = None,
 ) -> None:
     with _token_usage_lock:
         input_int = max(0, int(input_tokens or 0))
@@ -85,28 +90,46 @@ def _accumulate_token_usage(
         _token_usage["total_tokens"] += total_int
 
         if provider and model:
-            key = f"{provider.strip().lower()}::{model.strip()}"
+            tier = service_tier.strip().lower() if service_tier else None
+            key = f"{provider.strip().lower()}::{model.strip()}::{tier or 'default'}"
             model_usage = _token_usage.setdefault("model_usage", {})
             if key not in model_usage:
                 model_usage[key] = {
                     "provider": provider.strip(),
                     "model": model.strip(),
+                    "service_tier": tier,
+                    "service_tier_source": service_tier_source,
+                    "flex_used": tier == "flex",
                     "input_tokens": 0,
                     "output_tokens": 0,
                     "completion_tokens": 0,
                     "total_tokens": 0,
                 }
+            elif tier == "flex":
+                model_usage[key]["flex_used"] = True
+                if service_tier_source:
+                    model_usage[key]["service_tier_source"] = service_tier_source
             model_usage[key]["input_tokens"] += input_int
             model_usage[key]["output_tokens"] += output_int
             model_usage[key]["completion_tokens"] += output_int
             model_usage[key]["total_tokens"] += total_int
 
 
-def _extract_usage_from_llm_result(response: Any) -> Dict[str, int]:
+def _extract_usage_from_llm_result(response: Any) -> Dict[str, Any]:
     """Best-effort extraction of token usage from a LangChain LLM result."""
     input_tokens = 0
     output_tokens = 0
     total_tokens = 0
+    service_tier: Optional[str] = None
+    usage_found = False
+
+    def _assign_service_tier(metadata: Dict[str, Any]) -> None:
+        nonlocal service_tier
+        if service_tier or not metadata:
+            return
+        raw_tier = metadata.get("service_tier")
+        if raw_tier is not None:
+            service_tier = str(raw_tier).strip().lower() or None
 
     def _assign_from_usage(usage: Dict[str, Any]) -> bool:
         nonlocal input_tokens, output_tokens, total_tokens
@@ -130,12 +153,10 @@ def _extract_usage_from_llm_result(response: Any) -> Dict[str, int]:
     try:
         llm_output = getattr(response, "llm_output", None) or {}
         token_usage = llm_output.get("token_usage") or llm_output.get("usage") or {}
+        _assign_service_tier(llm_output)
+        _assign_service_tier(token_usage)
         if _assign_from_usage(token_usage):
-            return {
-                "input_tokens": input_tokens,
-                "output_tokens": output_tokens,
-                "total_tokens": total_tokens,
-            }
+            usage_found = True
     except Exception:
         pass
 
@@ -144,13 +165,16 @@ def _extract_usage_from_llm_result(response: Any) -> Dict[str, int]:
         for batch in generations:
             for generation in batch:
                 message = getattr(generation, "message", None)
+                response_metadata = getattr(message, "response_metadata", None) or {}
+                _assign_service_tier(response_metadata)
+                token_usage = response_metadata.get("token_usage", {}) or {}
+                _assign_service_tier(token_usage)
+                if not usage_found and _assign_from_usage(token_usage):
+                    usage_found = True
                 usage_metadata = getattr(message, "usage_metadata", None) or {}
-                if _assign_from_usage(usage_metadata):
-                    return {
-                        "input_tokens": input_tokens,
-                        "output_tokens": output_tokens,
-                        "total_tokens": total_tokens,
-                    }
+                _assign_service_tier(usage_metadata)
+                if not usage_found and _assign_from_usage(usage_metadata):
+                    usage_found = True
     except Exception:
         pass
 
@@ -158,6 +182,7 @@ def _extract_usage_from_llm_result(response: Any) -> Dict[str, int]:
         "input_tokens": int(input_tokens or 0),
         "output_tokens": int(output_tokens or 0),
         "total_tokens": int(total_tokens or 0),
+        "service_tier": service_tier,
     }
 
 
@@ -169,17 +194,24 @@ def register_token_usage_from_response(response: Any) -> None:
     input_tokens = 0
     output_tokens = 0
     total_tokens = 0
+    service_tier: Optional[str] = None
 
     try:
         usage_metadata = getattr(response, "usage_metadata", None) or {}
         input_tokens += usage_metadata.get("input_tokens", 0) or 0
         output_tokens += usage_metadata.get("output_tokens", 0) or 0
         total_tokens += usage_metadata.get("total_tokens", 0) or 0
+        raw_tier = usage_metadata.get("service_tier")
+        if raw_tier is not None:
+            service_tier = str(raw_tier).strip().lower() or None
     except Exception:
         pass
 
     try:
         response_metadata = getattr(response, "response_metadata", None) or {}
+        raw_tier = response_metadata.get("service_tier")
+        if raw_tier is not None:
+            service_tier = str(raw_tier).strip().lower() or None
         token_usage = response_metadata.get("token_usage", {}) or {}
         input_tokens += token_usage.get("prompt_tokens", 0) or token_usage.get(
             "input_tokens", 0
@@ -188,6 +220,9 @@ def register_token_usage_from_response(response: Any) -> None:
             "output_tokens", 0
         ) or 0
         total_tokens += token_usage.get("total_tokens", 0) or 0
+        raw_tier = token_usage.get("service_tier")
+        if raw_tier is not None:
+            service_tier = str(raw_tier).strip().lower() or None
     except Exception:
         pass
 
@@ -198,24 +233,39 @@ def register_token_usage_from_response(response: Any) -> None:
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         total_tokens=total_tokens,
+        service_tier=service_tier,
     )
 
 
 class TokenUsageCallbackHandler(BaseCallbackHandler):
     """Callback handler that aggregates token usage per task context."""
 
-    def __init__(self, provider: Optional[str] = None, model: Optional[str] = None):
+    def __init__(
+        self,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+        requested_service_tier: Optional[str] = None,
+    ):
         self.provider = provider
         self.model = model
+        self.requested_service_tier = (
+            requested_service_tier.strip().lower() if requested_service_tier else None
+        )
 
     def on_llm_end(self, response, **kwargs) -> None:
         usage = _extract_usage_from_llm_result(response)
+        response_service_tier = usage.get("service_tier")
+        service_tier = response_service_tier or self.requested_service_tier
         _accumulate_token_usage(
             input_tokens=usage.get("input_tokens", 0),
             output_tokens=usage.get("output_tokens", 0),
             total_tokens=usage.get("total_tokens", 0),
             provider=self.provider,
             model=self.model,
+            service_tier=service_tier,
+            service_tier_source="response" if response_service_tier else (
+                "request" if service_tier else None
+            ),
         )
 
 def _load_api_key_from_env_file(key_name: str) -> str:
@@ -260,6 +310,7 @@ def get_llm_model(
     max_tokens: int = None,
     provider: Optional[str] = None,
     thinking_mode: Optional[Dict[str, Any]] = None,
+    use_flex: bool = False,
 ) -> Union[ChatOpenAI, ChatAnthropic]:
     """
     Get an LLM model instance based on the configured provider.
@@ -355,15 +406,21 @@ def get_llm_model(
                 TokenUsageCallbackHandler(
                     provider=selected_provider,
                     model=(model or "openai/gpt-4o-mini"),
+                    requested_service_tier="flex" if use_flex else None,
                 )
             ],
         }
         if max_tokens is not None:
             params["max_tokens"] = max_tokens
+        extra_body: Dict[str, Any] = {}
         if thinking_mode:
             # Pass provider-specific body for OpenRouter without leaking unknown
             # top-level kwargs into ChatCompletions.create().
-            params["extra_body"] = {"reasoning": thinking_mode}
+            extra_body["reasoning"] = thinking_mode
+        if use_flex:
+            extra_body["service_tier"] = "flex"
+        if extra_body:
+            params["extra_body"] = extra_body
         return ChatOpenAI(**params)
     elif selected_provider.lower() == 'anthropic':
         api_key = _get_api_key_for_provider(selected_provider)

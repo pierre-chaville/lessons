@@ -225,6 +225,8 @@
     "editionPromptType": "Type de Prompt de Rédaction",
     "extractionPromptType": "Type de Prompt d'Extraction",
     "sourcesPromptType": "Type de Prompt de Sources",
+    "useFlexMode": "Utiliser le mode Flex OpenRouter",
+    "useFlexModeDesc": "S'applique aux tâches IA via OpenRouter lorsque le modèle sélectionné prend en charge Flex.",
     "createTasks": "Lancer",
     "creating": "Création...",
     "selectAtLeastOneProcess": "Veuillez sélectionner au moins un processus",
@@ -879,6 +881,7 @@
       "temperature": "Température",
       "costInputPerMTokens": "Coût Entrée / 1M Tokens",
       "costOutputPerMTokens": "Coût Sortie / 1M Tokens",
+      "flexCostRatio": "Ratio de Coût Flex",
       "thinkingMode": "Mode de Réflexion"
     },
     "placeholders": {

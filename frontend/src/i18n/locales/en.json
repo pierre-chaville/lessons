@@ -225,6 +225,8 @@
     "editionPromptType": "Edition Prompt Type",
     "extractionPromptType": "Extraction Prompt Type",
     "sourcesPromptType": "Sources Prompt Type",
+    "useFlexMode": "Use OpenRouter flex mode",
+    "useFlexModeDesc": "Applies to OpenRouter-backed AI tasks when the selected model supports flex.",
     "createTasks": "Create Tasks",
     "creating": "Creating...",
     "selectAtLeastOneProcess": "Please select at least one process",
@@ -879,6 +881,7 @@
       "temperature": "Temperature",
       "costInputPerMTokens": "Input Cost / 1M Tokens",
       "costOutputPerMTokens": "Output Cost / 1M Tokens",
+      "flexCostRatio": "Flex Cost Ratio",
       "thinkingMode": "Thinking Mode"
     },
     "placeholders": {

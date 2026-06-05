@@ -660,6 +660,7 @@ export interface ModelPreset {
   temperature: number
   cost_input_per_m_tokens: number
   cost_output_per_m_tokens: number
+  flex_cost_ratio: number
   thinking_mode: Record<string, unknown>
   created_at: string
   updated_at: string
@@ -672,6 +673,7 @@ export interface ModelPresetCreate {
   temperature: number
   cost_input_per_m_tokens: number
   cost_output_per_m_tokens: number
+  flex_cost_ratio: number
   thinking_mode: Record<string, unknown>
 }
 
@@ -682,5 +684,6 @@ export interface ModelPresetUpdate {
   temperature?: number
   cost_input_per_m_tokens?: number
   cost_output_per_m_tokens?: number
+  flex_cost_ratio?: number
   thinking_mode?: Record<string, unknown>
 }

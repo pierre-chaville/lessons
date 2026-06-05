@@ -362,6 +362,7 @@ const selectedExtractionPrompt = ref('')
 const availableExtractionPrompts = ref<Array<{ name: string; text: string }>>([])
 const selectedSourcesPrompt = ref('')
 const availableSourcesPrompts = ref<Array<{ name: string; text: string }>>([])
+const useFlexMode = ref(false)
 const isCreatingTasks = ref(false)
 
 // Configure marked options
@@ -1931,6 +1932,7 @@ const openProcessModal = async () => {
   selectedProcesses.value = {
     transcribe: false, correct: false, edition: false, extraction: false, summary: false, brief: false, sources: false,
   }
+  useFlexMode.value = false
   showProcessModal.value = true
   try {
     const config = await configApi.get()
@@ -1988,11 +1990,12 @@ const createTasks = async () => {
     }
     for (const taskType of orderedTasks) {
       const parameters: Record<string, unknown> = { lesson_id: props.lesson.id }
-      if (taskType === 'correct')    { parameters.segments_per_group = 100; parameters.max_concurrency = 10; parameters.prompt_type = selectedCorrectionPrompt.value }
-      if (taskType === 'edition')    { parameters.words_per_group = 1000; parameters.max_concurrency = 10; parameters.prompt_type = selectedEditionPrompt.value }
-      if (taskType === 'extraction') { parameters.max_concurrency = 10; parameters.prompt_type = selectedExtractionPrompt.value }
-      if (taskType === 'summary')    { parameters.prompt_type = selectedSummaryPrompt.value }
-      if (taskType === 'sources')    { parameters.prompt_type = selectedSourcesPrompt.value }
+      if (taskType === 'correct')    { parameters.segments_per_group = 100; parameters.max_concurrency = 10; parameters.prompt_type = selectedCorrectionPrompt.value; parameters.use_flex = useFlexMode.value }
+      if (taskType === 'edition')    { parameters.words_per_group = 1000; parameters.max_concurrency = 10; parameters.prompt_type = selectedEditionPrompt.value; parameters.use_flex = useFlexMode.value }
+      if (taskType === 'extraction') { parameters.max_concurrency = 10; parameters.prompt_type = selectedExtractionPrompt.value; parameters.use_flex = useFlexMode.value }
+      if (taskType === 'summary')    { parameters.prompt_type = selectedSummaryPrompt.value; parameters.use_flex = useFlexMode.value }
+      if (taskType === 'brief')      { parameters.use_flex = useFlexMode.value }
+      if (taskType === 'sources')    { parameters.prompt_type = selectedSourcesPrompt.value; parameters.use_flex = useFlexMode.value }
       await tasksApi.create({ task_type: taskTypeMap[taskType] as import('@/api/types').TaskType, parameters })
     }
     toast.success(t('lessons.tasksCreated', { count: orderedTasks.length }))
@@ -2159,13 +2162,23 @@ const saveParagraph = async () => {
                 </p>
               </div>
             </div>
-            <button
-              @click="selectAllRemaining"
-              class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 rounded-md transition-colors flex-shrink-0"
-            >
-              <CheckIcon class="h-3.5 w-3.5" />
-              {{ t('lessons.selectAllRemaining') }}
-            </button>
+            <div class="flex flex-col sm:flex-row items-end sm:items-center gap-2 flex-shrink-0">
+              <label class="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-md cursor-pointer transition-colors">
+                <input
+                  type="checkbox"
+                  v-model="useFlexMode"
+                  class="w-3.5 h-3.5 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                />
+                {{ t('lessons.useFlexMode') }}
+              </label>
+              <button
+                @click="selectAllRemaining"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 rounded-md transition-colors"
+              >
+                <CheckIcon class="h-3.5 w-3.5" />
+                {{ t('lessons.selectAllRemaining') }}
+              </button>
+            </div>
           </div>
 
           <!-- Process Selection -->
@@ -2422,7 +2435,7 @@ const saveParagraph = async () => {
               </label>
             </div>
           </div>
-          
+
           <!-- Action Buttons -->
           <div class="flex justify-end gap-3">
             <button

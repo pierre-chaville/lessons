@@ -325,6 +325,15 @@ def _run_migrations():
                 logger.info(
                     "Migration: added 'cost_output_per_m_tokens' column to model_preset table"
                 )
+            if "flex_cost_ratio" not in columns:
+                conn.execute(
+                    text(
+                        "ALTER TABLE model_preset ADD COLUMN flex_cost_ratio DOUBLE PRECISION NOT NULL DEFAULT 0.5"
+                    )
+                )
+                logger.info(
+                    "Migration: added 'flex_cost_ratio' column to model_preset table"
+                )
 
 
 def create_db_and_tables():

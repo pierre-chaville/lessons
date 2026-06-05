@@ -111,6 +111,7 @@ async def generate_summary_with_retry(
 async def generate_summary_async(
     lesson_id: int,
     prompt_type: Optional[str] = None,
+    use_flex: bool = False,
     session: Optional[Session] = None,
 ) -> bool:
     """
@@ -233,9 +234,14 @@ async def generate_summary_async(
                 temperature=summary_model_preset.temperature,
                 max_tokens=summary_max_tokens,
                 thinking_mode=summary_model_preset.thinking_mode or None,
+                use_flex=use_flex,
             )
         else:
-            llm = get_llm_model(task_name="summary", max_tokens=summary_max_tokens)
+            llm = get_llm_model(
+                task_name="summary",
+                max_tokens=summary_max_tokens,
+                use_flex=use_flex,
+            )
 
         # Generate summary
         summary = await generate_summary_with_retry(
@@ -314,6 +320,7 @@ async def generate_summary_async(
 
 async def generate_brief_async(
     lesson_id: int,
+    use_flex: bool = False,
     session: Optional[Session] = None,
 ) -> bool:
     """
@@ -374,9 +381,14 @@ async def generate_brief_async(
                 temperature=brief_model_preset.temperature,
                 max_tokens=brief_max_tokens,
                 thinking_mode=brief_model_preset.thinking_mode or None,
+                use_flex=use_flex,
             )
         else:
-            brief_llm = get_llm_model(task_name="brief", max_tokens=brief_max_tokens)
+            brief_llm = get_llm_model(
+                task_name="brief",
+                max_tokens=brief_max_tokens,
+                use_flex=use_flex,
+            )
 
         brief = await generate_summary_with_retry(
             input_text=summary_text,
@@ -427,6 +439,7 @@ async def generate_brief_async(
 def generate_summary(
     lesson_id: int,
     prompt_type: Optional[str] = None,
+    use_flex: bool = False,
     session: Optional[Session] = None,
 ) -> bool:
     """
@@ -444,6 +457,7 @@ def generate_summary(
         generate_summary_async(
             lesson_id=lesson_id,
             prompt_type=prompt_type,
+            use_flex=use_flex,
             session=session,
         )
     )
@@ -451,6 +465,7 @@ def generate_summary(
 
 def generate_brief(
     lesson_id: int,
+    use_flex: bool = False,
     session: Optional[Session] = None,
 ) -> bool:
     """
@@ -459,6 +474,7 @@ def generate_brief(
     return asyncio.run(
         generate_brief_async(
             lesson_id=lesson_id,
+            use_flex=use_flex,
             session=session,
         )
     )

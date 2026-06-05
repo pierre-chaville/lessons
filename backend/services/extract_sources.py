@@ -1,7 +1,9 @@
 """Extract sources from edited transcript parts using LLM"""
 
 import asyncio
-from typing import List, Optional, Literal, Tuple
+import json
+import re
+from typing import Any, List, Optional, Literal, Tuple
 from pydantic import BaseModel, Field, field_validator
 from sqlmodel import Session
 import sys
@@ -26,6 +28,14 @@ logger = logging.getLogger(__name__)
 MAX_RETRIES = 5
 INITIAL_RETRY_DELAY = 1  # seconds
 MAX_RETRY_DELAY = 60  # seconds
+DEFAULT_WORDS_PER_GROUP = 3000
+
+COMPACT_EXTRACTION_OUTPUT_INSTRUCTIONS = (
+    "Return only valid JSON, no Markdown or code fences. Return [] if no sources are found. "
+    "For each source, use compact keys: p=paragraph_number, t=type, w=work, r=ref, "
+    "s=standard_slug, o=original_text, tr=translation_text, e=cited_excerpt, c=confidence. "
+    "Omit unknown optional values or set them to null."
+)
 
 
 # Input/Output models for structured output
@@ -125,10 +135,70 @@ def create_source_extraction_output_model(source_output_model):
 SourceExtractionOutput = create_source_extraction_output_model(SourceOutput)
 
 
+def _extract_json_payload(output: str) -> Any:
+    cleaned = (output or "").strip()
+    if not cleaned:
+        return []
+
+    fence_match = re.search(r"```(?:json)?\s*(.*?)```", cleaned, flags=re.DOTALL)
+    if fence_match:
+        cleaned = fence_match.group(1).strip()
+
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        array_start = cleaned.find("[")
+        array_end = cleaned.rfind("]")
+        if 0 <= array_start < array_end:
+            return json.loads(cleaned[array_start : array_end + 1])
+        object_start = cleaned.find("{")
+        object_end = cleaned.rfind("}")
+        if 0 <= object_start < object_end:
+            return json.loads(cleaned[object_start : object_end + 1])
+        raise
+
+
+def _normalize_source_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "paragraph_number": row.get("paragraph_number", row.get("p")),
+        "type": row.get("type", row.get("t")),
+        "work": row.get("work", row.get("w")),
+        "ref": row.get("ref", row.get("r")),
+        "standard_slug": row.get("standard_slug", row.get("s")),
+        "original_text": row.get("original_text", row.get("o")) or "",
+        "translation_text": row.get("translation_text", row.get("tr")) or "",
+        "cited_excerpt": row.get("cited_excerpt", row.get("e")) or "",
+        "confidence": row.get("confidence", row.get("c")),
+    }
+
+
+def _parse_source_extraction_output(output: str, source_output_model) -> List[SourceOutput]:
+    try:
+        payload = _extract_json_payload(output)
+    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+        logger.warning("Could not parse source extraction JSON output: %s", exc)
+        return []
+
+    rows = payload.get("sources", []) if isinstance(payload, dict) else payload
+    if not isinstance(rows, list):
+        return []
+
+    sources = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        try:
+            sources.append(source_output_model(**_normalize_source_row(row)))
+        except Exception as exc:
+            logger.warning("Skipping invalid extracted source row: %s", exc)
+    return sources
+
+
 async def extract_sources_from_paragraphs_with_retry(
     paragraphs: List[EditedParagraphInput],
-    llm_with_structure,
+    llm,
     extraction_prompt: str,
+    source_output_model=SourceOutput,
     max_retries: int = MAX_RETRIES,
 ) -> List[SourceOutput]:
     """
@@ -136,7 +206,7 @@ async def extract_sources_from_paragraphs_with_retry(
 
     Args:
         paragraphs: The edited paragraphs to extract sources from
-        llm_with_structure: LLM model with structured output
+        llm: LLM model
         extraction_prompt: Prompt for source extraction
         max_retries: Maximum number of retry attempts
 
@@ -148,7 +218,7 @@ async def extract_sources_from_paragraphs_with_retry(
     for attempt in range(max_retries):
         try:
             return await extract_sources_from_paragraphs(
-                paragraphs, llm_with_structure, extraction_prompt
+                paragraphs, llm, extraction_prompt, source_output_model
             )
 
         except Exception as e:
@@ -192,14 +262,17 @@ async def extract_sources_from_paragraphs_with_retry(
 
 
 async def extract_sources_from_paragraphs(
-    paragraphs: List[EditedParagraphInput], llm_with_structure, extraction_prompt: str
+    paragraphs: List[EditedParagraphInput],
+    llm,
+    extraction_prompt: str,
+    source_output_model=SourceOutput,
 ) -> List[SourceOutput]:
     """
-    Extract sources from edited paragraphs using the LLM with structured output.
+    Extract sources from edited paragraphs using compact JSON output.
 
     Args:
         paragraphs: The edited paragraphs to extract sources from
-        llm_with_structure: LLM model with structured output
+        llm: LLM model
         extraction_prompt: Prompt for source extraction
 
     Returns:
@@ -216,15 +289,15 @@ async def extract_sources_from_paragraphs(
         )
         full_prompt = (
             f"{extraction_prompt}\n\n"
+            f"{COMPACT_EXTRACTION_OUTPUT_INSTRUCTIONS}\n\n"
             "Edited paragraphs to analyze (use the paragraph number in your output):\n"
             f"{paragraphs_text}"
         )
 
-        # Call LLM with structured output
-        result = await llm_with_structure.ainvoke(full_prompt)
+        response = await llm.ainvoke(full_prompt)
+        output = response.content if hasattr(response, "content") else str(response)
 
-        # Return the sources (or empty list if None)
-        return result.sources if result.sources else []
+        return _parse_source_extraction_output(output, source_output_model)
 
     except Exception as e:
         logger.error(f"Error extracting sources from edited part: {e}", exc_info=True)
@@ -236,6 +309,7 @@ async def extract_sources_async(
     lesson_id: int,
     max_concurrency: int = 10,
     prompt_type: Optional[str] = None,
+    use_flex: bool = False,
     session: Optional[Session] = None,
 ) -> bool:
     """
@@ -276,24 +350,14 @@ async def extract_sources_async(
         allowed_types = list(source_types_config.keys()) if source_types_config else []
         type_descriptions = source_types_config if source_types_config else {}
         
-        # Create models with enum constraint
+        # Create model used to normalize compact JSON rows.
         SourceOutputModel = create_source_output_model(allowed_types, type_descriptions)
-        SourceExtractionOutputModel = create_source_extraction_output_model(SourceOutputModel)
 
-        # Build type description for prompt with descriptions
+        # Keep type instructions compact because they are repeated for each group.
         if allowed_types:
-            if type_descriptions:
-                # Format with descriptions: "Type1 (description1), Type2 (description2), ..."
-                type_list_with_descriptions = [
-                    f"{t} ({type_descriptions.get(t, '')})" if type_descriptions.get(t) else t
-                    for t in allowed_types
-                ]
-                type_instruction = f"Type of source. MUST be one of: {', '.join(type_list_with_descriptions)}"
-            else:
-                type_list = ", ".join(allowed_types)
-                type_instruction = f"Type of source. MUST be one of: {type_list}"
+            type_instruction = f"Allowed t values: {', '.join(allowed_types)}"
         else:
-            type_instruction = "Type of source (e.g., Torah, Mishnah, Gemara, Midrash, Rashi, etc.)"
+            type_instruction = "Use concise source type names."
 
         # Resolve prompt from prompts list with backward compat
         prompts = extraction_config.get("prompts", [])
@@ -315,36 +379,14 @@ async def extract_sources_async(
 
         if not extraction_prompt:
             extraction_prompt = (
-                "Analyze the following edited paragraphs and extract all sources (citations, references to religious texts, etc.) mentioned in them. "
-                "For each source, provide:\n"
-                "- paragraph_number: Paragraph number (0-indexed) where the source appears\n"
-                f"- type: {type_instruction}\n"
-                "- work: Work title (e.g., Pirkei Avot, Bereshit, etc.) using Sefaria classification\n"
-                "- ref: Reference (e.g., 4.2, 18:1, etc.) using Sefaria classification\n"
-                "- standard_slug: Standard Sefaria slug if known (e.g., Pirkei_Avot.4.2) using Sefaria api\n"
-                "- original_text: The original text from the source in Hebrew/Aramaic\n"
-                "- translation_text: The translation of the source text\n"
-                "- cited_excerpt: The exact excerpt from the edited text that cites this source. "
-                "This must match exactly how the source appears in the text.\n"
-                "- confidence: Your confidence in this extraction (0-1)\n\n"
-                "If no sources are found, return an empty list. "
-                "Be thorough but only extract sources that are clearly mentioned in the text."
+                "Extract explicit source citations or references from the edited paragraphs. "
+                "Only extract sources clearly mentioned in the text. "
+                f"{type_instruction}"
             )
         
-        # If we have allowed types, append them to the prompt with descriptions
-        if allowed_types:
-            if type_descriptions:
-                # Create a formatted list with descriptions
-                type_details = []
-                for t in allowed_types:
-                    desc = type_descriptions.get(t, '')
-                    if desc:
-                        type_details.append(f"  - {t}: {desc}")
-                    else:
-                        type_details.append(f"  - {t}")
-                extraction_prompt += f"\n\nIMPORTANT: The 'type' field MUST be one of these values:\n" + "\n".join(type_details)
-            else:
-                extraction_prompt += f"\n\nIMPORTANT: The 'type' field MUST be one of these values: {', '.join(allowed_types)}"
+        # If we have allowed types, append a compact type constraint.
+        if allowed_types and "Allowed t values:" not in extraction_prompt:
+            extraction_prompt += f"\nAllowed t values: {', '.join(allowed_types)}"
 
         extraction_model_preset_id = (
             selected_prompt.get("model_preset_id") if isinstance(selected_prompt, dict) else None
@@ -387,10 +429,8 @@ async def extract_sources_async(
             temperature=resolved_temperature,
             max_tokens=extraction_max_tokens,
             thinking_mode=resolved_thinking_mode,
+            use_flex=use_flex,
         )
-
-        # Add structured output with the config-based model
-        llm_with_structure = llm.with_structured_output(SourceExtractionOutputModel)
 
         # Build paragraph list from edited markdown payload.
         edited_markdown = edited_transcript_markdown(lesson.edited_transcript)
@@ -400,7 +440,7 @@ async def extract_sources_async(
             return False
 
         # Group paragraphs by word count
-        words_per_group = extraction_config.get("words_per_group", 1000)
+        words_per_group = extraction_config.get("words_per_group", DEFAULT_WORDS_PER_GROUP)
         paragraph_inputs: List[EditedParagraphInput] = []
         for idx, text in enumerate(paragraph_texts):
             paragraph_inputs.append(
@@ -433,7 +473,7 @@ async def extract_sources_async(
         async def process_with_semaphore(group):
             async with semaphore:
                 return await extract_sources_from_paragraphs_with_retry(
-                    group, llm_with_structure, extraction_prompt
+                    group, llm, extraction_prompt, SourceOutputModel
                 )
 
         # Process all groups in parallel (with concurrency limit)
@@ -503,6 +543,7 @@ def extract_sources(
     lesson_id: int,
     max_concurrency: int = 10,
     prompt_type: Optional[str] = None,
+    use_flex: bool = False,
     session: Optional[Session] = None,
 ) -> bool:
     """
@@ -522,6 +563,7 @@ def extract_sources(
             lesson_id=lesson_id,
             max_concurrency=max_concurrency,
             prompt_type=prompt_type,
+            use_flex=use_flex,
             session=session,
         )
     )

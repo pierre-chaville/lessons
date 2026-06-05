@@ -54,6 +54,7 @@ def create_model_preset(
         temperature=payload.temperature,
         cost_input_per_m_tokens=payload.cost_input_per_m_tokens,
         cost_output_per_m_tokens=payload.cost_output_per_m_tokens,
+        flex_cost_ratio=payload.flex_cost_ratio,
         thinking_mode=payload.thinking_mode,
     )
 
@@ -75,6 +76,7 @@ def update_model_preset(
         temperature=payload.temperature,
         cost_input_per_m_tokens=payload.cost_input_per_m_tokens,
         cost_output_per_m_tokens=payload.cost_output_per_m_tokens,
+        flex_cost_ratio=payload.flex_cost_ratio,
         thinking_mode=payload.thinking_mode,
     )
     if not preset:

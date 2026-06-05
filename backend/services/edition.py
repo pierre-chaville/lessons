@@ -1,4 +1,4 @@
-"""Lesson transcript edition using LLM - rewrite in written style with sources"""
+"""Lesson transcript edition using LLM - rewrite in written style."""
 
 import asyncio
 from datetime import datetime
@@ -36,6 +36,16 @@ MAX_RETRIES = 5
 INITIAL_RETRY_DELAY = 1  # seconds
 MAX_RETRY_DELAY = 60  # seconds
 
+PLAIN_TEXT_OUTPUT_INSTRUCTIONS = (
+    "Return only the edited text. Do not include JSON, metadata, timestamps, "
+    "segment identifiers, source lists, or code fences."
+)
+
+
+def _segment_text(segment: Segment) -> str:
+    text = segment["text"] if isinstance(segment, dict) else segment.text
+    return text or ""
+
 
 async def edit_segment_group_with_retry(
     group: List[Segment],
@@ -53,7 +63,7 @@ async def edit_segment_group_with_retry(
         max_retries: Maximum number of retry attempts
 
     Returns:
-        List of EditedPartOutput objects
+        Edited text
     """
     last_error = None
 
@@ -72,7 +82,7 @@ async def edit_segment_group_with_retry(
                 if len(group) > 1:
                     mid = len(group) // 2
                     logger.warning(
-                        "Structured output truncated; splitting group of %s into %s and %s segments.",
+                        "Edition output truncated; splitting group of %s into %s and %s segments.",
                         len(group),
                         mid,
                         len(group) - mid,
@@ -135,31 +145,27 @@ async def edit_segment_group(
     edition_prompt: str,
 ) -> str:
     """
-    Edit a group of segments using the LLM with structured output.
+    Edit a group of segments using the LLM.
 
     Args:
         group: List of Segment objects or dicts
-        llm_with_structure: LLM model with structured output
+        llm: LLM model
         edition_prompt: Prompt for edition
 
     Returns:
-        List of EditedPartOutput objects
+        Edited text
     """
     try:
-        # Create prompt with transcript segments.
+        # Create prompt with transcript text only.
         segments_text = "\n".join(
-            [
-                (
-                    f"[{segment['start']:.1f}s - {segment['end']:.1f}s] {segment['text']}"
-                    if isinstance(segment, dict)
-                    else f"[{segment.start:.1f}s - {segment.end:.1f}s] {segment.text}"
-                )
-                for segment in group
-            ]
+            text.strip()
+            for segment in group
+            if (text := _segment_text(segment).strip())
         )
         full_prompt = (
             f"{edition_prompt}\n\n"
-            "Transcript to edit:\n"
+            f"{PLAIN_TEXT_OUTPUT_INSTRUCTIONS}\n\n"
+            "Transcript text to edit:\n"
             f"{segments_text}"
         )
 
@@ -173,9 +179,7 @@ async def edit_segment_group(
     except Exception as e:
         logger.error(f"Error editing segment group: {e}", exc_info=True)
         # Return original text concatenated on error.
-        return " ".join(
-            [seg["text"] if isinstance(seg, dict) else seg.text for seg in group]
-        )
+        return " ".join(_segment_text(seg) for seg in group)
 
 
 async def edit_transcript_async(
@@ -183,6 +187,7 @@ async def edit_transcript_async(
     words_per_group: int = 1000,
     max_concurrency: int = 10,
     prompt_type: Optional[str] = None,
+    use_flex: bool = False,
     session: Optional[Session] = None,
 ) -> bool:
     """
@@ -252,8 +257,7 @@ async def edit_transcript_async(
         if not edition_prompt:
             edition_prompt = (
                 "Rewrite the transcript in clean written language while preserving meaning. "
-                "Return only the edited text in Markdown format. "
-                "Do not include JSON, metadata, timestamps, or source extraction."
+                f"{PLAIN_TEXT_OUTPUT_INSTRUCTIONS}"
             )
 
         edition_prompt_max_tokens = (
@@ -293,9 +297,14 @@ async def edit_transcript_async(
                 temperature=edition_model_preset.temperature,
                 max_tokens=edition_prompt_max_tokens,
                 thinking_mode=edition_model_preset.thinking_mode or None,
+                use_flex=use_flex,
             )
         else:
-            llm = get_llm_model(task_name="edition", max_tokens=edition_prompt_max_tokens)
+            llm = get_llm_model(
+                task_name="edition",
+                max_tokens=edition_prompt_max_tokens,
+                use_flex=use_flex,
+            )
 
         if words_per_group <= 0:
             raise ValueError("words_per_group must be a positive integer")
@@ -307,7 +316,7 @@ async def edit_transcript_async(
         current_word_count = 0
 
         for segment in segments:
-            text = segment["text"] if isinstance(segment, dict) else segment.text
+            text = _segment_text(segment)
             segment_word_count = len(text.split()) if text else 0
 
             if current_group and current_word_count + segment_word_count > words_per_group:
@@ -423,6 +432,7 @@ def edit_transcript(
     words_per_group: int = 1000,
     max_concurrency: int = 10,
     prompt_type: Optional[str] = None,
+    use_flex: bool = False,
     session: Optional[Session] = None,
 ) -> bool:
     """
@@ -444,6 +454,7 @@ def edit_transcript(
             words_per_group=words_per_group,
             max_concurrency=max_concurrency,
             prompt_type=prompt_type,
+            use_flex=use_flex,
             session=session,
         )
     )

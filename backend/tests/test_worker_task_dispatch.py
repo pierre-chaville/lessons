@@ -123,3 +123,52 @@ def test_process_task_dispatches_brief_only(monkeypatch):
     assert calls["brief"] == 1
     assert calls["status_updates"] == ["running"]
     assert calls["lesson_statuses"] == [(77, "summary"), (77, None)]
+
+
+def test_calculate_estimated_cost_applies_flex_ratio_only_when_confirmed(monkeypatch):
+    worker = _import_worker_with_stubs(monkeypatch)
+    preset = SimpleNamespace(
+        provider="openrouter",
+        model_id="openai/gpt-5",
+        cost_input_per_m_tokens=10.0,
+        cost_output_per_m_tokens=20.0,
+        flex_cost_ratio=0.5,
+    )
+    monkeypatch.setattr(
+        worker,
+        "_build_pricing_map",
+        lambda _session: {("openrouter", "openai/gpt-5"): preset},
+    )
+
+    result = worker._calculate_estimated_cost(
+        SimpleNamespace(),
+        {
+            "model_usage": {
+                "openrouter::openai/gpt-5::flex": {
+                    "provider": "openrouter",
+                    "model": "openai/gpt-5",
+                    "service_tier": "flex",
+                    "input_tokens": 1_000_000,
+                    "output_tokens": 1_000_000,
+                    "total_tokens": 2_000_000,
+                },
+                "openrouter::openai/gpt-5::default": {
+                    "provider": "openrouter",
+                    "model": "openai/gpt-5",
+                    "service_tier": "default",
+                    "input_tokens": 1_000_000,
+                    "output_tokens": 0,
+                    "total_tokens": 1_000_000,
+                },
+            }
+        },
+    )
+
+    assert result["estimated_cost_usd"] == 25.0
+    flex_row = result["estimated_cost_breakdown"][0]
+    default_row = result["estimated_cost_breakdown"][1]
+    assert flex_row["flex_used"] is True
+    assert flex_row["base_estimated_cost_usd"] == 30.0
+    assert flex_row["estimated_cost_usd"] == 15.0
+    assert default_row["flex_used"] is False
+    assert default_row["estimated_cost_usd"] == 10.0
