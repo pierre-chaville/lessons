@@ -29,6 +29,7 @@ RAG_VARIANTS: tuple[RagVariant, ...] = ("summary", "edited")
 OPENROUTER_EMBEDDINGS_URL = "https://openrouter.ai/api/v1/embeddings"
 OPENROUTER_RERANK_URL = "https://openrouter.ai/api/v1/rerank"
 EMBEDDING_BATCH_SIZE = 32
+RAG_HASH_RECOMPUTE_BATCH_SIZE = 100
 OPENROUTER_EMBEDDING_MAX_ATTEMPTS = 5
 OPENROUTER_EMBEDDING_INITIAL_RETRY_DELAY_SECONDS = 2.0
 OPENROUTER_EMBEDDING_MAX_RETRY_DELAY_SECONDS = 60.0
@@ -367,21 +368,52 @@ def rerank_texts_openrouter(
     return reranked
 
 
-def recompute_current_rag_hashes(session: Session, embedding_model: str) -> int:
-    """Refresh current RAG hash columns for all lessons."""
+def recompute_current_rag_hashes(
+    session: Session,
+    embedding_model: str,
+    batch_size: int = RAG_HASH_RECOMPUTE_BATCH_SIZE,
+) -> int:
+    """Refresh current RAG hash columns without materializing every lesson at once."""
     changed = 0
-    lessons = list(session.exec(select(Lesson)).all())
-    for lesson in lessons:
-        for variant in RAG_VARIANTS:
-            content = _lesson_variant_content(lesson, variant)
-            current_hash = compute_rag_hash(content, embedding_model)
-            attr = _current_hash_attr(variant)
-            if getattr(lesson, attr) != current_hash:
-                setattr(lesson, attr, current_hash)
-                changed += 1
-        session.add(lesson)
-    if changed:
-        session.commit()
+    last_id = 0
+    batch_size = max(1, int(batch_size or RAG_HASH_RECOMPUTE_BATCH_SIZE))
+
+    while True:
+        statement = (
+            select(Lesson)
+            .where(Lesson.id > last_id)
+            .order_by(Lesson.id)
+            .limit(batch_size)
+        )
+        lessons = list(session.exec(statement).all())
+        if not lessons:
+            break
+
+        lesson_ids = [int(lesson.id) for lesson in lessons if lesson.id is not None]
+        if not lesson_ids:
+            break
+
+        batch_changed = 0
+        for lesson in lessons:
+            lesson_changed = False
+            for variant in RAG_VARIANTS:
+                content = _lesson_variant_content(lesson, variant)
+                current_hash = compute_rag_hash(content, embedding_model)
+                attr = _current_hash_attr(variant)
+                if getattr(lesson, attr) != current_hash:
+                    setattr(lesson, attr, current_hash)
+                    changed += 1
+                    batch_changed += 1
+                    lesson_changed = True
+            if lesson_changed:
+                session.add(lesson)
+
+        if batch_changed:
+            session.commit()
+
+        last_id = max(lesson_ids)
+        session.expunge_all()
+
     return changed
 
 
@@ -506,4 +538,6 @@ def rebuild_stale_rag_embeddings(session: Session, limit: int | None = None) -> 
                     lesson.id,
                     variant,
                 )
+        if lesson in session:
+            session.expunge(lesson)
     return stats

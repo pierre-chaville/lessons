@@ -53,7 +53,7 @@ def _import_worker_with_stubs(monkeypatch):
     monkeypatch.setitem(sys.modules, "services.llm_utils", fake_llm_utils)
 
     fake_rag_embeddings = types.ModuleType("services.rag_embeddings")
-    fake_rag_embeddings.rebuild_stale_rag_embeddings = lambda _session: {}
+    fake_rag_embeddings.rebuild_stale_rag_embeddings = lambda _session, **_kwargs: {}
     monkeypatch.setitem(sys.modules, "services.rag_embeddings", fake_rag_embeddings)
 
     fake_memory_usage = types.ModuleType("memory_usage")
