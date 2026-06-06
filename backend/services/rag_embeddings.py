@@ -71,6 +71,42 @@ def _stored_hash_attr(variant: RagVariant) -> str:
     return f"rag_{variant}_stored_hash"
 
 
+def rag_embedding_model_from_config(rag_config: dict[str, Any] | None = None) -> str:
+    """Return the configured embedding model used in RAG content hashes."""
+    if rag_config is None:
+        config = load_config()
+        rag_config = config.get("rag") if isinstance(config.get("rag"), dict) else {}
+    return str(rag_config.get("embedding_model") or "google/gemini-embedding-001")
+
+
+def update_lesson_current_rag_hash_for_content(
+    lesson: Lesson,
+    content_type: str,
+    content: Any,
+    embedding_model: str | None = None,
+) -> bool:
+    """Update the current RAG hash for content types indexed by search."""
+    content_type_value = str(content_type or "")
+    if content_type_value == "summary":
+        variant: RagVariant = "summary"
+        rag_content = str(content or "").strip()
+    elif content_type_value == "edited_transcript":
+        variant = "edited"
+        rag_content = edited_transcript_markdown(content).strip()
+    else:
+        return False
+
+    current_hash = compute_rag_hash(
+        rag_content,
+        embedding_model or rag_embedding_model_from_config(),
+    )
+    attr = _current_hash_attr(variant)
+    if getattr(lesson, attr) == current_hash:
+        return False
+    setattr(lesson, attr, current_hash)
+    return True
+
+
 def _split_long_paragraph(paragraph: str, max_chars: int) -> list[str]:
     text_value = re.sub(r"\s+", " ", str(paragraph or "").strip())
     if not text_value or len(text_value) <= max_chars:
@@ -510,9 +546,6 @@ def rebuild_stale_rag_embeddings(session: Session, limit: int | None = None) -> 
     """Rebuild embeddings for all stale lesson variants."""
     config = load_config()
     rag_config = config.get("rag") if isinstance(config.get("rag"), dict) else {}
-    embedding_model = str(rag_config.get("embedding_model") or "google/gemini-embedding-001")
-
-    recompute_current_rag_hashes(session, embedding_model)
     stale_lessons = get_stale_rag_lessons(session, limit=limit)
 
     stats = {
