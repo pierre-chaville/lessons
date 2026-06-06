@@ -57,6 +57,7 @@ LLM_TASK_TYPES = {"correction", "edition", "summary", "brief", "extraction", "so
 TASK_POLL_SLEEP_SECONDS = 5
 RAG_EMBEDDING_REFRESH_INTERVAL_SECONDS = 15 * 60
 RAG_EMBEDDING_REFRESH_SLEEP_SECONDS = 5
+RAG_EMBEDDING_REFRESH_STALE_LESSON_LIMIT = 10
 
 
 def _build_pricing_map(session: Session) -> dict[tuple[str, str], ModelPreset]:
@@ -711,13 +712,31 @@ def rag_embedding_refresh_loop():
     """Periodically refresh stale RAG embeddings in the worker process."""
     logger.info("RAG embedding refresh loop started")
     while not should_stop:
+        mem_before_refresh = get_rss_memory_mb()
         try:
             with Session(engine) as session:
-                logger.info("Starting periodic RAG embedding refresh")
-                stats = rebuild_stale_rag_embeddings(session)
+                logger.info(
+                    "Starting periodic RAG embedding refresh (memory=%s)",
+                    format_memory_mb(mem_before_refresh),
+                )
+                stats = rebuild_stale_rag_embeddings(
+                    session,
+                    limit=RAG_EMBEDDING_REFRESH_STALE_LESSON_LIMIT,
+                )
                 logger.info("RAG embedding refresh finished: %s", stats)
         except Exception as e:
             logger.error("Error in RAG embedding refresh loop: %s", str(e), exc_info=True)
+        finally:
+            gc.collect()
+            mem_after_refresh = get_rss_memory_mb()
+            delta_str = "n/a"
+            if mem_before_refresh is not None and mem_after_refresh is not None:
+                delta_str = f"{mem_after_refresh - mem_before_refresh:+.2f} MB"
+            logger.info(
+                "Memory after RAG embedding refresh: %s (delta=%s)",
+                format_memory_mb(mem_after_refresh),
+                delta_str,
+            )
 
         slept = 0
         while slept < RAG_EMBEDDING_REFRESH_INTERVAL_SECONDS and not should_stop:
