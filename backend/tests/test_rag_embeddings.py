@@ -5,7 +5,10 @@ from datetime import datetime
 from sqlmodel import SQLModel, Session, create_engine
 
 from models.lesson import Lesson
+from models.versioning import ContentType, VersionSource
+from services import rag_embeddings
 from services.rag_embeddings import compute_rag_hash, recompute_current_rag_hashes
+from services.versioning import update_content
 
 
 def _session() -> Session:
@@ -52,3 +55,47 @@ def test_recompute_current_rag_hashes_updates_in_batches() -> None:
             "Second summary",
             model,
         )
+
+
+def test_update_content_marks_summary_rag_hash_current() -> None:
+    model = rag_embeddings.rag_embedding_model_from_config()
+
+    with _session() as session:
+        lesson = _lesson(session, "first", "")
+
+        update_content(
+            session=session,
+            lesson_id=lesson.id,
+            content_type=ContentType.SUMMARY,
+            new_content="Fresh summary",
+            actor={"sub": "u1", "role": "editor"},
+            source=VersionSource.HUMAN,
+        )
+        session.commit()
+        session.refresh(lesson)
+
+        assert lesson.rag_summary_current_hash == compute_rag_hash(
+            "Fresh summary",
+            model,
+        )
+        assert lesson.rag_summary_stored_hash is None
+
+
+def test_rebuild_stale_rag_embeddings_does_not_recompute_all_hashes(monkeypatch) -> None:
+    with _session() as session:
+        _lesson(session, "first", "")
+
+        monkeypatch.setattr(
+            rag_embeddings,
+            "recompute_current_rag_hashes",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected recompute")),
+        )
+
+        stats = rag_embeddings.rebuild_stale_rag_embeddings(session)
+
+        assert stats == {
+            "stale_lessons": 0,
+            "processed_variants": 0,
+            "chunks_written": 0,
+            "failed_variants": 0,
+        }

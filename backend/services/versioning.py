@@ -18,6 +18,7 @@ from models.versioning import ContentType, ContentVersion, VersionSource
 from schemas.lesson import Segment
 from services.edited_transcript import normalize_edited_transcript_payload
 from services.audit import log_event
+from services.rag_embeddings import update_lesson_current_rag_hash_for_content
 
 logger = logging.getLogger(__name__)
 
@@ -267,6 +268,11 @@ def update_content(
                     else:
                         current.change_summary = change_summary
                 _cache_to_lesson(lesson, content_type, normalized)
+                update_lesson_current_rag_hash_for_content(
+                    lesson,
+                    content_type.value,
+                    normalized,
+                )
                 session.add(lesson)
                 session.add(current)
                 session.flush()
@@ -331,6 +337,11 @@ def update_content(
         )
         session.add(new_version)
         _cache_to_lesson(lesson, content_type, normalized)
+        update_lesson_current_rag_hash_for_content(
+            lesson,
+            content_type.value,
+            normalized,
+        )
         session.add(lesson)
         session.flush()
 
