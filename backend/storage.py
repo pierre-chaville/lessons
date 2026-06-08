@@ -1,4 +1,4 @@
-"""S3/R2 storage helpers for audio files."""
+"""S3/R2 storage helpers for lesson files."""
 from __future__ import annotations
 
 import os
@@ -40,7 +40,7 @@ def get_audio_object_key(lesson_id: int, filename: str) -> str:
     return f"{lesson_id}_{filename}"
 
 
-def create_presigned_audio_url(key: str, expires_seconds: int = 3600) -> Optional[str]:
+def create_presigned_url(key: str, expires_seconds: int = 3600) -> Optional[str]:
     if not s3_enabled():
         return None
     env = _get_s3_env()
@@ -50,6 +50,14 @@ def create_presigned_audio_url(key: str, expires_seconds: int = 3600) -> Optiona
         Params={"Bucket": env["bucket"], "Key": key},
         ExpiresIn=expires_seconds,
     )
+
+
+def create_presigned_audio_url(key: str, expires_seconds: int = 3600) -> Optional[str]:
+    return create_presigned_url(key, expires_seconds=expires_seconds)
+
+
+def create_presigned_document_url(key: str, expires_seconds: int = 3600) -> Optional[str]:
+    return create_presigned_url(key, expires_seconds=expires_seconds)
 
 
 def upload_audio_fileobj(fileobj, key: str) -> None:
@@ -64,6 +72,16 @@ def upload_audio_fileobj(fileobj, key: str) -> None:
         use_threads=True,
     )
     client.upload_fileobj(fileobj, env["bucket"], key, Config=transfer_config)
+
+
+def upload_document_fileobj(fileobj, key: str) -> None:
+    upload_audio_fileobj(fileobj, key)
+
+
+def delete_object(key: str) -> None:
+    env = _get_s3_env()
+    client = create_s3_client()
+    client.delete_object(Bucket=env["bucket"], Key=key)
 
 
 def rename_audio_object(source_key: str, dest_key: str) -> None:

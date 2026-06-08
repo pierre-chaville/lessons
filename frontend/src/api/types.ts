@@ -167,6 +167,7 @@ export interface LessonListItem {
   hashid: string
   title: string
   date: string
+  hebrew_year?: string | null
   hebrew_date?: string | null
   duration: number | null
   brief: string | null
@@ -190,6 +191,7 @@ export interface LessonDetail {
   filename: string
   course_id: number | null
   date: string
+  hebrew_year?: string | null
   hebrew_date?: string | null
   duration: number | null
   transcript: Segment[] | null
@@ -209,6 +211,8 @@ export interface LessonDetail {
   correction_metadata: Record<string, unknown> | null
   summary_metadata: Record<string, unknown> | null
   edited_metadata: Record<string, unknown> | null
+  pdf_files: string[]
+  legacy_url: string | null
 }
 
 export interface LessonCreate {
@@ -216,9 +220,12 @@ export interface LessonCreate {
   filename: string
   course_id?: number | null
   date?: string | null
+  hebrew_year?: string | null
   duration?: number | null
   theme_ids?: number[] | null
   editor_ids?: string[] | null
+  pdf_files?: string[] | null
+  legacy_url?: string | null
 }
 
 export interface LessonUpdate {
@@ -226,6 +233,7 @@ export interface LessonUpdate {
   filename?: string
   course_id?: number | null
   date?: string | null
+  hebrew_year?: string | null
   duration?: number | null
   transcript?: Segment[] | null
   corrected_transcript?: Segment[] | null
@@ -240,6 +248,8 @@ export interface LessonUpdate {
   correction_metadata?: Record<string, unknown> | null
   summary_metadata?: Record<string, unknown> | null
   edited_metadata?: Record<string, unknown> | null
+  pdf_files?: string[] | null
+  legacy_url?: string | null
 }
 
 export interface LessonBulkCsvImportResponse {
@@ -252,6 +262,11 @@ export interface LessonBulkCsvImportResponse {
 
 /** Response from GET /lessons/:hashid/audio-url */
 export interface AudioUrlResponse {
+  url: string
+}
+
+/** Response from GET /lessons/:hashid/documents/:index/url */
+export interface LessonDocumentUrlResponse {
   url: string
 }
 

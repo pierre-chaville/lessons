@@ -72,10 +72,14 @@ class LessonCreate(BaseModel):
     filename: str
     course_id: Optional[int] = None
     date: Optional[datetime] = None
+    hebrew_year: Optional[str] = None
     duration: Optional[float] = None
     transcript: Optional[Dict[str, Any]] = None
     corrected_transcript: Optional[Dict[str, Any]] = None
+    brief: Optional[str] = None
     summary: Optional[str] = None
+    pdf_files: Optional[List[str]] = None
+    legacy_url: Optional[str] = None
     theme_ids: Optional[List[int]] = None
     editor_ids: Optional[List[str]] = None
 
@@ -87,6 +91,7 @@ class LessonUpdate(BaseModel):
     filename: Optional[str] = None
     course_id: Optional[int] = None
     date: Optional[datetime] = None
+    hebrew_year: Optional[str] = None
     duration: Optional[float] = None
     transcript: Optional[List[Segment]] = None
     corrected_transcript: Optional[List[Segment]] = None
@@ -101,6 +106,8 @@ class LessonUpdate(BaseModel):
     correction_metadata: Optional[Dict[str, Any]] = None
     summary_metadata: Optional[Dict[str, Any]] = None
     edited_metadata: Optional[Dict[str, Any]] = None
+    pdf_files: Optional[List[str]] = None
+    legacy_url: Optional[str] = None
 
 
 VALID_STATUSES = {"draft", "in_progress", "review_requested", "revision_requested", "validated"}
@@ -210,6 +217,7 @@ class LessonListResponse(BaseModel):
     hashid: str = ""
     title: str
     date: datetime
+    hebrew_year: Optional[str] = None
     hebrew_date: Optional[str] = None
     duration: Optional[float]
     brief: Optional[str]
@@ -237,6 +245,7 @@ class LessonResponse(BaseModel):
     filename: str
     course_id: Optional[int]
     date: datetime
+    hebrew_year: Optional[str] = None
     hebrew_date: Optional[str] = None
     duration: Optional[float]
     transcript: Optional[List[Segment]]
@@ -256,9 +265,24 @@ class LessonResponse(BaseModel):
     correction_metadata: Optional[Dict[str, Any]] = None
     summary_metadata: Optional[Dict[str, Any]] = None
     edited_metadata: Optional[Dict[str, Any]] = None
+    pdf_files: List[str] = Field(default_factory=list)
+    legacy_url: Optional[str] = None
 
     class Config:
         from_attributes = True
+
+
+class LessonDocumentUrlResponse(BaseModel):
+    """Presigned URL for a stored lesson PDF document."""
+
+    url: str
+
+
+class LegacyLessonImportResponse(BaseModel):
+    """Result returned by the fixed-key legacy lesson import endpoint."""
+
+    lesson: LessonResponse
+    task_id: int
 
 
 class LessonBulkCsvImportResponse(BaseModel):

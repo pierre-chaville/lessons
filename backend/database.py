@@ -1,7 +1,9 @@
 import os
 import logging
 import threading
+from datetime import datetime
 
+from convertdate import hebrew
 from dotenv import load_dotenv
 from sqlmodel import SQLModel, Session, create_engine
 from sqlalchemy import text, inspect
@@ -19,6 +21,38 @@ if not DATABASE_URL:
 engine = create_engine(DATABASE_URL, echo=False)
 _migration_lock = threading.Lock()
 _migrations_completed = False
+
+
+def _hebrew_year_from_datetime(value) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    year, _month, _day = hebrew.from_gregorian(value.year, value.month, value.day)
+    return str(year)
+
+
+def _backfill_lesson_hebrew_years() -> int:
+    updated_rows = 0
+    with engine.begin() as conn:
+        rows = conn.execute(text("""
+            SELECT id, date
+            FROM lesson
+            WHERE hebrew_year IS NULL OR trim(hebrew_year) = ''
+        """)).mappings().all()
+        for row in rows:
+            hebrew_year = _hebrew_year_from_datetime(row["date"])
+            if not hebrew_year:
+                continue
+            result = conn.execute(
+                text("UPDATE lesson SET hebrew_year = :hebrew_year WHERE id = :id"),
+                {"hebrew_year": hebrew_year, "id": row["id"]},
+            )
+            updated_rows += max(0, result.rowcount or 0)
+    return updated_rows
 
 
 def _create_versioning_tables() -> None:
@@ -294,12 +328,30 @@ def _run_migrations():
             "rag_edited_stored_hash": "VARCHAR",
         }
         with engine.begin() as conn:
+            if "hebrew_year" not in columns:
+                conn.execute(text("ALTER TABLE lesson ADD COLUMN hebrew_year VARCHAR"))
+                logger.info("Migration: added 'hebrew_year' column to lesson table")
+            if "pdf_files" not in columns:
+                conn.execute(text("ALTER TABLE lesson ADD COLUMN pdf_files JSON"))
+                logger.info("Migration: added 'pdf_files' column to lesson table")
+            if "legacy_url" not in columns:
+                conn.execute(text("ALTER TABLE lesson ADD COLUMN legacy_url VARCHAR"))
+                logger.info("Migration: added 'legacy_url' column to lesson table")
             for column_name, column_type in rag_hash_columns.items():
                 if column_name not in columns:
                     conn.execute(text(
                         f"ALTER TABLE lesson ADD COLUMN {column_name} {column_type}"
                     ))
                     logger.info("Migration: added '%s' column to lesson table", column_name)
+        try:
+            backfilled_years = _backfill_lesson_hebrew_years()
+            if backfilled_years > 0:
+                logger.info(
+                    "Migration: initialized hebrew_year for %s lesson(s)",
+                    backfilled_years,
+                )
+        except SQLAlchemyError as exc:
+            logger.warning("Hebrew year backfill failed/skipped: %s", exc)
 
     if "course" in tables:
         columns = {col["name"] for col in inspector.get_columns("course")}

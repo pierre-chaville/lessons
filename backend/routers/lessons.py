@@ -1,8 +1,13 @@
 """Lessons router — /lessons endpoints including PDF and audio URL."""
 
+import hmac
+import json
+import os
+from datetime import datetime
+import re
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile, Form, Header
 from fastapi.responses import Response
 from sqlmodel import Session, select
 from typing import List, Dict, Any, Optional, Literal
@@ -17,6 +22,8 @@ from schemas.lesson import (
     StepStatusUpdate,
     WORKFLOW_STEP_KEYS,
     LessonBulkCsvImportResponse,
+    LessonDocumentUrlResponse,
+    LegacyLessonImportResponse,
 )
 from services import lessons as lesson_service
 from services import exports as export_service
@@ -86,6 +93,59 @@ def _build_version_response(
     )
 
 
+def _safe_document_filename(filename: str) -> str:
+    clean = str(filename or "").replace("\\", "/").split("/")[-1].strip()
+    clean = re.sub(r"[^A-Za-z0-9._-]+", "_", clean).strip("._")
+    return clean or "document.pdf"
+
+
+def _require_import_api_key(x_import_api_key: Optional[str] = Header(None)) -> None:
+    expected = os.getenv("IMPORT_API_KEY", "").strip()
+    if not expected:
+        raise HTTPException(status_code=500, detail="Import API key is not configured")
+    provided = (x_import_api_key or "").strip()
+    if not provided or not hmac.compare_digest(provided, expected):
+        raise HTTPException(status_code=401, detail="Invalid import API key")
+
+
+def _parse_int_form_list(raw_values: Optional[List[str]], field_name: str) -> List[int]:
+    values = _parse_string_form_list(raw_values, field_name)
+    parsed: List[int] = []
+    for value in values:
+        try:
+            parsed.append(int(value))
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{field_name} must contain integer values",
+            ) from exc
+    return parsed
+
+
+def _parse_string_form_list(raw_values: Optional[List[str]], field_name: str) -> List[str]:
+    if not raw_values:
+        return []
+    values: List[str] = []
+    for raw in raw_values:
+        text = str(raw or "").strip()
+        if not text:
+            continue
+        if text.startswith("["):
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{field_name} must be repeated form fields, comma-separated values, or a JSON array",
+                ) from exc
+            if not isinstance(parsed, list):
+                raise HTTPException(status_code=400, detail=f"{field_name} must be a JSON array")
+            values.extend(str(item).strip() for item in parsed if str(item).strip())
+            continue
+        values.extend(part.strip() for part in text.split(",") if part.strip())
+    return values
+
+
 @router.get("", response_model=List[LessonListResponse])
 def get_lessons(
     course_id: Optional[int] = Query(None, description="Filter by single course ID"),
@@ -131,6 +191,117 @@ async def import_lessons_csv(
         session=session,
         csv_bytes=payload,
         assigned_by=claims.get("sub"),
+    )
+
+
+@router.post("/import/legacy", response_model=LegacyLessonImportResponse, status_code=201)
+async def import_legacy_lesson(
+    title: str = Form(...),
+    date: datetime = Form(...),
+    hebrew_year: Optional[str] = Form(None),
+    course_id: int = Form(...),
+    audio_file: UploadFile = File(...),
+    pdf_files: List[UploadFile] = File(default_factory=list),
+    brief: Optional[str] = Form(None),
+    theme_ids: Optional[List[str]] = Form(None),
+    editor_ids: Optional[List[str]] = Form(None),
+    legacy_url: Optional[str] = Form(None),
+    session: Session = Depends(get_session),
+    _: None = Depends(_require_import_api_key),
+):
+    """Import a legacy lesson using a fixed API key and enqueue transcription."""
+    from services.audit import log_event
+    from storage import s3_enabled, upload_audio_fileobj, upload_document_fileobj
+
+    if not s3_enabled():
+        raise HTTPException(status_code=500, detail="S3 is not configured")
+
+    original_audio_filename = str(audio_file.filename or "")
+    audio_content_type = str(audio_file.content_type or "")
+    if (
+        audio_content_type not in {"audio/mpeg", "audio/mp3", "audio/x-mpeg"}
+        and not original_audio_filename.lower().endswith(".mp3")
+    ):
+        raise HTTPException(status_code=400, detail="Audio file must be an MP3")
+
+    safe_audio_filename = _safe_document_filename(original_audio_filename)
+    temp_audio_key = (
+        f"temp_{datetime.now().strftime('%Y%m%d%H%M%S%f')}_{safe_audio_filename}"
+    )
+    try:
+        audio_file.file.seek(0)
+        upload_audio_fileobj(audio_file.file, temp_audio_key)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"Failed to upload audio file: {exc}") from exc
+    finally:
+        await audio_file.close()
+
+    created = lesson_service.create_lesson_with_audio(
+        LessonCreate(
+            title=title,
+            filename=temp_audio_key,
+            course_id=course_id,
+            date=date,
+            hebrew_year=(hebrew_year or "").strip() or None,
+            brief=(brief or "").strip() or None,
+            theme_ids=_parse_int_form_list(theme_ids, "theme_ids"),
+            editor_ids=_parse_string_form_list(editor_ids, "editor_ids"),
+            legacy_url=(legacy_url or "").strip() or None,
+        ),
+        session,
+        assigned_by="legacy_import",
+    )
+
+    lesson = crud.get_lesson(session, created.id)
+    if not lesson:
+        raise HTTPException(status_code=500, detail="Imported lesson could not be loaded")
+
+    uploaded_pdf_keys: List[str] = []
+    for file in pdf_files or []:
+        original_filename = str(file.filename or "")
+        content_type = str(file.content_type or "")
+        if content_type != "application/pdf" and not original_filename.lower().endswith(".pdf"):
+            raise HTTPException(status_code=400, detail="PDF files must be PDFs")
+
+        safe_filename = _safe_document_filename(original_filename)
+        object_key = (
+            f"lessons/{lesson.id}/documents/"
+            f"{datetime.now().strftime('%Y%m%d%H%M%S%f')}_{safe_filename}"
+        )
+        try:
+            file.file.seek(0)
+            upload_document_fileobj(file.file, object_key)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=500, detail=f"Failed to upload PDF file: {exc}") from exc
+        finally:
+            await file.close()
+        uploaded_pdf_keys.append(object_key)
+
+    if uploaded_pdf_keys:
+        lesson.pdf_files = uploaded_pdf_keys
+        session.add(lesson)
+        session.commit()
+        session.refresh(lesson)
+
+    task = crud.create_task(
+        session=session,
+        task_type="transcription",
+        parameters={"lesson_id": lesson.id},
+        created_by_id="legacy_import",
+    )
+    log_event(
+        session=session,
+        actor={"sub": "legacy_import", "role": "import"},
+        entity_type="lesson",
+        entity_id=str(lesson.id),
+        action="pipeline.rerun_requested",
+        payload={"task_type": "transcription", "task_id": task.id},
+    )
+    session.commit()
+
+    return LegacyLessonImportResponse(
+        lesson=lesson_service.build_lesson_response(lesson, session),
+        task_id=task.id,
     )
 
 
@@ -455,6 +626,114 @@ def get_lesson_audio_url(lesson_hashid: str, session: Session = Depends(get_sess
     presigned_url = create_presigned_audio_url(audio_key)
     if not presigned_url:
         raise HTTPException(status_code=404, detail="Audio file not found")
+    return {"url": presigned_url}
+
+
+# ── Lesson PDF Documents ──────────────────────────────────────────────────────
+
+@router.post("/{lesson_hashid}/documents", response_model=LessonResponse)
+async def upload_lesson_document(
+    lesson_hashid: str,
+    file: UploadFile = File(...),
+    session: Session = Depends(get_session),
+    claims: Dict[str, Any] = Depends(require_roles(["editor", "publisher", "admin"])),
+):
+    """Upload a lesson PDF document to S3 and attach it to the lesson."""
+    from storage import upload_document_fileobj, s3_enabled
+
+    lesson_id = decode_id(lesson_hashid)
+    _require_lesson_access(lesson_id, claims, session)
+    lesson = crud.get_lesson(session, lesson_id)
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+
+    original_filename = str(file.filename or "")
+    content_type = str(file.content_type or "")
+    if content_type != "application/pdf" and not original_filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="File must be a PDF")
+    if not s3_enabled():
+        raise HTTPException(status_code=500, detail="S3 is not configured")
+
+    safe_filename = _safe_document_filename(original_filename)
+    object_key = (
+        f"lessons/{lesson_id}/documents/"
+        f"{datetime.now().strftime('%Y%m%d%H%M%S%f')}_{safe_filename}"
+    )
+    try:
+        file.file.seek(0)
+        upload_document_fileobj(file.file, object_key)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"Failed to upload file: {exc}") from exc
+    finally:
+        await file.close()
+
+    pdf_files = [str(key).strip() for key in (lesson.pdf_files or []) if str(key).strip()]
+    pdf_files.append(object_key)
+    lesson.pdf_files = pdf_files
+    session.add(lesson)
+    session.commit()
+    session.refresh(lesson)
+    return lesson_service.build_lesson_response(lesson, session)
+
+
+@router.delete("/{lesson_hashid}/documents/{document_index}", response_model=LessonResponse)
+def delete_lesson_document(
+    lesson_hashid: str,
+    document_index: int,
+    session: Session = Depends(get_session),
+    claims: Dict[str, Any] = Depends(require_roles(["editor", "publisher", "admin"])),
+):
+    """Remove a lesson PDF document and delete its S3 object."""
+    from storage import delete_object, s3_enabled
+
+    lesson_id = decode_id(lesson_hashid)
+    _require_lesson_access(lesson_id, claims, session)
+    lesson = crud.get_lesson(session, lesson_id)
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+
+    pdf_files = [str(key).strip() for key in (lesson.pdf_files or []) if str(key).strip()]
+    if document_index < 0 or document_index >= len(pdf_files):
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    object_key = pdf_files.pop(document_index)
+    if s3_enabled():
+        try:
+            delete_object(object_key)
+        except Exception:
+            # Keep lesson metadata removable even if the object was already gone.
+            pass
+
+    lesson.pdf_files = pdf_files
+    session.add(lesson)
+    session.commit()
+    session.refresh(lesson)
+    return lesson_service.build_lesson_response(lesson, session)
+
+
+@router.get("/{lesson_hashid}/documents/{document_index}/url", response_model=LessonDocumentUrlResponse)
+def get_lesson_document_url(
+    lesson_hashid: str,
+    document_index: int,
+    session: Session = Depends(get_session),
+):
+    """Get a presigned URL for a lesson PDF document stored in S3."""
+    from storage import create_presigned_document_url, s3_enabled
+
+    lesson_id = decode_id(lesson_hashid)
+    lesson = crud.get_lesson(session, lesson_id)
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+    if not s3_enabled():
+        raise HTTPException(status_code=500, detail="S3 is not configured")
+
+    pdf_files = [str(key).strip() for key in (lesson.pdf_files or []) if str(key).strip()]
+    if document_index < 0 or document_index >= len(pdf_files):
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    presigned_url = create_presigned_document_url(pdf_files[document_index])
+    if not presigned_url:
+        raise HTTPException(status_code=404, detail="Document not found")
     return {"url": presigned_url}
 
 

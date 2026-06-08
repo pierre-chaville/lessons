@@ -6,6 +6,7 @@ import type {
   LessonUpdate,
   LessonStatus,
   AudioUrlResponse,
+  LessonDocumentUrlResponse,
   ContentType,
   LessonVersion,
   VersionDiffResponse,
@@ -82,6 +83,26 @@ export const lessonsApi = {
 
   getAudioUrl: (hashid: string) =>
     apiClient.get<AudioUrlResponse>(`/lessons/${hashid}/audio-url`).then((r) => r.data),
+
+  getDocumentUrl: (hashid: string, documentIndex: number) =>
+    apiClient
+      .get<LessonDocumentUrlResponse>(`/lessons/${hashid}/documents/${documentIndex}/url`)
+      .then((r) => r.data),
+
+  uploadDocument: (hashid: string, file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return apiClient
+      .post<LessonDetail>(`/lessons/${hashid}/documents`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      .then((r) => r.data)
+  },
+
+  deleteDocument: (hashid: string, documentIndex: number) =>
+    apiClient
+      .delete<LessonDetail>(`/lessons/${hashid}/documents/${documentIndex}`)
+      .then((r) => r.data),
 
   exportDocument: (
     hashid: string,

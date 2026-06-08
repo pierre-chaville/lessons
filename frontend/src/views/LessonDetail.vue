@@ -8,6 +8,7 @@ import {
   ChevronRightIcon,
   ClockIcon,
   CalendarIcon,
+  CloudArrowUpIcon,
   DocumentTextIcon,
   FolderIcon,
   PlayIcon,
@@ -82,6 +83,7 @@ const { t, locale } = useI18n()
 const toast = useToast()
 const { can, role } = usePermissions()
 const { user } = useAuth()
+const legacyTitle = computed(() => import.meta.env.VITE_LEGACY_TITLE || t('lessons.legacyPage'))
 
 const showLessonPager = computed(
   () => props.hasPreviousLesson !== undefined || props.hasNextLesson !== undefined,
@@ -158,8 +160,10 @@ const lessonExportPreferences = ref<LessonExportPreferences>(loadLessonExportPre
 const defaultLessonExportFormat = computed<LessonExportFormat>(() => lessonExportPreferences.value.format)
 const defaultLessonExportFields = computed<string[]>(() => lessonExportPreferences.value.includeFields)
 
-// Toggle between summary, corrected transcript, and initial transcript
-const activeView = ref('summary')
+type LessonDetailViewKey = 'summary' | 'edited' | 'documents' | 'sources' | 'transcript' | 'workflow'
+
+// Toggle between the lesson content dimensions.
+const activeView = ref<LessonDetailViewKey>('summary')
 
 // Edit summary state
 const isEditingSummary = ref(false)
@@ -296,12 +300,30 @@ const isEditingLesson = ref(false)
 const editedLesson = ref<{
   title: string
   date: string
+  hebrew_year: string
   course_id: number | null
   theme_ids: number[]
   editor_ids: string[]
   brief: string
-}>({ title: '', date: '', course_id: null, theme_ids: [], editor_ids: [], brief: '' })
+  legacy_url: string
+}>({
+  title: '',
+  date: '',
+  hebrew_year: '',
+  course_id: null,
+  theme_ids: [],
+  editor_ids: [],
+  brief: '',
+  legacy_url: '',
+})
 const isSavingLesson = ref(false)
+const openingDocumentIndex = ref<number | null>(null)
+const showAddDocumentModal = ref(false)
+const selectedDocumentFile = ref<File | null>(null)
+const documentFileInput = ref<HTMLInputElement | null>(null)
+const isDraggingDocument = ref(false)
+const isUploadingDocument = ref(false)
+const deletingDocumentIndex = ref<number | null>(null)
 
 // Edit segment state
 const editingSegmentIndex = ref<number | null>(null)
@@ -901,23 +923,147 @@ const getGlobalSourceIndex = (partIndex: number) => {
   return count;
 };
 
-// Available views based on what data exists
+const pdfFiles = computed(() =>
+  (props.lesson.pdf_files ?? [])
+    .map((key) => String(key).trim())
+    .filter(Boolean),
+)
+
+const hasDocuments = computed(
+  () => pdfFiles.value.length > 0 || !!(props.lesson.legacy_url ?? '').trim(),
+)
+
+const hasSummary = computed(() => !!props.lesson.summary)
+const hasEdited = computed(() => !!props.lesson.edited_transcript)
+const hasSources = computed(() => allSources.value.length > 0)
+const hasTranscriptContent = computed(
+  () => !!(
+    (props.lesson.transcript && props.lesson.transcript.length > 0)
+    || (props.lesson.corrected_transcript && props.lesson.corrected_transcript.length > 0)
+  ),
+)
+
+const pdfFileLabel = (key: string): string => {
+  const cleanKey = key.split('?')[0] ?? key
+  const basename = cleanKey.split(/[\\/]/).filter(Boolean).pop() || cleanKey
+  return basename.replace(/^\d{14,20}_/, '')
+}
+
+const isPdfFile = (file: File): boolean =>
+  file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+
+const openAddDocumentModal = () => {
+  selectedDocumentFile.value = null
+  if (documentFileInput.value) documentFileInput.value.value = ''
+  showAddDocumentModal.value = true
+}
+
+const closeAddDocumentModal = () => {
+  if (isUploadingDocument.value) return
+  selectedDocumentFile.value = null
+  isDraggingDocument.value = false
+  if (documentFileInput.value) documentFileInput.value.value = ''
+  showAddDocumentModal.value = false
+}
+
+const handleDocumentFile = (file: File) => {
+  if (!isPdfFile(file)) {
+    toast.error(t('lessons.invalidPdfFile'))
+    return
+  }
+  selectedDocumentFile.value = file
+}
+
+const onDocumentFileSelected = (event: Event) => {
+  const file = (event.target as HTMLInputElement).files?.[0]
+  if (file) handleDocumentFile(file)
+}
+
+const selectDocumentFile = () => {
+  documentFileInput.value?.click()
+}
+
+const removeSelectedDocumentFile = () => {
+  selectedDocumentFile.value = null
+  if (documentFileInput.value) documentFileInput.value.value = ''
+}
+
+const onDocumentDragOver = (event: DragEvent) => {
+  event.preventDefault()
+  isDraggingDocument.value = true
+}
+
+const onDocumentDragLeave = () => {
+  isDraggingDocument.value = false
+}
+
+const onDocumentDrop = (event: DragEvent) => {
+  event.preventDefault()
+  isDraggingDocument.value = false
+  const file = event.dataTransfer?.files?.[0]
+  if (file) handleDocumentFile(file)
+}
+
+const uploadSelectedDocument = async () => {
+  if (!selectedDocumentFile.value || isUploadingDocument.value) return
+  try {
+    isUploadingDocument.value = true
+    const updated = await lessonsApi.uploadDocument(props.lesson.hashid, selectedDocumentFile.value)
+    Object.assign(props.lesson, updated)
+    isUploadingDocument.value = false
+    closeAddDocumentModal()
+  } catch {
+    toast.error(t('lessons.documentUploadFailed'))
+  } finally {
+    isUploadingDocument.value = false
+  }
+}
+
+const deletePdfDocument = async (documentIndex: number) => {
+  if (deletingDocumentIndex.value !== null) return
+  try {
+    deletingDocumentIndex.value = documentIndex
+    const updated = await lessonsApi.deleteDocument(props.lesson.hashid, documentIndex)
+    Object.assign(props.lesson, updated)
+  } catch {
+    toast.error(t('lessons.removeDocumentFailed'))
+  } finally {
+    deletingDocumentIndex.value = null
+  }
+}
+
+const openPdfDocument = async (documentIndex: number) => {
+  if (openingDocumentIndex.value !== null) return
+  const targetWindow = window.open('', '_blank')
+  if (targetWindow) {
+    targetWindow.opener = null
+  }
+  try {
+    openingDocumentIndex.value = documentIndex
+    const { url } = await lessonsApi.getDocumentUrl(props.lesson.hashid, documentIndex)
+    if (targetWindow) {
+      targetWindow.location.href = url
+    } else {
+      window.open(url, '_blank', 'noopener,noreferrer')
+    }
+  } catch {
+    targetWindow?.close()
+    toast.error(t('lessons.openDocumentFailed'))
+  } finally {
+    openingDocumentIndex.value = null
+  }
+}
+
 const availableViews = computed(() => {
-  const views = [];
-  if (props.lesson.summary) {
-    views.push({ key: 'summary', label: t('lessons.summary') });
-  }
-  if (props.lesson.edited_transcript) {
-    views.push({ key: 'edited', label: t('lessons.editedTranscript') });
-  }
-  if (allSources.value.length > 0) {
-    views.push({ key: 'sources', label: t('lessons.sources') });
-  }
-  if (props.lesson.transcript || props.lesson.corrected_transcript) {
-    views.push({ key: 'transcript', label: t('lessons.transcript') });
-  }
+  const views: Array<{ key: LessonDetailViewKey; label: string; available: boolean }> = [
+    { key: 'summary', label: t('lessons.summary'), available: hasSummary.value },
+    { key: 'edited', label: t('lessons.editedTranscript'), available: hasEdited.value },
+    { key: 'documents', label: t('lessons.documents'), available: hasDocuments.value },
+    { key: 'sources', label: t('lessons.sources'), available: hasSources.value },
+    { key: 'transcript', label: t('lessons.transcript'), available: hasTranscriptContent.value },
+  ]
   if (canEditLesson.value) {
-    views.push({ key: 'workflow', label: t('lessons.workflowHistory') })
+    views.push({ key: 'workflow', label: t('lessons.workflowHistory'), available: true })
   }
   return views;
 });
@@ -1659,10 +1805,12 @@ const startEditLesson = async () => {
   editedLesson.value = {
     title: props.lesson.title,
     date: formatDate(props.lesson.date),
+    hebrew_year: props.lesson.hebrew_year ?? props.lesson.hebrew_date ?? '',
     course_id: props.lesson.course_id ?? null,
     theme_ids: props.lesson.theme_ids ?? [],
     editor_ids: props.lesson.editors?.map((e) => e.user_id) ?? [],
     brief: props.lesson.brief ?? '',
+    legacy_url: props.lesson.legacy_url ?? '',
   }
   isEditingLesson.value = true
 }
@@ -1676,10 +1824,12 @@ const saveLesson = async () => {
     const updated = await lessonsApi.update(props.lesson.hashid, {
       title: editedLesson.value.title,
       date: editedLesson.value.date ? `${editedLesson.value.date}T00:00:00.000Z` : null,
+      hebrew_year: editedLesson.value.hebrew_year.trim() || null,
       course_id: editedLesson.value.course_id,
       theme_ids: editedLesson.value.theme_ids,
       editor_ids: editedLesson.value.editor_ids,
       brief: editedLesson.value.brief || null,
+      legacy_url: editedLesson.value.legacy_url.trim(),
     })
     Object.assign(props.lesson, updated)
     isEditingLesson.value = false
@@ -2460,6 +2610,89 @@ const saveParagraph = async () => {
     </div>
   </Dialog>
 
+  <!-- Add PDF Document Modal -->
+  <Dialog :open="showAddDocumentModal" @close="closeAddDocumentModal" class="relative z-50">
+    <div class="fixed inset-0 bg-black/30 backdrop-blur-sm" aria-hidden="true" />
+
+    <div class="fixed inset-0 flex items-center justify-center p-4">
+      <DialogPanel class="mx-auto w-full max-w-lg bg-white dark:bg-gray-800 rounded-lg shadow-xl">
+        <div class="p-6">
+          <DialogTitle class="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+            {{ t('lessons.addDocumentTitle') }}
+          </DialogTitle>
+          <p class="text-sm text-gray-500 dark:text-gray-400 mb-5">
+            {{ t('lessons.addDocumentHelp') }}
+          </p>
+
+          <input
+            ref="documentFileInput"
+            type="file"
+            accept="application/pdf,.pdf"
+            class="hidden"
+            @change="onDocumentFileSelected"
+          />
+
+          <div
+            @click="selectDocumentFile"
+            @dragover="onDocumentDragOver"
+            @dragleave="onDocumentDragLeave"
+            @drop="onDocumentDrop"
+            :class="[
+              'border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors',
+              isDraggingDocument
+                ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20'
+                : 'border-gray-300 dark:border-gray-600 hover:border-indigo-400 dark:hover:border-indigo-500',
+            ]"
+          >
+            <CloudArrowUpIcon class="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500 mb-3" />
+            <p class="text-sm font-medium text-gray-700 dark:text-gray-300">
+              {{ t('lessons.clickOrDropPdf') }}
+            </p>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('lessons.pdfOnly') }}
+            </p>
+          </div>
+
+          <div
+            v-if="selectedDocumentFile"
+            class="mt-4 flex items-center justify-between gap-3 rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2"
+          >
+            <div class="flex min-w-0 items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+              <DocumentTextIcon class="h-5 w-5 flex-shrink-0 text-indigo-600 dark:text-indigo-400" />
+              <span class="truncate">{{ selectedDocumentFile.name }}</span>
+            </div>
+            <button
+              @click="removeSelectedDocumentFile"
+              :disabled="isUploadingDocument"
+              class="rounded-md p-1 text-gray-400 hover:text-gray-700 disabled:opacity-50 dark:hover:text-gray-200"
+              :title="t('lessons.remove')"
+            >
+              <XMarkIcon class="h-4 w-4" />
+            </button>
+          </div>
+
+          <div class="mt-6 flex justify-end gap-3">
+            <button
+              @click="closeAddDocumentModal"
+              :disabled="isUploadingDocument"
+              class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-md transition-colors disabled:opacity-50"
+            >
+              {{ t('lessons.cancel') }}
+            </button>
+            <button
+              @click="uploadSelectedDocument"
+              :disabled="!selectedDocumentFile || isUploadingDocument"
+              class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 rounded-md transition-colors disabled:cursor-not-allowed"
+            >
+              <ArrowUpTrayIcon class="h-4 w-4" />
+              {{ isUploadingDocument ? t('lessons.uploadingDocument') : t('lessons.uploadDocument') }}
+            </button>
+          </div>
+        </div>
+      </DialogPanel>
+    </div>
+  </Dialog>
+
   <!-- Edit Lesson Modal -->
   <Dialog :open="isEditingLesson" @close="cancelEditLesson" class="relative z-50">
     <div class="fixed inset-0 bg-black/30 backdrop-blur-sm" aria-hidden="true" />
@@ -2497,6 +2730,20 @@ const saveParagraph = async () => {
                 />
               </div>
 
+              <!-- Hebrew Year -->
+              <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  {{ t('lessons.hebrewYear') }}
+                </label>
+                <input
+                  v-model="editedLesson.hebrew_year"
+                  type="text"
+                  inputmode="numeric"
+                  class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  placeholder="5786"
+                />
+              </div>
+
               <!-- Brief -->
               <div>
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -2508,6 +2755,19 @@ const saveParagraph = async () => {
                   rows="5"
                   class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
                 ></textarea>
+              </div>
+
+              <!-- Legacy URL -->
+              <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  {{ legacyTitle }}
+                </label>
+                <input
+                  v-model="editedLesson.legacy_url"
+                  type="url"
+                  :placeholder="t('lessons.legacyUrlPlaceholder')"
+                  class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                />
               </div>
             </div>
 
@@ -2771,7 +3031,17 @@ const saveParagraph = async () => {
                 </div>
               </div>
 
-              <div class="flex items-center gap-2 text-sm sm:col-span-2">
+              <div class="flex items-center gap-2 text-sm">
+                <CalendarIcon class="h-5 w-5 text-gray-400 dark:text-gray-500" />
+                <div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">{{ t('lessons.hebrewYear') }}</div>
+                  <div class="font-medium text-gray-900 dark:text-white">
+                    {{ lesson.hebrew_year || lesson.hebrew_date || '-' }}
+                  </div>
+                </div>
+              </div>
+
+              <div class="flex items-center gap-2 text-sm">
                 <DocumentTextIcon class="h-5 w-5 text-gray-400 dark:text-gray-500" />
                 <div>
                   <div class="text-xs text-gray-500 dark:text-gray-400">{{ t('lessons.file') }}</div>
@@ -2938,20 +3208,29 @@ const saveParagraph = async () => {
                 :key="view.key"
                 @click="activeView = view.key"
                 :class="[
-                  'px-4 py-2 text-sm font-medium rounded-md transition-all',
+                  'inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md transition-all',
                   activeView === view.key
-                    ? 'bg-white dark:bg-gray-800 text-indigo-600 dark:text-indigo-400 shadow-sm'
-                    : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
+                    ? view.available
+                      ? 'bg-white dark:bg-gray-800 text-indigo-600 dark:text-indigo-400 shadow-sm'
+                      : 'bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 shadow-sm ring-1 ring-dashed ring-gray-300 dark:ring-gray-600'
+                    : view.available
+                      ? 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
+                      : 'text-gray-400 dark:text-gray-500 italic hover:text-gray-600 dark:hover:text-gray-300'
                 ]"
               >
-                {{ view.label }}
+                <span>{{ view.label }}</span>
+                <span
+                  v-if="!view.available"
+                  class="h-1.5 w-1.5 rounded-full bg-gray-400 dark:bg-gray-500"
+                  :title="t('lessons.notAvailableYet')"
+                ></span>
               </button>
             </div>
             
-            <div class="flex items-center gap-3">
+            <div class="hidden">
               <!-- Export / Import buttons (summary tab) -->
               <button
-                v-if="activeView === 'summary' && !isEditingSummary"
+                v-if="activeView === 'summary' && hasSummary && !isEditingSummary"
                 @click="openLessonDocumentModal('export', 'summary')"
                 class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
               >
@@ -2978,7 +3257,7 @@ const saveParagraph = async () => {
               
               <!-- Export / Import buttons (transcript tab) -->
               <button
-                v-if="activeView === 'transcript' && !isEditingSummary"
+                v-if="activeView === 'transcript' && hasTranscriptContent && !isEditingSummary"
                 @click="openLessonDocumentModal('export', 'transcript')"
                 class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
               >
@@ -2996,7 +3275,7 @@ const saveParagraph = async () => {
               
               <!-- Export / Import buttons (edited tab) -->
               <button
-                v-if="activeView === 'edited' && !isEditingSummary"
+                v-if="activeView === 'edited' && hasEdited && !isEditingSummary"
                 @click="openLessonDocumentModal('export', 'edited')"
                 class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
               >
@@ -3012,7 +3291,7 @@ const saveParagraph = async () => {
                 {{ t('lessons.importAction') }}
               </button>
               <button
-                v-if="activeView === 'edited' && canEditLesson && !isProcessing"
+                v-if="activeView === 'edited' && hasEdited && canEditLesson && !isProcessing"
                 @click="startEditEditedMarkdown"
                 class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors print:hidden"
               >
@@ -3031,7 +3310,7 @@ const saveParagraph = async () => {
               
               <!-- Download Sources PDF Buttons and Stats (show for sources view) -->
               <button
-                v-if="activeView === 'sources' && !isEditingSummary"
+                v-if="activeView === 'sources' && hasSources && !isEditingSummary"
                 @click="showSourceStatsModal = true"
                 class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors mr-2"
               >
@@ -3039,7 +3318,7 @@ const saveParagraph = async () => {
                 {{ t('lessons.sourceStats') }}
               </button>
               <button
-                v-if="activeView === 'sources' && !isEditingSummary"
+                v-if="activeView === 'sources' && hasSources && !isEditingSummary"
                 @click="downloadSourcesPDF"
                 class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors mr-2"
               >
@@ -3047,7 +3326,7 @@ const saveParagraph = async () => {
                 {{ t('lessons.downloadSourcesPDF') }}
               </button>
               <button
-                v-if="activeView === 'sources' && !isEditingSummary"
+                v-if="activeView === 'sources' && hasSources && !isEditingSummary"
                 @click="downloadDetailedSourcesPDF"
                 class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
               >
@@ -3057,7 +3336,7 @@ const saveParagraph = async () => {
               
               <!-- Edit Button (show for summary view) -->
               <button
-                v-if="activeView === 'summary' && !isEditingSummary && canEditLesson && !isProcessing"
+                v-if="activeView === 'summary' && hasSummary && !isEditingSummary && canEditLesson && !isProcessing"
                 @click="startEditSummary"
                 class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors print:hidden"
               >
@@ -3163,18 +3442,50 @@ const saveParagraph = async () => {
             >
               <ExclamationTriangleIcon class="h-4 w-4" />
               <span>{{ t('lessons.summaryAlignmentOutdated') }}</span>
+            </div>
+            <div class="mb-4 flex flex-wrap items-center justify-end gap-2 print:hidden">
               <button
-                v-if="canEditLesson"
+                v-if="hasSummary && !isEditingSummary"
+                @click="openLessonDocumentModal('export', 'summary')"
+                class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
+              >
+                <ArrowDownTrayIcon class="h-4 w-4" />
+                {{ t('lessons.exportAction') }}
+              </button>
+              <button
+                v-if="!isEditingSummary && canEditLesson && !isProcessing"
+                @click="openLessonDocumentModal('import', 'summary')"
+                class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
+              >
+                <ArrowUpTrayIcon class="h-4 w-4" />
+                {{ t('lessons.importAction') }}
+              </button>
+              <button
+                v-if="canEditLesson && isSummaryAlignmentStale"
                 @click="realignSummaryAlignment"
                 :disabled="isRealigningSummary || isProcessing"
-                class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-amber-900 dark:text-amber-100 bg-amber-200 dark:bg-amber-800/60 hover:bg-amber-300 dark:hover:bg-amber-700/60 disabled:opacity-60 disabled:cursor-not-allowed rounded transition-colors"
+                class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-md transition-colors"
               >
-                <CogIcon class="h-3.5 w-3.5" />
-                {{ isRealigningSummary ? t('lessons.realigning') : t('lessons.realignSummarySmall') }}
+                <CogIcon class="h-4 w-4" />
+                {{ isRealigningSummary ? t('lessons.realigning') : t('lessons.realignSummary') }}
               </button>
-            </div>
-            <div class="flex items-center justify-end mb-4 print:hidden">
-              <label class="inline-flex items-center gap-2 cursor-pointer select-none">
+              <button
+                v-if="hasSummary && !isEditingSummary && canEditLesson && !isProcessing"
+                @click="startEditSummary"
+                class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
+              >
+                <PencilIcon class="h-4 w-4" />
+                {{ t('lessons.modifySummary') }}
+              </button>
+              <button
+                v-if="canEditLesson"
+                @click="openHistory('summary')"
+                class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
+              >
+                <HistoryIcon class="h-4 w-4" />
+                {{ t('history.historyButton') }}
+              </button>
+              <label v-if="hasSummary" class="inline-flex items-center gap-2 cursor-pointer select-none">
                 <span class="text-sm text-gray-600 dark:text-gray-400">{{ t('lessons.showEditedVersion') }}</span>
                 <button
                   type="button"
@@ -3269,10 +3580,16 @@ const saveParagraph = async () => {
                 </div>
               </div>
             </div>
-            <div v-else 
+            <div
+              v-else-if="lesson.summary"
               class="prose prose-indigo dark:prose-invert max-w-none"
               v-html="renderMarkdown(lesson.summary)"
             ></div>
+            <div v-else class="text-center py-12">
+              <p class="text-gray-500 dark:text-gray-400">
+                {{ t('lessons.summaryUnavailable') }}
+              </p>
+            </div>
           </div>
 
           <!-- Workflow History View -->
@@ -3332,6 +3649,43 @@ const saveParagraph = async () => {
           
           <!-- Unified Transcript View with Diffs -->
           <div v-else-if="activeView === 'transcript'">
+            <div class="mb-4 flex flex-wrap items-center justify-end gap-2 print:hidden">
+              <button
+                v-if="hasTranscriptContent && !isEditingSummary"
+                @click="openLessonDocumentModal('export', 'transcript')"
+                class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
+              >
+                <ArrowDownTrayIcon class="h-4 w-4" />
+                {{ t('lessons.exportAction') }}
+              </button>
+              <button
+                v-if="!isEditingSummary && canEditLesson && !isProcessing"
+                @click="openLessonDocumentModal('import', 'transcript')"
+                class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
+              >
+                <ArrowUpTrayIcon class="h-4 w-4" />
+                {{ t('lessons.importAction') }}
+              </button>
+              <button
+                v-if="canEditLesson"
+                @click="openHistory('corrected_transcript')"
+                class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
+              >
+                <HistoryIcon class="h-4 w-4" />
+                {{ t('history.historyButton') }}
+              </button>
+              <div v-if="audioUrl" class="flex items-center gap-2">
+                <SpeakerWaveIcon class="h-5 w-5 text-gray-400 dark:text-gray-500" />
+                <button
+                  @click="togglePlayPause"
+                  class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
+                >
+                  <PlayIcon v-if="!isPlaying" class="h-4 w-4" />
+                  <PauseIcon v-else class="h-4 w-4" />
+                  {{ isPlaying ? t('lessons.pause') : t('lessons.play') }}
+                </button>
+              </div>
+            </div>
             <div v-if="unifiedTranscript.length > 0" class="space-y-4 scroll-smooth relative">
               <div
                 v-for="segment in unifiedTranscript"
@@ -3429,8 +3783,112 @@ const saveParagraph = async () => {
             </div>
           </div>
           
+          <!-- Documents View -->
+          <div v-else-if="activeView === 'documents'">
+            <div class="space-y-6">
+              <div
+                v-if="lesson.legacy_url"
+                class="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-5"
+              >
+                <div class="text-sm font-semibold text-gray-900 dark:text-white mb-2">
+                  {{ legacyTitle }}
+                </div>
+                <a
+                  :href="lesson.legacy_url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="inline-flex items-center gap-2 text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300"
+                >
+                  <DocumentTextIcon class="h-4 w-4" />
+                  {{ legacyTitle }}
+                </a>
+              </div>
+
+              <div
+                class="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-5"
+              >
+                <div class="mb-4 flex items-center justify-between gap-3">
+                  <div>
+                    <div class="text-sm font-semibold text-gray-900 dark:text-white">
+                      {{ t('lessons.storedPdfDocuments') }}
+                    </div>
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t('lessons.pdfFilesHelp') }}
+                    </p>
+                  </div>
+                  <button
+                    v-if="canEditLesson"
+                    @click="openAddDocumentModal"
+                    :disabled="isProcessing"
+                    class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-md transition-colors"
+                  >
+                    <ArrowUpTrayIcon class="h-4 w-4" />
+                    {{ t('lessons.addDocument') }}
+                  </button>
+                </div>
+
+                <div v-if="pdfFiles.length > 0" class="space-y-2">
+                  <div
+                    v-for="(pdfKey, documentIndex) in pdfFiles"
+                    :key="`${documentIndex}-${pdfKey}`"
+                    class="flex items-center gap-2 rounded-md bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 transition-colors"
+                  >
+                    <button
+                      @click="openPdfDocument(documentIndex)"
+                      :disabled="openingDocumentIndex !== null"
+                      class="flex min-w-0 flex-1 items-center gap-3 text-left hover:text-indigo-700 dark:hover:text-indigo-300 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <DocumentTextIcon class="h-5 w-5 flex-shrink-0 text-indigo-600 dark:text-indigo-400" />
+                      <span class="flex-1 truncate">{{ pdfFileLabel(pdfKey) }}</span>
+                      <span class="text-xs text-gray-500 dark:text-gray-400">
+                        {{ openingDocumentIndex === documentIndex ? t('lessons.opening') : t('lessons.openDocument') }}
+                      </span>
+                    </button>
+                    <button
+                      v-if="canEditLesson"
+                      @click="deletePdfDocument(documentIndex)"
+                      :disabled="deletingDocumentIndex !== null || isProcessing"
+                      class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed dark:text-red-400 dark:hover:bg-red-900/20"
+                    >
+                      <TrashIcon class="h-3.5 w-3.5" />
+                      {{ deletingDocumentIndex === documentIndex ? t('lessons.deleting') : t('lessons.removeDocument') }}
+                    </button>
+                  </div>
+                </div>
+                <div v-else class="text-center py-8">
+                  <p class="text-gray-500 dark:text-gray-400">
+                    {{ t('lessons.noDocuments') }}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- Sources View -->
           <div v-else-if="activeView === 'sources'">
+            <div v-if="hasSources" class="mb-4 flex flex-wrap items-center justify-end gap-2 print:hidden">
+              <button
+                @click="showSourceStatsModal = true"
+                class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
+              >
+                <ChartBarIcon class="h-4 w-4" />
+                {{ t('lessons.sourceStats') }}
+              </button>
+              <button
+                @click="downloadSourcesPDF"
+                class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
+              >
+                <PrinterIcon class="h-4 w-4" />
+                {{ t('lessons.downloadSourcesPDF') }}
+              </button>
+              <button
+                @click="downloadDetailedSourcesPDF"
+                class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
+              >
+                <PrinterIcon class="h-4 w-4" />
+                {{ t('lessons.downloadDetailedSourcesPDF') }}
+              </button>
+            </div>
             <div v-if="allSources.length > 0" class="space-y-6 max-h-[600px] overflow-auto scroll-smooth print:max-h-none">
               <div
                 v-for="(typeGroup, typeIndex) in allSources"
@@ -3495,22 +3953,54 @@ const saveParagraph = async () => {
           <!-- Edited Transcript View -->
           <div v-else-if="activeView === 'edited'">
             <!-- Toggle for side-by-side transcript -->
-            <div class="flex items-center justify-end mb-4 print:hidden">
+            <div v-if="editedParts.length > 0" class="mb-4 flex flex-wrap items-center justify-end gap-2 print:hidden">
+              <button
+                v-if="hasEdited && !isEditingSummary"
+                @click="openLessonDocumentModal('export', 'edited')"
+                class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
+              >
+                <ArrowDownTrayIcon class="h-4 w-4" />
+                {{ t('lessons.exportAction') }}
+              </button>
+              <button
+                v-if="!isEditingSummary && canEditLesson && !isProcessing"
+                @click="openLessonDocumentModal('import', 'edited')"
+                class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
+              >
+                <ArrowUpTrayIcon class="h-4 w-4" />
+                {{ t('lessons.importAction') }}
+              </button>
+              <button
+                v-if="hasEdited && canEditLesson && !isProcessing"
+                @click="startEditEditedMarkdown"
+                class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
+              >
+                <PencilIcon class="h-4 w-4" />
+                {{ t('lessons.modifyEdited') }}
+              </button>
+              <button
+                v-if="canEditLesson && isEditedAlignmentStale"
+                @click="realignEditedMarkdown"
+                :disabled="isRealigningEdited || isProcessing"
+                class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-md transition-colors"
+              >
+                <CogIcon class="h-4 w-4" />
+                {{ isRealigningEdited ? t('lessons.realigning') : t('lessons.realignEdited') }}
+              </button>
+              <button
+                v-if="canEditLesson"
+                @click="openHistory('edited_transcript')"
+                class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
+              >
+                <HistoryIcon class="h-4 w-4" />
+                {{ t('history.historyButton') }}
+              </button>
               <div
                 v-if="isEditedAlignmentStale"
-                class="inline-flex items-center gap-2 mr-3 px-2.5 py-1 text-xs text-amber-800 dark:text-amber-200 bg-amber-100 dark:bg-amber-900/30 rounded-md"
+                class="inline-flex items-center gap-2 px-2.5 py-1 text-xs text-amber-800 dark:text-amber-200 bg-amber-100 dark:bg-amber-900/30 rounded-md"
               >
                 <ExclamationTriangleIcon class="h-4 w-4" />
                 <span>{{ t('lessons.alignmentOutdated') }}</span>
-                <button
-                  v-if="canEditLesson"
-                  @click="realignEditedMarkdown"
-                  :disabled="isRealigningEdited || isProcessing"
-                  class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-amber-900 dark:text-amber-100 bg-amber-200 dark:bg-amber-800/60 hover:bg-amber-300 dark:hover:bg-amber-700/60 disabled:opacity-60 disabled:cursor-not-allowed rounded transition-colors"
-                >
-                  <CogIcon class="h-3.5 w-3.5" />
-                  {{ isRealigningEdited ? t('lessons.realigning') : t('lessons.realignEditedSmall') }}
-                </button>
               </div>
               <label class="inline-flex items-center gap-2 cursor-pointer select-none">
                 <span
@@ -3536,7 +4026,7 @@ const saveParagraph = async () => {
               </label>
               <label
                 v-if="hasSourcesExtracted"
-                class="inline-flex items-center gap-2 cursor-pointer select-none ml-5"
+                class="inline-flex items-center gap-2 cursor-pointer select-none"
               >
                 <span
                   class="text-sm text-gray-600 dark:text-gray-400"

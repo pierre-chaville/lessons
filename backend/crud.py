@@ -303,10 +303,14 @@ def create_lesson(
     filename: str,
     course_id: Optional[int] = None,
     date: Optional[datetime] = None,
+    hebrew_year: Optional[str] = None,
     duration: Optional[float] = None,
     transcript: Optional[str] = None,
     corrected_transcript: Optional[str] = None,
+    brief: Optional[str] = None,
     summary: Optional[str] = None,
+    pdf_files: Optional[List[str]] = None,
+    legacy_url: Optional[str] = None,
     theme_ids: Optional[List[int]] = None,
 ) -> Lesson:
     """Create a new lesson"""
@@ -315,10 +319,14 @@ def create_lesson(
         filename=filename,
         course_id=course_id,
         date=date or datetime.now(),
+        hebrew_year=hebrew_year,
         duration=duration,
         transcript=transcript,
         corrected_transcript=corrected_transcript,
+        brief=brief,
         summary=summary,
+        pdf_files=pdf_files,
+        legacy_url=legacy_url,
     )
     if theme_ids:
         lesson.set_themes(theme_ids)
@@ -355,6 +363,7 @@ def update_lesson(
     filename: Optional[str] = None,
     course_id: Optional[int] = None,
     date: Optional[datetime] = None,
+    hebrew_year: Optional[str] = None,
     duration: Optional[float] = None,
     transcript: Optional[List[dict]] = None,
     corrected_transcript: Optional[List[dict]] = None,
@@ -368,6 +377,8 @@ def update_lesson(
     correction_metadata: Optional[dict] = None,
     summary_metadata: Optional[dict] = None,
     edited_metadata: Optional[dict] = None,
+    pdf_files: Optional[List[str]] = None,
+    legacy_url: Optional[str] = None,
 ) -> Optional[Lesson]:
     """Update a lesson"""
     lesson = session.get(Lesson, lesson_id)
@@ -380,6 +391,8 @@ def update_lesson(
             lesson.course_id = course_id
         if date is not None:
             lesson.date = date
+        if hebrew_year is not None:
+            lesson.hebrew_year = hebrew_year
         if duration is not None:
             lesson.duration = duration
         if transcript is not None:
@@ -398,6 +411,10 @@ def update_lesson(
             lesson.summary_metadata = summary_metadata
         if edited_metadata is not None:
             lesson.edited_metadata = edited_metadata
+        if pdf_files is not None:
+            lesson.pdf_files = pdf_files
+        if legacy_url is not None:
+            lesson.legacy_url = legacy_url
 
         session.add(lesson)
         session.commit()

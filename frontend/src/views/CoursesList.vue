@@ -423,6 +423,7 @@ defineExpose({
               <li><code>filename</code> — {{ t('courses.csvHelpFilename') }}</li>
               <li><code>status</code> — {{ t('courses.csvHelpStatus') }}</li>
               <li><code>date</code> — {{ t('courses.csvHelpDate') }}</li>
+              <li><code>hebrew_date</code> — {{ t('courses.csvHelpHebrewDate') }}</li>
               <li><code>course_id</code> / <code>course_name</code> — {{ t('courses.csvHelpCourse') }}</li>
               <li><code>theme_ids</code> / <code>theme_names</code> — {{ t('courses.csvHelpThemes') }}</li>
               <li><code>editor_ids</code> — {{ t('courses.csvHelpEditors') }}</li>
