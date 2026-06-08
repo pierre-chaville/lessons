@@ -133,6 +133,14 @@ const handleDrop = (event: DragEvent) => {
         {{ node.name }}
       </span>
 
+      <!-- Numeric ID, useful for API calls such as legacy lesson imports. -->
+      <span
+        class="flex-shrink-0 rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[11px] font-medium text-gray-500 dark:bg-gray-700 dark:text-gray-400"
+        :title="`Course ID: ${node.id}`"
+      >
+        #{{ node.id }}
+      </span>
+
       <!-- Move up/down buttons (Courses page only) -->
       <template v-if="showActions && can('courses', 'update')">
         <button
