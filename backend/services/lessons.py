@@ -107,6 +107,12 @@ def _build_source_resps(db_sources) -> list[LessonSourceResponse]:
     return [LessonSourceResponse.model_validate(s) for s in db_sources]
 
 
+def _normalize_pdf_files(pdf_files: Optional[List[str]]) -> list[str]:
+    if not pdf_files:
+        return []
+    return [str(item).strip() for item in pdf_files if str(item).strip()]
+
+
 def _user_display_name(user) -> str | None:
     """Build a readable display name from a Clerk user."""
     if not user:
@@ -156,6 +162,26 @@ def _build_hebrew_date(date_value: datetime | None) -> str | None:
     return str(year)
 
 
+def _normalize_hebrew_year(value: str | None) -> str | None:
+    cleaned = str(value or "").strip()
+    return cleaned or None
+
+
+def _resolve_hebrew_year(value: str | None, date_value: datetime | None) -> str | None:
+    return _normalize_hebrew_year(value) or _build_hebrew_date(date_value)
+
+
+def _model_field_was_set(model, field_name: str) -> bool:
+    fields_set = getattr(model, "model_fields_set", None)
+    if fields_set is None:
+        fields_set = getattr(model, "__fields_set__", set())
+    return field_name in fields_set
+
+
+def _lesson_hebrew_year(lesson: Lesson) -> str | None:
+    return _normalize_hebrew_year(lesson.hebrew_year) or _build_hebrew_date(lesson.date)
+
+
 def build_lesson_response(lesson: Lesson, session: Session) -> LessonResponse:
     """Build a full LessonResponse enriched with resolved themes, course, sources, and editors."""
     theme_ids = lesson.get_themes()
@@ -175,7 +201,8 @@ def build_lesson_response(lesson: Lesson, session: Session) -> LessonResponse:
         filename=lesson.filename,
         course_id=lesson.course_id,
         date=lesson.date,
-        hebrew_date=_build_hebrew_date(lesson.date),
+        hebrew_year=_lesson_hebrew_year(lesson),
+        hebrew_date=_lesson_hebrew_year(lesson),
         duration=lesson.duration,
         transcript=lesson.transcript,
         corrected_transcript=lesson.corrected_transcript,
@@ -194,6 +221,8 @@ def build_lesson_response(lesson: Lesson, session: Session) -> LessonResponse:
         correction_metadata=lesson.correction_metadata,
         summary_metadata=lesson.summary_metadata,
         edited_metadata=lesson.edited_metadata,
+        pdf_files=_normalize_pdf_files(lesson.pdf_files),
+        legacy_url=(lesson.legacy_url or "").strip() or None,
     )
 
 
@@ -214,7 +243,8 @@ def build_lesson_list_item(lesson: Lesson, session: Session) -> LessonListRespon
         hashid=encode_id(lesson.id),
         title=lesson.title,
         date=lesson.date,
-        hebrew_date=_build_hebrew_date(lesson.date),
+        hebrew_year=_lesson_hebrew_year(lesson),
+        hebrew_date=_lesson_hebrew_year(lesson),
         duration=lesson.duration,
         brief=lesson.brief,
         status=lesson.status or "draft",
@@ -245,6 +275,7 @@ def export_lessons_csv(session: Session) -> str:
             "filename",
             "status",
             "date",
+            "hebrew_date",
             "course_id",
             "course_name",
             "theme_ids",
@@ -267,6 +298,7 @@ def export_lessons_csv(session: Session) -> str:
                 "filename": lesson.filename,
                 "status": lesson.status or "draft",
                 "date": lesson.date.date().isoformat(),
+                "hebrew_date": _lesson_hebrew_year(lesson) or "",
                 "course_id": course.id if course else "",
                 "course_name": course.name if course else "",
                 "theme_ids": "|".join(str(t_id) for t_id in theme_ids),
@@ -352,6 +384,12 @@ def import_lessons_csv(
                 parsed_date = _parse_lesson_date(date_raw)
                 if lesson.date != parsed_date:
                     lesson.date = parsed_date
+                    changed = True
+
+            if "hebrew_date" in row:
+                next_hebrew_year = str(row.get("hebrew_date", "")).strip()
+                if (lesson.hebrew_year or "") != next_hebrew_year:
+                    lesson.hebrew_year = next_hebrew_year
                     changed = True
 
             if "course_id" in row or "course_name" in row:
@@ -448,10 +486,14 @@ def create_lesson_with_audio(
         filename=lesson_data.filename,
         course_id=lesson_data.course_id,
         date=lesson_data.date,
+        hebrew_year=_resolve_hebrew_year(lesson_data.hebrew_year, lesson_data.date),
         duration=lesson_data.duration,
         transcript=lesson_data.transcript,
         corrected_transcript=lesson_data.corrected_transcript,
+        brief=lesson_data.brief,
         summary=lesson_data.summary,
+        pdf_files=_normalize_pdf_files(lesson_data.pdf_files),
+        legacy_url=(lesson_data.legacy_url or "").strip() or None,
         theme_ids=lesson_data.theme_ids,
     )
 
@@ -464,6 +506,16 @@ def create_lesson_with_audio(
             actor=None,
             source=VersionSource.PIPELINE,
             change_summary="Initial corrected transcript",
+        )
+    if lesson_data.brief is not None:
+        update_content(
+            session=session,
+            lesson_id=lesson.id,
+            content_type=ContentType.BRIEF,
+            new_content=lesson_data.brief,
+            actor=None,
+            source=VersionSource.PIPELINE,
+            change_summary="Initial brief",
         )
     if lesson_data.summary is not None:
         update_content(
@@ -545,12 +597,17 @@ def update_lesson_data(
             else lesson_data.edited_transcript
         )
 
+    hebrew_year_update = None
+    if _model_field_was_set(lesson_data, "hebrew_year"):
+        hebrew_year_update = str(lesson_data.hebrew_year or "").strip()
+
     lesson = crud.update_lesson(
         session,
         lesson_id,
         filename=lesson_data.filename,
         course_id=lesson_data.course_id,
         date=lesson_data.date,
+        hebrew_year=hebrew_year_update,
         duration=lesson_data.duration,
         transcript=transcript_data,
         process_status=lesson_data.process_status,
@@ -559,6 +616,8 @@ def update_lesson_data(
         correction_metadata=lesson_data.correction_metadata,
         summary_metadata=lesson_data.summary_metadata,
         edited_metadata=lesson_data.edited_metadata,
+        pdf_files=_normalize_pdf_files(lesson_data.pdf_files) if lesson_data.pdf_files is not None else None,
+        legacy_url=lesson_data.legacy_url.strip() if lesson_data.legacy_url is not None else None,
     )
 
     if not lesson:

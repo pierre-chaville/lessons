@@ -78,7 +78,7 @@ const STATUS_FILTERS: LessonStatus[] = [
 const availableHebrewYears = computed<string[]>(() => {
   const years = new Set<string>()
   for (const lesson of lessons.value) {
-    const year = lesson.hebrew_date?.trim()
+    const year = (lesson.hebrew_year || lesson.hebrew_date)?.trim()
     if (year) years.add(year)
   }
   return [...years].sort((a, b) => Number(b) - Number(a))
@@ -142,7 +142,7 @@ const filteredLessons = computed(() => {
   return lessons.value.filter((lesson) => {
     if (query && !lesson.title.toLowerCase().includes(query)) return false
     if (selectedHebrewYears.value.size > 0) {
-      const year = lesson.hebrew_date?.trim() ?? ''
+      const year = (lesson.hebrew_year || lesson.hebrew_date)?.trim() ?? ''
       if (!selectedHebrewYears.value.has(year)) return false
     }
     if (selectedStatuses.value.size > 0 && !selectedStatuses.value.has(lesson.status)) return false
@@ -1120,10 +1120,10 @@ defineExpose({
                   <span>{{ formatDuration(lesson.duration) }}</span>
                 </span>
                 <span
-                  v-if="lesson.hebrew_date"
+                  v-if="lesson.hebrew_year || lesson.hebrew_date"
                   class="inline-flex items-center rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-700 dark:bg-violet-900/30 dark:text-violet-300"
                 >
-                  {{ lesson.hebrew_date }}
+                  {{ lesson.hebrew_year || lesson.hebrew_date }}
                 </span>
               </div>
 

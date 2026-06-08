@@ -35,6 +35,7 @@ const currentUserId = computed(() => user.value?.id ?? null)
 const selectedFile = ref<File | null>(null)
 const title = ref('')
 const date = ref('')
+const hebrewYear = ref('')
 const courseId = ref<number | null>(null)
 const themeIds = ref<number[]>([])
 const isUploading = ref(false)
@@ -47,6 +48,25 @@ const editorIds = ref<string[]>([])
 const fileInput = ref<HTMLInputElement | null>(null)
 
 const audioDuration = ref<number | null>(null)
+
+const calculateHebrewYearFromDate = (dateValue: string): string => {
+  if (!dateValue) return ''
+  const [year, month, day] = dateValue.split('-').map((part) => Number(part))
+  if (!year || !month || !day) return ''
+  try {
+    const dateObject = new Date(Date.UTC(year, month - 1, day))
+    const formatter = new Intl.DateTimeFormat('en-u-ca-hebrew', {
+      year: 'numeric',
+      timeZone: 'UTC',
+    })
+    const yearPart = formatter
+      .formatToParts(dateObject)
+      .find((part) => part.type === 'year')?.value
+    return (yearPart || formatter.format(dateObject)).replace(/\D/g, '')
+  } catch {
+    return ''
+  }
+}
 
 const getAudioDuration = (file: File): Promise<number | null> => {
   return new Promise((resolve) => {
@@ -123,6 +143,7 @@ const removeFile = () => {
   selectedFile.value = null
   title.value = ''
   date.value = ''
+  hebrewYear.value = ''
   audioDuration.value = null
   if (fileInput.value) fileInput.value.value = ''
 }
@@ -234,6 +255,7 @@ const createLesson = async () => {
       title: title.value,
       filename: uploadedFilename,
       date: date.value ? `${date.value}T00:00:00.000Z` : new Date().toISOString(),
+      hebrew_year: hebrewYear.value.trim() || null,
       course_id: courseId.value,
       duration: audioDuration.value,
       theme_ids: themeIds.value.length > 0 ? themeIds.value : null,
@@ -258,6 +280,7 @@ const resetForm = () => {
   selectedFile.value = null
   title.value = ''
   date.value = ''
+  hebrewYear.value = ''
   courseId.value = props.defaultCourseId ?? null
   themeIds.value = []
   editorIds.value = getDefaultEditorIds()
@@ -289,6 +312,10 @@ watch(
     ensureDefaultEditorSelected()
   },
 )
+
+watch(date, (nextDate) => {
+  hebrewYear.value = calculateHebrewYearFromDate(nextDate)
+})
 </script>
 
 <template>
@@ -397,6 +424,21 @@ watch(
                   type="date"
                   :disabled="isUploading"
                   class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:opacity-50"
+                />
+              </div>
+
+              <!-- Hebrew Year -->
+              <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  {{ t('lessons.hebrewYear') }}
+                </label>
+                <input
+                  v-model="hebrewYear"
+                  type="text"
+                  inputmode="numeric"
+                  :disabled="isUploading"
+                  class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:opacity-50"
+                  placeholder="5786"
                 />
               </div>
 

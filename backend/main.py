@@ -41,7 +41,27 @@ def custom_openapi():
         "scheme": "bearer",
         "bearerFormat": "JWT",
     }
+    openapi_schema["components"]["securitySchemes"]["importApiKey"] = {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Import-API-Key",
+    }
     openapi_schema["security"] = [{"bearerAuth": []}]
+    legacy_import = (
+        openapi_schema.get("paths", {})
+        .get("/lessons/import/legacy", {})
+        .get("post")
+    )
+    if legacy_import:
+        legacy_import["security"] = [{"importApiKey": []}]
+        legacy_import["parameters"] = [
+            parameter
+            for parameter in legacy_import.get("parameters", [])
+            if not (
+                parameter.get("in") == "header"
+                and str(parameter.get("name", "")).lower() == "authorization"
+            )
+        ]
     app.openapi_schema = openapi_schema
     return app.openapi_schema
 

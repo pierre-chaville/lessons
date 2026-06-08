@@ -76,7 +76,7 @@ const courseScopes = computed<CourseScope[]>(() => [
 const hebrewYears = computed<string[]>(() => {
   const years = new Set<string>()
   for (const lesson of lessons.value) {
-    const year = lesson.hebrew_date?.trim()
+    const year = (lesson.hebrew_year || lesson.hebrew_date)?.trim()
     if (year) years.add(year)
   }
   return [...years].sort((a, b) => Number(b) - Number(a))
@@ -89,7 +89,7 @@ const scopedLessons = computed(() => {
       if (!courseId || !selectedCourse.value.lessonCourseIds.includes(courseId)) return false
     }
     if (selectedHebrewYear.value) {
-      if ((lesson.hebrew_date?.trim() ?? '') !== selectedHebrewYear.value) return false
+      if (((lesson.hebrew_year || lesson.hebrew_date)?.trim() ?? '') !== selectedHebrewYear.value) return false
     }
     return true
   })

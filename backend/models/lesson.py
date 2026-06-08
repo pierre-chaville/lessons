@@ -19,6 +19,7 @@ class Lesson(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     title: str  # Editable field stored directly on lesson (not versioned).
     date: datetime = Field(default_factory=datetime.now)
+    hebrew_year: Optional[str] = None
     course_id: Optional[int] = Field(default=None, foreign_key="course.id")
     filename: str  # Audio filename
     duration: Optional[float] = None  # Duration in seconds
@@ -50,6 +51,10 @@ class Lesson(SQLModel, table=True):
     edited_metadata: Optional[Dict[str, Any]] = Field(
         default=None, sa_column=Column(JSON)
     )
+
+    # Legacy migration attachments. pdf_files stores S3 object keys.
+    pdf_files: Optional[List[str]] = Field(default=None, sa_column=Column(JSON))
+    legacy_url: Optional[str] = None
 
     # RAG indexing hashes. Current hashes are recomputed from content + embedding
     # model; stored hashes mark the last successful embedding generation.

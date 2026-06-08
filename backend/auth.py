@@ -90,6 +90,9 @@ def require_auth(
 ) -> Dict[str, Any]:
     if request.method == "OPTIONS":
         return {}
+    # Legacy imports are protected by their own fixed API key dependency.
+    if request.method == "POST" and request.url.path.rstrip("/") == "/lessons/import/legacy":
+        return {}
     # Webhook endpoints handle their own authentication (Svix signature)
     if request.url.path.startswith("/webhooks/"):
         return {}
