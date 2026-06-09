@@ -664,6 +664,7 @@ defineExpose({
           :node="node"
           :depth="0"
           :expanded="expanded"
+          show-course-id
           :is-first="idx === 0"
           :is-last="idx === tree.length - 1"
           :dragged-id="draggedNode?.id ?? null"
