@@ -16,6 +16,7 @@ const props = withDefaults(defineProps<{
   expanded: Set<number>
   selectedId?: number | null
   showActions?: boolean
+  showCourseId?: boolean
   isFirst?: boolean
   isLast?: boolean
   draggedId?: number | null
@@ -23,6 +24,7 @@ const props = withDefaults(defineProps<{
 }>(), {
   selectedId: null,
   showActions: true,
+  showCourseId: false,
   isFirst: false,
   isLast: false,
   draggedId: null,
@@ -135,6 +137,7 @@ const handleDrop = (event: DragEvent) => {
 
       <!-- Numeric ID, useful for API calls such as legacy lesson imports. -->
       <span
+        v-if="showCourseId"
         class="flex-shrink-0 rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[11px] font-medium text-gray-500 dark:bg-gray-700 dark:text-gray-400"
         :title="`Course ID: ${node.id}`"
       >
@@ -193,6 +196,7 @@ const handleDrop = (event: DragEvent) => {
         :expanded="expanded"
         :selected-id="selectedId"
         :show-actions="showActions"
+        :show-course-id="showCourseId"
         :is-first="idx === 0"
         :is-last="idx === node.children.length - 1"
         :dragged-id="draggedId"
