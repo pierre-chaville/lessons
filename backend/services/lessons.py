@@ -2,8 +2,9 @@
 
 from sqlmodel import Session
 from fastapi import HTTPException
-from typing import List, Optional, Literal
+from typing import Any, List, Optional, Literal
 from datetime import datetime
+from collections import defaultdict
 import csv
 import io
 import re
@@ -136,9 +137,10 @@ def _get_user_name_by_id() -> dict[str, str]:
     return by_id
 
 
-def _build_editor_resps(db_editors) -> list[LessonEditorResponse]:
+def _build_editor_resps(db_editors, user_name_by_id: dict[str, str] | None = None) -> list[LessonEditorResponse]:
     """Convert LessonEditor DB rows to LessonEditorResponse schemas."""
-    user_name_by_id = _get_user_name_by_id()
+    if user_name_by_id is None:
+        user_name_by_id = _get_user_name_by_id()
     return [
         LessonEditorResponse.model_validate({
             "user_id": editor.user_id,
@@ -226,12 +228,23 @@ def build_lesson_response(lesson: Lesson, session: Session) -> LessonResponse:
     )
 
 
-def build_lesson_list_item(lesson: Lesson, session: Session) -> LessonListResponse:
+def build_lesson_list_item(
+    lesson: Lesson,
+    session: Session,
+    theme_by_id: dict[int, Any] | None = None,
+    editors_by_lesson_id: dict[int, list[Any]] | None = None,
+    user_name_by_id: dict[str, str] | None = None,
+) -> LessonListResponse:
     """Build a lightweight LessonListResponse enriched with resolved themes and course."""
     theme_ids = lesson.get_themes()
-    themes = crud.get_themes_by_ids(session, theme_ids) if theme_ids else []
-    db_editors = crud.get_lesson_editors(session, lesson.id)
-    db_sources = crud.get_lesson_sources(session, lesson.id)
+    if theme_by_id is None:
+        themes = crud.get_themes_by_ids(session, theme_ids) if theme_ids else []
+    else:
+        themes = [theme_by_id[t_id] for t_id in theme_ids if t_id in theme_by_id]
+    if editors_by_lesson_id is None:
+        db_editors = crud.get_lesson_editors(session, lesson.id)
+    else:
+        db_editors = editors_by_lesson_id.get(lesson.id, [])
 
     statuses = normalize_step_statuses(lesson.step_statuses)
     edition_done = statuses["edited"] in WORKFLOW_DONE_STATUSES
@@ -256,8 +269,38 @@ def build_lesson_list_item(lesson: Lesson, session: Session) -> LessonListRespon
         filename=lesson.filename,
         themes=_build_theme_resps(themes),
         course=_build_course_resp(lesson.course),
-        editors=_build_editor_resps(db_editors),
+        editors=_build_editor_resps(db_editors, user_name_by_id=user_name_by_id),
     )
+
+
+def build_lesson_list_items(lessons: List[Lesson], session: Session) -> list[LessonListResponse]:
+    """Build lesson list responses with batched relation lookups."""
+    lesson_ids = [lesson.id for lesson in lessons if lesson.id is not None]
+    theme_ids = {
+        theme_id
+        for lesson in lessons
+        for theme_id in lesson.get_themes()
+    }
+    theme_by_id = {
+        theme.id: theme
+        for theme in crud.get_themes_by_ids(session, list(theme_ids))
+        if theme.id is not None
+    }
+    editors_by_lesson_id = defaultdict(list)
+    for editor in crud.get_lesson_editors_for_lessons(session, lesson_ids):
+        editors_by_lesson_id[editor.lesson_id].append(editor)
+    user_name_by_id = _get_user_name_by_id()
+
+    return [
+        build_lesson_list_item(
+            lesson,
+            session,
+            theme_by_id=theme_by_id,
+            editors_by_lesson_id=editors_by_lesson_id,
+            user_name_by_id=user_name_by_id,
+        )
+        for lesson in lessons
+    ]
 
 
 def export_lessons_csv(session: Session) -> str:

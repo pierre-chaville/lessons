@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from sqlalchemy import inspect
 from sqlmodel import Session, SQLModel, create_engine
 
+import crud
 from models.lesson import Lesson
 from models.lesson_source import LessonSource
 from services.lessons import build_lesson_list_item
@@ -18,14 +20,15 @@ def _session() -> Session:
 
 
 def _lesson(session: Session, **kwargs) -> Lesson:
-    lesson = Lesson(
-        title="Lesson",
-        filename="file.mp3",
-        date=datetime.utcnow(),
-        transcript=[],
-        status="draft",
-        **kwargs,
-    )
+    values = {
+        "title": "Lesson",
+        "filename": "file.mp3",
+        "date": datetime.utcnow(),
+        "transcript": [],
+        "status": "draft",
+    }
+    values.update(kwargs)
+    lesson = Lesson(**values)
     session.add(lesson)
     session.commit()
     session.refresh(lesson)
@@ -96,3 +99,32 @@ def test_step_flags_fallback_to_process_status_independently() -> None:
         assert row.summary_done is False
         assert row.hebrew_date is not None
         assert row.hebrew_date.isdigit()
+
+
+def test_list_loader_does_not_fetch_heavy_content_columns() -> None:
+    with _session() as session:
+        lesson = _lesson(
+            session,
+            transcript=[{"start": 0, "end": 1, "text": "transcript"}],
+            corrected_transcript=[{"start": 0, "end": 1, "text": "corrected"}],
+            edited_transcript={"markdown": "edited", "sources": [], "alignment": []},
+            summary="summary",
+            transcript_metadata={"model": "transcribe"},
+            correction_metadata={"model": "correct"},
+            summary_metadata={"model": "summarize"},
+            edited_metadata={"model": "edit"},
+        )
+        session.expunge_all()
+
+        rows = crud.get_lesson_list_lessons(session)
+
+        assert [row.id for row in rows] == [lesson.id]
+        unloaded = inspect(rows[0]).unloaded
+        assert "transcript" in unloaded
+        assert "corrected_transcript" in unloaded
+        assert "edited_transcript" in unloaded
+        assert "summary" in unloaded
+        assert "transcript_metadata" in unloaded
+        assert "correction_metadata" in unloaded
+        assert "summary_metadata" in unloaded
+        assert "edited_metadata" in unloaded
