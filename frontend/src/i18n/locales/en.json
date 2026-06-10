@@ -499,6 +499,7 @@
       "archive": "Archive"
       ,
       "addLesson": "Add lesson",
+      "addAllSelected": "Add all selected ({count})",
       "removeLesson": "Remove",
       "addChapter": "Add chapter",
       "removeChapter": "Remove chapter",

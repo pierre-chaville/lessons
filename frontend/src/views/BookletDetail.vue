@@ -279,6 +279,10 @@ const modalLessons = computed(() => {
   return source.sort((a, b) => (a.title ?? '').localeCompare(b.title ?? ''))
 })
 
+const modalAvailableLessons = computed(() => {
+  return modalLessons.value.filter((lesson) => !selectedLessonIds.value.has(lesson.id))
+})
+
 const openAddModal = () => {
   selectedCourseNode.value = null
   showAddModal.value = true
@@ -310,6 +314,21 @@ const openEditChapterModal = (item: BookletItem) => {
 const closeAddModal = () => {
   if (mutating.value) return
   showAddModal.value = false
+}
+
+const addModalAvailableLessons = async () => {
+  if (!props.bookletId || modalAvailableLessons.value.length === 0) return
+  const bookletId = props.bookletId
+  const lessonsToAdd = [...modalAvailableLessons.value]
+  try {
+    mutating.value = true
+    for (const lesson of lessonsToAdd) {
+      await bookletsApi.addLesson(bookletId, lesson.id)
+    }
+    await loadDetail()
+  } finally {
+    mutating.value = false
+  }
 }
 
 const closeAddChapterModal = () => {
@@ -1444,45 +1463,58 @@ watch(() => props.bookletId, loadDetail)
               {{ t('booklets.noAvailableLessons') }}
             </div>
 
-            <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-3 overflow-y-auto" style="max-height: calc(90vh - 14rem)">
-              <button
-                v-for="lesson in modalLessons"
-                :key="lesson.id"
-                class="text-left bg-white dark:bg-gray-800 shadow-sm rounded-lg p-4 transition-all border border-gray-200 dark:border-gray-700 disabled:cursor-not-allowed"
-                :class="{
-                  'hover:shadow-md dark:hover:shadow-gray-900/50': !selectedLessonIds.has(lesson.id) && isDraft && !mutating,
-                  'opacity-60 bg-gray-50 dark:bg-gray-900/30': selectedLessonIds.has(lesson.id),
-                }"
-                :disabled="!isDraft || mutating || selectedLessonIds.has(lesson.id)"
-                @click="addLesson(lesson.id)"
-              >
-                <div class="flex items-start justify-between gap-2 mb-2">
-                  <div class="flex items-start gap-2 min-w-0">
-                    <DocumentTextIcon class="h-5 w-5 text-indigo-600 dark:text-indigo-400 flex-shrink-0 mt-0.5" />
-                    <h5 class="text-sm font-semibold text-gray-900 dark:text-white line-clamp-2">
-                      {{ lesson.title }}
-                    </h5>
+            <div v-else class="space-y-3">
+              <div class="flex justify-end">
+                <button
+                  class="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                  :disabled="!isDraft || mutating || modalAvailableLessons.length === 0"
+                  @click="addModalAvailableLessons"
+                >
+                  <PlusIcon class="h-4 w-4" />
+                  {{ t('booklets.actions.addAllSelected', { count: modalAvailableLessons.length }) }}
+                </button>
+              </div>
+
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3 overflow-y-auto" style="max-height: calc(90vh - 17.5rem)">
+                <button
+                  v-for="lesson in modalLessons"
+                  :key="lesson.id"
+                  class="text-left bg-white dark:bg-gray-800 shadow-sm rounded-lg p-4 transition-all border border-gray-200 dark:border-gray-700 disabled:cursor-not-allowed"
+                  :class="{
+                    'hover:shadow-md dark:hover:shadow-gray-900/50': !selectedLessonIds.has(lesson.id) && isDraft && !mutating,
+                    'opacity-60 bg-gray-50 dark:bg-gray-900/30': selectedLessonIds.has(lesson.id),
+                  }"
+                  :disabled="!isDraft || mutating || selectedLessonIds.has(lesson.id)"
+                  @click="addLesson(lesson.id)"
+                >
+                  <div class="flex items-start justify-between gap-2 mb-2">
+                    <div class="flex items-start gap-2 min-w-0">
+                      <DocumentTextIcon class="h-5 w-5 text-indigo-600 dark:text-indigo-400 flex-shrink-0 mt-0.5" />
+                      <h5 class="text-sm font-semibold text-gray-900 dark:text-white line-clamp-2">
+                        {{ lesson.title }}
+                      </h5>
+                    </div>
+                    <span
+                      v-if="selectedLessonIds.has(lesson.id)"
+                      class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300"
+                    >
+                      {{ t('booklets.alreadySelected') }}
+                    </span>
                   </div>
-                  <span
-                    v-if="selectedLessonIds.has(lesson.id)"
-                    class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300"
-                  >
-                    {{ t('booklets.alreadySelected') }}
-                  </span>
-                </div>
-                <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">
-                  {{ lesson.course?.name || t('booklets.uncategorizedLessons') }}
-                </p>
-                <div class="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-                  <ClockIcon class="h-3.5 w-3.5" />
-                  <span>{{ formatDate(lesson.date) }}</span>
-                  <span v-if="lesson.duration" class="text-gray-400 dark:text-gray-500">·</span>
-                  <span v-if="lesson.duration">{{ formatDuration(lesson.duration) }}</span>
-                </div>
-                <p v-if="lesson.brief" class="text-xs text-gray-600 dark:text-gray-400 mt-2 line-clamp-2">
-                  {{ lesson.brief }}
-                </p>
-              </button>
+                  <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                    {{ lesson.course?.name || t('booklets.uncategorizedLessons') }}
+                  </p>
+                  <div class="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                    <ClockIcon class="h-3.5 w-3.5" />
+                    <span>{{ formatDate(lesson.date) }}</span>
+                    <span v-if="lesson.duration" class="text-gray-400 dark:text-gray-500">·</span>
+                    <span v-if="lesson.duration">{{ formatDuration(lesson.duration) }}</span>
+                  </div>
+                  <p v-if="lesson.brief" class="text-xs text-gray-600 dark:text-gray-400 mt-2 line-clamp-2">
+                    {{ lesson.brief }}
+                  </p>
+                </button>
+              </div>
             </div>
           </div>
         </div>
