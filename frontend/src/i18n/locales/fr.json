@@ -499,6 +499,7 @@
       "archive": "Archiver"
       ,
       "addLesson": "Ajouter la session",
+      "addAllSelected": "Ajouter toutes les sessions selectionnees ({count})",
       "removeLesson": "Retirer",
       "addChapter": "Ajouter un chapitre",
       "removeChapter": "Retirer le chapitre",
