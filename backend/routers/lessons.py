@@ -156,8 +156,8 @@ def get_lessons(
     parsed_ids = None
     if course_ids:
         parsed_ids = [int(x) for x in course_ids.split(",") if x.strip().isdigit()]
-    lessons = crud.get_all_lessons(session, course_id=course_id, course_ids=parsed_ids)
-    return [lesson_service.build_lesson_list_item(lesson, session) for lesson in lessons]
+    lessons = crud.get_lesson_list_lessons(session, course_id=course_id, course_ids=parsed_ids)
+    return lesson_service.build_lesson_list_items(lessons, session)
 
 
 @router.get("/bulk/csv/export")

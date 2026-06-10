@@ -1,6 +1,7 @@
 """CRUD operations for database models"""
 
 from sqlalchemy import delete
+from sqlalchemy.orm import load_only, selectinload
 from sqlmodel import Session, select, func
 from typing import List, Optional
 from datetime import datetime
@@ -356,6 +357,44 @@ def get_all_lessons(
     return list(session.exec(statement).all())
 
 
+def get_lesson_list_lessons(
+    session: Session,
+    course_id: Optional[int] = None,
+    course_ids: Optional[List[int]] = None,
+) -> List[Lesson]:
+    """Get lessons for list views without loading heavy transcript/content columns."""
+    if course_ids:
+        statement = select(Lesson).where(Lesson.course_id.in_(course_ids)).order_by(Lesson.date.desc())
+    elif course_id:
+        statement = select(Lesson).where(Lesson.course_id == course_id).order_by(Lesson.date.desc())
+    else:
+        statement = select(Lesson).order_by(Lesson.date.desc())
+
+    statement = statement.options(
+        load_only(
+            Lesson.id,
+            Lesson.title,
+            Lesson.date,
+            Lesson.hebrew_year,
+            Lesson.course_id,
+            Lesson.filename,
+            Lesson.duration,
+            Lesson.brief,
+            Lesson.status,
+            Lesson.process_status,
+            Lesson.step_statuses,
+            Lesson.themes_json,
+        ),
+        selectinload(Lesson.course).load_only(
+            Course.id,
+            Course.name,
+            Course.description,
+            Course.parent_id,
+        ),
+    )
+    return list(session.exec(statement).all())
+
+
 def update_lesson(
     session: Session,
     lesson_id: int,
@@ -454,6 +493,18 @@ def get_lesson_editors(session: Session, lesson_id: int) -> List[LessonEditor]:
         select(LessonEditor)
         .where(LessonEditor.lesson_id == lesson_id)
         .order_by(LessonEditor.assigned_at)
+    )
+    return list(session.exec(statement).all())
+
+
+def get_lesson_editors_for_lessons(session: Session, lesson_ids: List[int]) -> List[LessonEditor]:
+    """Get editor assignments for multiple lessons."""
+    if not lesson_ids:
+        return []
+    statement = (
+        select(LessonEditor)
+        .where(LessonEditor.lesson_id.in_(lesson_ids))
+        .order_by(LessonEditor.lesson_id, LessonEditor.assigned_at)
     )
     return list(session.exec(statement).all())
 
