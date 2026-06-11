@@ -34,6 +34,7 @@ LESSON_OPTIONAL_FIELDS = {
 
 BOOKLET_LESSON_OPTIONAL_FIELDS = {
     "date",
+    "hebrew_year",
     "duration",
     "course_name",
     "themes",
@@ -44,6 +45,7 @@ BOOKLET_LESSON_OPTIONAL_FIELDS = {
 
 _BOOKLET_TEMPLATE_TO_EXPORT_FIELD = {
     "date": "date",
+    "hebrew_year": "hebrew_year",
     "duration": "duration",
     "course": "course_name",
     "themes": "themes",
@@ -98,31 +100,31 @@ _I18N_LABELS = {
         "edited_heading": "Edited version",
     },
     "fr": {
-        "lesson_details": "Details de la session",
+        "lesson_details": "Détails de la session",
         "title_field": "Titre",
         "date_field": "Date",
-        "duration_field": "Duree",
+        "duration_field": "Durée",
         "course_field": "Cours",
-        "themes_field": "Themes",
-        "brief_field": "Bref resume",
-        "summary_title": "Resume",
-        "edited_title": "Version redigee",
+        "themes_field": "Thèmes",
+        "brief_field": "Abstract",
+        "summary_title": "Résumé",
+        "edited_title": "Version rédigée",
         "transcript_title": "Transcription",
-        "corrected": "corrigee",
+        "corrected": "corrigée",
         "initial": "initiale",
         "sources_title": "Sources",
-        "sources_detailed_title": "Sources detaillees",
+        "sources_detailed_title": "Sources détaillées",
         "no_transcript": "_Aucune transcription disponible._",
         "no_sources": "_Aucune source disponible._",
         "unknown_source_type": "Inconnu",
         "source_word": "Source",
-        "table_of_contents": "Table des matieres",
+        "table_of_contents": "Table des matières",
         "chapter_word": "Chapitre",
         "lesson_word": "Session",
         "lesson_item_missing": "Element de session sans reference.",
         "lesson_not_found": "Session #{lesson_id} introuvable.",
-        "summary_heading": "Resume",
-        "edited_heading": "Version redigee",
+        "summary_heading": "Résumé",
+        "edited_heading": "Version rédigée",
     },
 }
 
@@ -686,9 +688,11 @@ def build_booklet_markdown_export(
             lines.extend(["> " + (lesson.brief or "-").strip() or "-"])
         if "course_name" in fields:
             course = course_names.get(lesson.course_id) if lesson.course_id is not None else None
+            if "hebrew_year" in fields:
+                course += f" - {lesson.hebrew_year or '-'}"
             lines.extend(["",f"*{course or '-'}*"])
         if "summary" in fields:
-            lines.extend([(lesson.summary or "-").strip() or "-"])
+            lines.extend(["", (lesson.summary or "-").strip() or "-"])
         if "edited_version" in fields:
             edited = edited_transcript_markdown(lesson.edited_transcript).strip()
             lines.extend(["", f"### {labels['edited_heading']}", "", edited or "-"])

@@ -44,6 +44,7 @@ watch(
 
 const exportFieldOptions: Array<{ key: string; label: string }> = [
   { key: 'date', label: t('lessons.date') },
+  { key: 'hebrew_year', label: t('lessons.hebrewYear') },
   { key: 'duration', label: t('lessons.duration') },
   { key: 'course_name', label: t('lessons.course') },
   { key: 'themes', label: t('lessons.themes') },

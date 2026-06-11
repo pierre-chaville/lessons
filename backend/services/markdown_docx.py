@@ -9,7 +9,7 @@ from docx import Document
 from docx.enum.text import WD_BREAK
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Pt
+from docx.shared import Mm, Pt
 
 _HEADING_RE = re.compile(r"^\s{0,3}(#{1,6})\s+(.+)$")
 _HORIZONTAL_RULE_RE = re.compile(r"^\s{0,3}((\*\s*){3,}|(-\s*){3,}|(_\s*){3,})\s*$")
@@ -24,6 +24,8 @@ _SECTION_START_MARKER = "<!-- MARKER:section-start -->"
 _SECTION_END_MARKER = "<!-- MARKER:section-end -->"
 _DOCX_SECTION_START_SENTINEL = "[[LESSONS_SECTION_START]]"
 _DOCX_SECTION_END_SENTINEL = "[[LESSONS_SECTION_END]]"
+_A4_WIDTH_MM = 210
+_A4_HEIGHT_MM = 297
 _HEBREW_CHAR_RE = re.compile(r"[\u0590-\u05FF]")
 _HEBREW_WORD_RE = r"[\u0590-\u05FF\u05BE\u05F3\u05F4]+"
 _HEBREW_SPAN_RE = re.compile(rf"{_HEBREW_WORD_RE}(?:\s+{_HEBREW_WORD_RE})*")
@@ -226,6 +228,30 @@ def _section_sentinel_for_line(line: str) -> str:
     return ""
 
 
+def _set_a4_page_layout(doc: Document) -> None:
+    for section in doc.sections:
+        section.page_width = Mm(_A4_WIDTH_MM)
+        section.page_height = Mm(_A4_HEIGHT_MM)
+
+
+def _set_left_paragraph_border(paragraph, *, color: str = "D0D7DE") -> None:
+    p_pr = paragraph._p.get_or_add_pPr()
+    p_bdr = p_pr.find(qn("w:pBdr"))
+    if p_bdr is None:
+        p_bdr = OxmlElement("w:pBdr")
+        p_pr.append(p_bdr)
+
+    left_border = p_bdr.find(qn("w:left"))
+    if left_border is None:
+        left_border = OxmlElement("w:left")
+        p_bdr.append(left_border)
+
+    left_border.set(qn("w:val"), "single")
+    left_border.set(qn("w:sz"), "12")
+    left_border.set(qn("w:space"), "8")
+    left_border.set(qn("w:color"), color)
+
+
 def _add_blockquote_paragraph(doc: Document, *, depth: int, content: str) -> None:
     paragraph = doc.add_paragraph()
     paragraph_format = paragraph.paragraph_format
@@ -233,6 +259,7 @@ def _add_blockquote_paragraph(doc: Document, *, depth: int, content: str) -> Non
     paragraph_format.first_line_indent = Pt(0)
     paragraph_format.space_before = Pt(3)
     paragraph_format.space_after = Pt(3)
+    _set_left_paragraph_border(paragraph)
     _append_inline_runs(paragraph, content)
     _finalize_paragraph_direction(paragraph)
 
@@ -250,8 +277,10 @@ def markdown_to_docx_bytes(markdown_text: str) -> bytes:
     - Paragraphs
     - Inline bold/italic (**text**, __text__, *text*, _text_)
     - HTML comment markers on standalone lines are ignored
+    - Generated documents use A4 page size
     """
     doc = Document()
+    _set_a4_page_layout(doc)
     lines = str(markdown_text or "").splitlines()
     idx = 0
 

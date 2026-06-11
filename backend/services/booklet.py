@@ -34,6 +34,7 @@ from services.markdown_docx import markdown_to_docx_bytes
 ALLOWED_TEMPLATE_FIELDS = {
     "title",
     "date",
+    "hebrew_year",
     "duration",
     "corrected_transcript",
     "edited_transcript",
@@ -47,6 +48,7 @@ ALLOWED_TEMPLATE_FIELDS = {
 TEMPLATE_FIELD_LABELS = {
     "title": "Title",
     "date": "Date",
+    "hebrew_year": "Hebrew year",
     "duration": "Duration",
     "corrected_transcript": "Corrected transcript",
     "edited_transcript": "Edited transcript",
@@ -59,12 +61,14 @@ TEMPLATE_FIELD_LABELS = {
 
 PDF_FIELD_LABELS = {
     "en": {
+        "hebrew_year": "Hebrew year",
         "brief": "Brief",
         "summary": "Summary",
         "edited_transcript": "Edited",
         "corrected_transcript": "Transcript",
     },
     "fr": {
+        "hebrew_year": "Année hébraïque",
         "brief": "Résumé bref",
         "summary": "Résumé",
         "edited_transcript": "Édition",
@@ -350,6 +354,7 @@ def generate_booklet_markdown(session: Session, booklet_id: int) -> tuple[bytes,
         for field in (
             "title",
             "date",
+            "hebrew_year",
             "duration",
             "course",
             "themes",
@@ -442,6 +447,8 @@ def generate_booklet_markdown(session: Session, booklet_id: int) -> tuple[bytes,
                 continue
             if field == "title":
                 value = lesson.title or "-"
+            elif field == "hebrew_year":
+                value = lesson.hebrew_year or "-"
             elif field == "corrected_transcript":
                 value = _stringify_transcript_like(lesson.corrected_transcript)
             elif field == "edited_transcript":

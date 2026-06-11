@@ -18,6 +18,16 @@ def _has_page_break(paragraph) -> bool:
     return False
 
 
+def _left_paragraph_border(paragraph):
+    p_pr = paragraph._p.find(qn("w:pPr"))
+    if p_pr is None:
+        return None
+    p_bdr = p_pr.find(qn("w:pBdr"))
+    if p_bdr is None:
+        return None
+    return p_bdr.find(qn("w:left"))
+
+
 def _run_has_rtl(run) -> bool:
     r_pr = run._r.find(qn("w:rPr"))
     if r_pr is None:
@@ -49,6 +59,26 @@ def test_horizontal_rule_creates_page_break():
 
     assert any(_has_page_break(p) for p in doc.paragraphs)
     assert any("After break" in p.text for p in doc.paragraphs)
+
+
+def test_docx_uses_a4_page_layout():
+    docx_bytes = markdown_to_docx_bytes("# Title\n\nBody")
+    doc = Document(BytesIO(docx_bytes))
+    section = doc.sections[0]
+
+    assert abs(section.page_width.mm - 210) < 0.1
+    assert abs(section.page_height.mm - 297) < 0.1
+
+
+def test_blockquote_has_left_paragraph_border():
+    docx_bytes = markdown_to_docx_bytes("> Quoted insight")
+    doc = Document(BytesIO(docx_bytes))
+    paragraph = next(p for p in doc.paragraphs if "Quoted insight" in p.text)
+
+    left_border = _left_paragraph_border(paragraph)
+    assert left_border is not None
+    assert left_border.get(qn("w:val")) == "single"
+    assert left_border.get(qn("w:color")) == "D0D7DE"
 
 
 def test_nested_bullets_have_increasing_indentation():
