@@ -12,6 +12,7 @@ const { t } = useI18n()
 const templateFieldOptions: BookletTemplateField[] = [
   'title',
   'date',
+  'hebrew_year',
   'duration',
   'corrected_transcript',
   'edited_transcript',

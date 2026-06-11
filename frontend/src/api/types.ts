@@ -391,6 +391,7 @@ export type BookletItemType = 'lesson' | 'chapter'
 export type BookletTemplateField =
   | 'title'
   | 'date'
+  | 'hebrew_year'
   | 'duration'
   | 'corrected_transcript'
   | 'edited_transcript'

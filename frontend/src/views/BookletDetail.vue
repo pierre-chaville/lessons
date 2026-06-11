@@ -85,7 +85,7 @@ const selectedCorrectionPrompt = ref('')
 const selectedEditionPrompt = ref('')
 const selectedExtractionPrompt = ref('')
 const selectedSourcesPrompt = ref('')
-const useFlexMode = ref(false)
+const useFlexMode = ref(true)
 const chapterForm = ref({
   chapter_title: '',
   chapter_subtitle: '',
@@ -398,7 +398,15 @@ const deleteBooklet = async () => {
 }
 
 type BookletExportFormat = 'md' | 'docx' | 'pdf'
-type BookletExportField = 'date' | 'duration' | 'course_name' | 'themes' | 'brief' | 'summary' | 'edited_version'
+type BookletExportField =
+  | 'date'
+  | 'hebrew_year'
+  | 'duration'
+  | 'course_name'
+  | 'themes'
+  | 'brief'
+  | 'summary'
+  | 'edited_version'
 type BookletExportPreferences = {
   format: BookletExportFormat
   includeFields: BookletExportField[]
@@ -424,6 +432,7 @@ const loadBookletExportPreferences = (): BookletExportPreferences => {
       ? parsed.includeFields.filter(
           (value): value is BookletExportField =>
             value === 'date'
+            || value === 'hebrew_year'
             || value === 'duration'
             || value === 'course_name'
             || value === 'themes'
@@ -530,6 +539,7 @@ const handleBookletExport = async (payload: {
     const normalizedFields = payload.includeFields.filter(
       (value): value is BookletExportField =>
         value === 'date'
+        || value === 'hebrew_year'
         || value === 'duration'
         || value === 'course_name'
         || value === 'themes'
@@ -586,7 +596,7 @@ const openProcessModal = async () => {
     summary: false,
     brief: false,
   }
-  useFlexMode.value = false
+  useFlexMode.value = true
   showProcessModal.value = true
   try {
     const config = await configApi.get()

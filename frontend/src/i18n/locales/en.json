@@ -466,6 +466,7 @@
     "templateFields": {
       "title": "Title",
       "date": "Date",
+      "hebrew_year": "Hebrew year",
       "duration": "Duration",
       "corrected_transcript": "Corrected transcript",
       "edited_transcript": "Edited transcript",
