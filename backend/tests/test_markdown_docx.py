@@ -81,6 +81,24 @@ def test_ordered_list_keeps_explicit_marker_and_indentation():
     assert ordered[1].paragraph_format.left_indent.pt > ordered[0].paragraph_format.left_indent.pt
 
 
+def test_ordered_list_repeated_one_markers_are_numbered_in_docx():
+    markdown = "1. First\n1. Second\n1. Third\n"
+    docx_bytes = markdown_to_docx_bytes(markdown)
+    doc = Document(BytesIO(docx_bytes))
+
+    ordered = [p.text for p in doc.paragraphs if p.text.strip()]
+    assert ordered == ["1. First", "2. Second", "3. Third"]
+
+
+def test_ordered_list_repeated_markers_keep_start_number():
+    markdown = "4. Fourth\n4. Fifth\n"
+    docx_bytes = markdown_to_docx_bytes(markdown)
+    doc = Document(BytesIO(docx_bytes))
+
+    ordered = [p.text for p in doc.paragraphs if p.text.strip()]
+    assert ordered == ["4. Fourth", "5. Fifth"]
+
+
 def test_mixed_nested_lists_keep_order_and_indentation():
     markdown = (
         "- Chapter root\n"
@@ -140,6 +158,19 @@ def test_docx_to_markdown_keeps_list_indentation_from_exporter():
     assert "- Root" in converted
     assert "  - Child" in converted
     assert "    - Grandchild" in converted
+
+
+def test_docx_to_markdown_imports_native_numbered_list_style():
+    document = Document()
+    document.add_paragraph("First", style="List Number")
+    document.add_paragraph("Second", style="List Number")
+
+    output = BytesIO()
+    document.save(output)
+
+    converted = docx_bytes_to_markdown(output.getvalue())
+
+    assert converted == "1. First\n2. Second"
 
 
 def test_docx_round_trip_preserves_section_markers():

@@ -19,6 +19,7 @@ _BLOCKQUOTE_RE = re.compile(r"^\s{0,3}(?P<markers>(>\s*)+)(?P<content>.*)$")
 _HTML_COMMENT_LINE_RE = re.compile(r"^\s*<!--.*-->\s*$")
 _INLINE_TOKEN_RE = re.compile(r"(\*\*.+?\*\*|__.+?__|\*.+?\*|_.+?_)")
 _DOCX_ORDERED_MARKER_RE = re.compile(r"^(?P<number>\d+)\.\s+(?P<content>.+)$")
+_ORDERED_NUM_FORMATS = {"decimal", "lowerLetter", "upperLetter", "lowerRoman", "upperRoman"}
 _SECTION_START_MARKER = "<!-- MARKER:section-start -->"
 _SECTION_END_MARKER = "<!-- MARKER:section-end -->"
 _DOCX_SECTION_START_SENTINEL = "[[LESSONS_SECTION_START]]"
@@ -166,19 +167,37 @@ def _add_list_paragraph(
     _finalize_paragraph_direction(paragraph)
 
 
-def _parse_list_item(line: str) -> tuple[int, str, str] | None:
+def _parse_list_item(line: str) -> tuple[int, str, str, int | None] | None:
     unordered = _UNORDERED_LIST_RE.match(line)
     if unordered:
         indent_level = _list_indent_level(unordered.group("indent"))
-        return indent_level, "•", unordered.group("content")
+        return indent_level, "unordered", unordered.group("content"), None
 
     ordered = _ORDERED_LIST_RE.match(line)
     if ordered:
         indent_level = _list_indent_level(ordered.group("indent"))
-        marker = f"{ordered.group('number')}."
-        return indent_level, marker, ordered.group("content")
+        return indent_level, "ordered", ordered.group("content"), int(ordered.group("number"))
 
     return None
+
+
+def _list_marker_for_item(parsed: tuple[int, str, str, int | None], ordered_counters: dict[int, int]) -> str:
+    indent_level, list_kind, _content, number = parsed
+    for level in list(ordered_counters.keys()):
+        if level > indent_level:
+            del ordered_counters[level]
+
+    if list_kind == "ordered":
+        if indent_level not in ordered_counters:
+            ordered_counters[indent_level] = number or 1
+        else:
+            ordered_counters[indent_level] += 1
+        return f"{ordered_counters[indent_level]}."
+
+    for level in list(ordered_counters.keys()):
+        if level >= indent_level:
+            del ordered_counters[level]
+    return "•"
 
 
 def _parse_blockquote_line(line: str) -> tuple[int, str] | None:
@@ -302,6 +321,7 @@ def markdown_to_docx_bytes(markdown_text: str) -> bytes:
             continue
 
         if _parse_list_item(raw):
+            ordered_counters: dict[int, int] = {}
             while idx < len(lines):
                 line = lines[idx]
                 if _is_ignored_comment_line(line):
@@ -316,7 +336,8 @@ def markdown_to_docx_bytes(markdown_text: str) -> bytes:
                 parsed = _parse_list_item(line)
                 if not parsed:
                     break
-                indent_level, marker, content = parsed
+                indent_level, _list_kind, content, _number = parsed
+                marker = _list_marker_for_item(parsed, ordered_counters)
                 _add_list_paragraph(
                     doc,
                     indent_level=indent_level,
@@ -452,6 +473,66 @@ def _is_docx_blockquote(paragraph) -> bool:
     return True
 
 
+def _style_list_level(style_name: str) -> int:
+    match = re.search(r"\b(\d+)$", style_name)
+    if not match:
+        return 0
+    return max(0, int(match.group(1)) - 1)
+
+
+def _numbering_format_for_paragraph(paragraph) -> tuple[str, int, str] | None:
+    p_pr = paragraph._p.pPr
+    num_pr = p_pr.numPr if p_pr is not None else None
+    if num_pr is None or num_pr.numId is None:
+        return None
+
+    num_id = str(num_pr.numId.val)
+    ilvl = int(num_pr.ilvl.val) if num_pr.ilvl is not None else 0
+    numbering_part = getattr(paragraph.part, "numbering_part", None)
+    if numbering_part is None:
+        return None
+
+    numbering = numbering_part.element
+    abstract_num_id = None
+    for num in numbering.findall(qn("w:num")):
+        if num.get(qn("w:numId")) != num_id:
+            continue
+        abstract_num_id_el = num.find(qn("w:abstractNumId"))
+        if abstract_num_id_el is not None:
+            abstract_num_id = abstract_num_id_el.get(qn("w:val"))
+        break
+    if abstract_num_id is None:
+        return None
+
+    for abstract_num in numbering.findall(qn("w:abstractNum")):
+        if abstract_num.get(qn("w:abstractNumId")) != abstract_num_id:
+            continue
+        for level in abstract_num.findall(qn("w:lvl")):
+            if int(level.get(qn("w:ilvl"), "0")) != ilvl:
+                continue
+            num_fmt = level.find(qn("w:numFmt"))
+            if num_fmt is None:
+                return None
+            return num_fmt.get(qn("w:val"), ""), ilvl, num_id
+    return None
+
+
+def _docx_native_list_info(paragraph, style_name: str) -> tuple[str, int, str] | None:
+    numbering_format = _numbering_format_for_paragraph(paragraph)
+    if numbering_format is not None:
+        num_format, level, num_id = numbering_format
+        if num_format == "bullet":
+            return "unordered", level, f"num:{num_id}"
+        if num_format in _ORDERED_NUM_FORMATS:
+            return "ordered", level, f"num:{num_id}"
+
+    if "list bullet" in style_name:
+        return "unordered", _style_list_level(style_name), f"style:{style_name}"
+    if "list number" in style_name:
+        return "ordered", _style_list_level(style_name), f"style:{style_name}"
+    return None
+
+
 def docx_bytes_to_markdown(docx_bytes: bytes) -> str:
     """
     Convert DOCX bytes into simple markdown.
@@ -466,9 +547,11 @@ def docx_bytes_to_markdown(docx_bytes: bytes) -> str:
     """
     doc = Document(BytesIO(docx_bytes))
     blocks: list[tuple[str, str]] = []
+    native_ordered_counters: dict[tuple[str, int], int] = {}
 
     for paragraph in doc.paragraphs:
         if _is_page_break_paragraph(paragraph):
+            native_ordered_counters.clear()
             blocks.append(("rule", "---"))
             continue
 
@@ -484,11 +567,13 @@ def docx_bytes_to_markdown(docx_bytes: bytes) -> str:
             continue
 
         if raw_text in {_DOCX_SECTION_START_SENTINEL, _DOCX_SECTION_END_SENTINEL}:
+            native_ordered_counters.clear()
             marker = _SECTION_START_MARKER if raw_text == _DOCX_SECTION_START_SENTINEL else _SECTION_END_MARKER
             blocks.append(("marker", marker))
             continue
 
         if heading_match:
+            native_ordered_counters.clear()
             level = int(heading_match.group(1))
             blocks.append(("heading", f"{'#' * level} {inline_text or raw_text}"))
             continue
@@ -511,11 +596,33 @@ def docx_bytes_to_markdown(docx_bytes: bytes) -> str:
             blocks.append(("list", f"{'  ' * list_level}{marker}. {content_text.strip()}"))
             continue
 
+        native_list = _docx_native_list_info(paragraph, style_name)
+        if native_list:
+            list_kind, native_level, sequence_id = native_list
+            content_text = (inline_text or raw_text).strip()
+            if list_kind == "unordered":
+                for key in list(native_ordered_counters.keys()):
+                    if key[1] >= native_level:
+                        del native_ordered_counters[key]
+                blocks.append(("list", f"{'  ' * native_level}- {content_text}"))
+                continue
+
+            for key in list(native_ordered_counters.keys()):
+                if key[0] == sequence_id and key[1] > native_level:
+                    del native_ordered_counters[key]
+            counter_key = (sequence_id, native_level)
+            native_ordered_counters[counter_key] = native_ordered_counters.get(counter_key, 0) + 1
+            marker = native_ordered_counters[counter_key]
+            blocks.append(("list", f"{'  ' * native_level}{marker}. {content_text}"))
+            continue
+
         if _is_docx_blockquote(paragraph):
+            native_ordered_counters.clear()
             quote_depth = max(1, round(paragraph.paragraph_format.left_indent.pt / 20))
             blocks.append(("blockquote", f"{'> ' * quote_depth}{(inline_text or raw_text).strip()}"))
             continue
 
+        native_ordered_counters.clear()
         blocks.append(("paragraph", inline_text or raw_text))
 
     markdown_lines: list[str] = []

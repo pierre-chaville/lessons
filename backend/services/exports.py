@@ -557,6 +557,45 @@ def _sorted_booklet_items(session: Session, booklet_id: int) -> List[BookletItem
     return list(session.exec(statement).all())
 
 
+def _build_course_path_map(session: Session) -> Dict[int, str]:
+    """Build full course paths (root / child / leaf) for all courses."""
+    rows = list(session.exec(select(Course)).all())
+    by_id = {row.id: row for row in rows}
+    cache: Dict[int, str] = {}
+
+    def build_path(course_id: int, visiting: Optional[set[int]] = None) -> str:
+        if course_id in cache:
+            return cache[course_id]
+
+        course = by_id.get(course_id)
+        if course is None:
+            return "-"
+
+        if visiting and course_id in visiting:
+            return (course.name or "").strip() or "-"
+
+        next_visiting = set(visiting or ())
+        next_visiting.add(course_id)
+
+        current_name = (course.name or "").strip() or "-"
+        parent_id = course.parent_id
+        if parent_id is None:
+            cache[course_id] = current_name
+            return current_name
+
+        parent_path = build_path(parent_id, next_visiting)
+        if parent_path in {"", "-"}:
+            full_path = current_name
+        else:
+            full_path = f"{parent_path} / {current_name}"
+        cache[course_id] = full_path
+        return full_path
+
+    for course_id in by_id.keys():
+        build_path(course_id)
+    return cache
+
+
 def _booklet_lessons_context(session: Session, items: Sequence[BookletItem]) -> Tuple[Dict[int, Lesson], Dict[int, str], Dict[int, str]]:
     lesson_ids = [item.lesson_id for item in items if item.item_type == BookletItemType.LESSON and item.lesson_id]
     lessons: Dict[int, Lesson] = {}
@@ -564,11 +603,12 @@ def _booklet_lessons_context(session: Session, items: Sequence[BookletItem]) -> 
         lesson_rows = list(session.exec(select(Lesson).where(Lesson.id.in_(lesson_ids))).all())
         lessons = {lesson.id: lesson for lesson in lesson_rows}
 
+    # create course names map: course_id -> full path name (of course tree) with separator "/"
     course_ids = {lesson.course_id for lesson in lessons.values() if lesson.course_id is not None}
     course_names: Dict[int, str] = {}
     if course_ids:
-        course_rows = list(session.exec(select(Course).where(Course.id.in_(course_ids))).all())
-        course_names = {course.id: course.name for course in course_rows}
+        full_course_paths = _build_course_path_map(session)
+        course_names = {course_id: full_course_paths.get(course_id, "-") for course_id in course_ids}
 
     theme_ids = {theme_id for lesson in lessons.values() for theme_id in lesson.get_themes()}
     theme_names: Dict[int, str] = {}
@@ -612,12 +652,14 @@ def build_booklet_markdown_export(
             elif item.lesson_id:
                 lesson = lessons.get(item.lesson_id)
                 lesson_title = item.custom_title or (lesson.title if lesson else f"{labels['lesson_word']} #{item.lesson_id}")
-                lines.append(f"- {lesson_title}")
+                lesson_date = _format_date(lesson.date) if lesson else "-"
+                lines.append(f"1. [{lesson_date}] {lesson_title}")
+        lines.extend(["", "---", ""])
 
     for item in items:
         if not item.is_included:
             continue
-        lines.extend(["", "---", ""])
+        # lines.extend(["", "---", ""])
         if item.item_type == BookletItemType.CHAPTER:
             lines.append(f"## {item.chapter_title or labels['chapter_word']}")
             if item.chapter_subtitle:
@@ -636,28 +678,20 @@ def build_booklet_markdown_export(
             continue
 
         lesson_title = item.custom_title or lesson.title
-        lines.append(f"## {lesson_title}")
+        lines.append(f"## [{_format_date(lesson.date)}] {lesson_title}")
         if item.custom_intro:
             lines.extend(["", str(item.custom_intro).strip()])
 
-        for field in fields:
-            if field == "date":
-                lines.extend(["", f"- **{labels['date_field']}:** {_format_date(lesson.date)}"])
-            elif field == "duration":
-                lines.extend(["", f"- **{labels['duration_field']}:** {_format_duration(lesson.duration)}"])
-            elif field == "course_name":
-                course = course_names.get(lesson.course_id) if lesson.course_id is not None else None
-                lines.extend(["", f"- **{labels['course_field']}:** {course or '-'}"])
-            elif field == "themes":
-                lesson_theme_names = [theme_names[theme_id] for theme_id in lesson.get_themes() if theme_id in theme_names]
-                lines.extend(["", f"- **{labels['themes_field']}:** {', '.join(lesson_theme_names) if lesson_theme_names else '-'}"])
-            elif field == "brief":
-                lines.extend(["", f"### {labels['brief_field']}", "", (lesson.brief or "-").strip() or "-"])
-            elif field == "summary":
-                lines.extend(["", f"### {labels['summary_heading']}", "", (lesson.summary or "-").strip() or "-"])
-            elif field == "edited_version":
-                edited = edited_transcript_markdown(lesson.edited_transcript).strip()
-                lines.extend(["", f"### {labels['edited_heading']}", "", edited or "-"])
+        if "brief" in fields:
+            lines.extend(["> " + (lesson.brief or "-").strip() or "-"])
+        if "course_name" in fields:
+            course = course_names.get(lesson.course_id) if lesson.course_id is not None else None
+            lines.extend(["",f"*{course or '-'}*"])
+        if "summary" in fields:
+            lines.extend([(lesson.summary or "-").strip() or "-"])
+        if "edited_version" in fields:
+            edited = edited_transcript_markdown(lesson.edited_transcript).strip()
+            lines.extend(["", f"### {labels['edited_heading']}", "", edited or "-"])
 
     markdown = "\n".join(lines).strip() + "\n"
     base_name = _safe_filename(booklet.title, "booklet")
