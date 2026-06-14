@@ -35,7 +35,10 @@ def _get_lesson_counts(session: Session) -> Dict[int, int]:
     """Return {course_id: direct_lesson_count} for all courses."""
     rows = session.exec(
         select(Lesson.course_id, func.count(Lesson.id))
-        .where(Lesson.course_id.is_not(None))
+        .where(
+            Lesson.course_id.is_not(None),
+            Lesson.deleted_at.is_(None),
+        )
         .group_by(Lesson.course_id)
     ).all()
     return {course_id: count for course_id, count in rows}

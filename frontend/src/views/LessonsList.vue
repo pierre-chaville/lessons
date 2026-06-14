@@ -564,6 +564,8 @@ const closeLesson = () => {
   selectedLessonDetail.value = null
   selectedHistoryRoute.value = null
   updateUrl(null)
+  fetchTree()
+  fetchLessons()
 }
 
 const selectedLessonIndex = computed(() => {
