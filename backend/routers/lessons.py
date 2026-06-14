@@ -199,6 +199,16 @@ def _parse_legacy_transcript(raw: str) -> List[Dict[str, Any]]:
     return segments
 
 
+def _duration_from_transcript_segments(segments: List[Dict[str, Any]]) -> Optional[float]:
+    ends = []
+    for segment in segments:
+        try:
+            ends.append(float(segment.get("end", 0.0) or 0.0))
+        except (TypeError, ValueError):
+            continue
+    return max(ends) if ends else None
+
+
 @router.get("", response_model=List[LessonListResponse])
 def get_lessons(
     course_id: Optional[int] = Query(None, description="Filter by single course ID"),
@@ -277,6 +287,7 @@ async def import_legacy_lesson(
     from storage import s3_enabled, upload_audio_fileobj, upload_document_fileobj
 
     transcript_segments = _parse_legacy_transcript(transcript)
+    transcript_duration = _duration_from_transcript_segments(transcript_segments)
 
     if not s3_enabled():
         raise HTTPException(status_code=500, detail="S3 is not configured")
@@ -308,6 +319,7 @@ async def import_legacy_lesson(
             course_id=course_id,
             date=date,
             hebrew_year=(hebrew_year or "").strip() or None,
+            duration=transcript_duration,
             brief=(brief or "").strip() or None,
             transcript=transcript_segments,
             theme_ids=_parse_int_form_list(theme_ids, "theme_ids"),
@@ -347,6 +359,8 @@ async def import_legacy_lesson(
     if transcript_segments:
         statuses["transcription"] = "in_progress"
     lesson.step_statuses = statuses
+    if transcript_duration is not None:
+        lesson.duration = transcript_duration
 
     if uploaded_pdf_keys:
         lesson.pdf_files = uploaded_pdf_keys

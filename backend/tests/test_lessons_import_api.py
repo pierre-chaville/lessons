@@ -154,7 +154,7 @@ async def test_legacy_import_accepts_transcript_without_creating_transcription_t
     fake_session = _FakeSession()
     app = _build_client(fake_session)
     captured: dict = {}
-    lesson = SimpleNamespace(id=42, step_statuses=None)
+    lesson = SimpleNamespace(id=42, step_statuses=None, duration=None)
     transcript_rows = [
         {"start": 0.0, "end": 1.5, "text": "Provided transcript"},
         {"start": 1.5, "end": 3.0, "text": "Second line"},
@@ -222,6 +222,8 @@ async def test_legacy_import_accepts_transcript_without_creating_transcription_t
 
     assert response.status_code == 201
     assert captured["lesson_data"].transcript == transcript_rows
+    assert captured["lesson_data"].duration == 3.0
+    assert lesson.duration == 3.0
     assert lesson.step_statuses["transcription"] == "in_progress"
     assert fake_session.added == [lesson]
     assert fake_session.commit_count == 1
