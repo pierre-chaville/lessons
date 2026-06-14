@@ -1,4 +1,5 @@
 from datetime import datetime
+import json
 import sys
 from types import SimpleNamespace
 import types
@@ -46,6 +47,20 @@ if "services" not in sys.modules:
 
     services_audit.get_lesson_audit_log = lambda *args, **kwargs: []
 
+    def _fake_normalize_step_statuses(raw=None):
+        statuses = {
+            "transcription": "non_started",
+            "edited": "non_started",
+            "sources": "non_started",
+            "summary": "non_started",
+            "brief": "non_started",
+        }
+        if isinstance(raw, dict):
+            statuses.update(raw)
+        return statuses
+
+    services_lessons.normalize_step_statuses = _fake_normalize_step_statuses
+
     services_exports.document_bytes_to_markdown = lambda data, filename: data.decode("utf-8", errors="ignore")
     services_exports.extract_markdown_main_section = lambda markdown: str(markdown or "").strip()
 
@@ -75,8 +90,25 @@ def anyio_backend():
     return "asyncio"
 
 
+class _FakeSession:
+    def __init__(self):
+        self.added = []
+        self.commit_count = 0
+        self.refreshed = []
+
+    def add(self, obj):
+        self.added.append(obj)
+
+    def commit(self):
+        self.commit_count += 1
+
+    def refresh(self, obj):
+        self.refreshed.append(obj)
+
+
 def _lesson_response_payload(
     *,
+    transcript: list[dict] | None = None,
     summary: str | None = None,
     corrected_transcript: list[dict] | None = None,
     edited_transcript: dict | None = None,
@@ -89,7 +121,7 @@ def _lesson_response_payload(
         "course_id": None,
         "date": datetime(2026, 1, 1).isoformat(),
         "duration": 120.0,
-        "transcript": [],
+        "transcript": transcript or [],
         "corrected_transcript": corrected_transcript,
         "edited_transcript": edited_transcript,
         "brief": None,
@@ -108,12 +140,93 @@ def _lesson_response_payload(
     })
 
 
-def _build_client():
+def _build_client(session=None):
+    db_session = session or _FakeSession()
     app = FastAPI()
     app.include_router(lessons_router.router)
     app.dependency_overrides[lessons_router.require_auth] = lambda: {"sub": "user_1", "role": "admin"}
-    app.dependency_overrides[lessons_router.get_session] = lambda: object()
+    app.dependency_overrides[lessons_router.get_session] = lambda: db_session
     return app
+
+
+@pytest.mark.anyio
+async def test_legacy_import_accepts_transcript_without_creating_transcription_task(monkeypatch):
+    fake_session = _FakeSession()
+    app = _build_client(fake_session)
+    captured: dict = {}
+    lesson = SimpleNamespace(id=42, step_statuses=None)
+    transcript_rows = [
+        {"start": 0.0, "end": 1.5, "text": "Provided transcript"},
+        {"start": 1.5, "end": 3.0, "text": "Second line"},
+    ]
+
+    fake_storage = types.ModuleType("storage")
+    fake_storage.s3_enabled = lambda: True
+    fake_storage.upload_audio_fileobj = lambda _fileobj, key: captured.setdefault(
+        "audio_key", key
+    )
+    fake_storage.upload_document_fileobj = lambda _fileobj, key: captured.setdefault(
+        "document_key", key
+    )
+
+    monkeypatch.setitem(sys.modules, "storage", fake_storage)
+    monkeypatch.setenv("IMPORT_API_KEY", "secret")
+
+    def fake_create_lesson_with_audio(lesson_data, _session, assigned_by=None):
+        captured["lesson_data"] = lesson_data
+        assert assigned_by == "legacy_import"
+        return SimpleNamespace(id=42)
+
+    def fail_create_task(*_args, **_kwargs):
+        pytest.fail("legacy import should not create a transcription task")
+
+    monkeypatch.setattr(
+        lessons_router.lesson_service,
+        "create_lesson_with_audio",
+        fake_create_lesson_with_audio,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        lessons_router.crud,
+        "get_lesson",
+        lambda _session, _lesson_id: lesson,
+    )
+    monkeypatch.setattr(
+        lessons_router.crud,
+        "create_task",
+        fail_create_task,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        lessons_router.lesson_service,
+        "build_lesson_response",
+        lambda _lesson, _session: _lesson_response_payload(transcript=transcript_rows),
+        raising=False,
+    )
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/lessons/import/legacy",
+            headers={"X-Import-API-Key": "secret"},
+            data={
+                "title": "Legacy Lesson",
+                "date": "2026-01-01T00:00:00",
+                "course_id": "7",
+                "transcript": json.dumps(transcript_rows),
+            },
+            files={"audio_file": ("legacy.mp3", b"audio", "audio/mpeg")},
+        )
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 201
+    assert captured["lesson_data"].transcript == transcript_rows
+    assert lesson.step_statuses["transcription"] == "in_progress"
+    assert fake_session.added == [lesson]
+    assert fake_session.commit_count == 1
+    assert fake_session.refreshed == [lesson]
+    assert response.json()["task_id"] is None
 
 
 @pytest.mark.anyio

@@ -20,6 +20,9 @@ export const lessonsApi = {
   list: (params?: { course_id?: number; course_ids?: string }) =>
     apiClient.get<LessonListItem[]>('/lessons', { params }).then((r) => r.data),
 
+  listDeleted: () =>
+    apiClient.get<LessonListItem[]>('/lessons/deleted').then((r) => r.data),
+
   get: (hashid: string) =>
     apiClient.get<LessonDetail>(`/lessons/${hashid}`).then((r) => r.data),
 
@@ -36,6 +39,9 @@ export const lessonsApi = {
     apiClient.post<LessonDetail>(`/lessons/${hashid}/summary/realign`).then((r) => r.data),
 
   delete: (hashid: string) => apiClient.delete(`/lessons/${hashid}`),
+
+  restore: (hashid: string) =>
+    apiClient.post<LessonDetail>(`/lessons/${hashid}/restore`).then((r) => r.data),
 
   updateStatus: (hashid: string, status: LessonStatus) =>
     apiClient.patch<LessonDetail>(`/lessons/${hashid}/status`, { status }).then((r) => r.data),

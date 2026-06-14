@@ -7,7 +7,7 @@ import json
 
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from crud import delete_lesson
+from crud import delete_lesson, restore_lesson
 from models.audit import AuditLog
 from models.lesson import Lesson
 from models.versioning import ContentType, ContentVersion, VersionSource
@@ -298,7 +298,7 @@ def test_compute_diff_summary_ignores_blank_line_only_changes() -> None:
     assert diff["diff"] == ""
 
 
-def test_delete_lesson_removes_content_versions_before_lesson() -> None:
+def test_delete_lesson_soft_deletes_and_preserves_content_versions() -> None:
     with _session() as session:
         lesson = _lesson(session)
         update_content(session, lesson.id, ContentType.SUMMARY, "v1", {"sub": "u1", "role": "editor"})
@@ -312,11 +312,20 @@ def test_delete_lesson_removes_content_versions_before_lesson() -> None:
         )
         session.commit()
 
-        deleted = delete_lesson(session, lesson.id)
+        deleted = delete_lesson(session, lesson.id, deleted_by="admin-user")
 
         remaining_versions = list(
             session.exec(select(ContentVersion).where(ContentVersion.lesson_id == lesson.id)).all()
         )
+        stored_lesson = session.get(Lesson, lesson.id)
         assert deleted is True
-        assert session.get(Lesson, lesson.id) is None
-        assert remaining_versions == []
+        assert stored_lesson is not None
+        assert stored_lesson.deleted_at is not None
+        assert stored_lesson.deleted_by == "admin-user"
+        assert len(remaining_versions) == 2
+
+        restored = restore_lesson(session, lesson.id)
+
+        assert restored is not None
+        assert restored.deleted_at is None
+        assert restored.deleted_by is None

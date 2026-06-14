@@ -337,6 +337,12 @@ def _run_migrations():
             if "legacy_url" not in columns:
                 conn.execute(text("ALTER TABLE lesson ADD COLUMN legacy_url VARCHAR"))
                 logger.info("Migration: added 'legacy_url' column to lesson table")
+            if "deleted_at" not in columns:
+                conn.execute(text("ALTER TABLE lesson ADD COLUMN deleted_at TIMESTAMP"))
+                logger.info("Migration: added 'deleted_at' column to lesson table")
+            if "deleted_by" not in columns:
+                conn.execute(text("ALTER TABLE lesson ADD COLUMN deleted_by VARCHAR"))
+                logger.info("Migration: added 'deleted_by' column to lesson table")
             for column_name, column_type in rag_hash_columns.items():
                 if column_name not in columns:
                     conn.execute(text(
