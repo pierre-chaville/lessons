@@ -24,10 +24,11 @@ from schemas.lesson import (
     LessonBulkCsvImportResponse,
     LessonDocumentUrlResponse,
     LegacyLessonImportResponse,
+    Segment,
 )
 from services import lessons as lesson_service
 from services import exports as export_service
-from services.audit import get_lesson_audit_log
+from services.audit import get_lesson_audit_log, log_event
 from services.versioning import (
     ContentType,
     compute_diff,
@@ -49,6 +50,8 @@ def _require_lesson_access(
 
     Publishers and admins are always allowed.
     """
+    if not crud.get_lesson(session, lesson_id):
+        raise HTTPException(status_code=404, detail="Lesson not found")
     role = _extract_role(claims)
     if role in ("publisher", "admin"):
         return
@@ -146,6 +149,56 @@ def _parse_string_form_list(raw_values: Optional[List[str]], field_name: str) ->
     return values
 
 
+def _parse_legacy_transcript(raw: str) -> List[Dict[str, Any]]:
+    text = str(raw or "").strip()
+    if not text:
+        raise HTTPException(
+            status_code=400,
+            detail="transcript must be provided",
+        )
+    json_like = text.startswith("{") or bool(re.match(r"^\[\s*[{[]", text))
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as exc:
+        if json_like:
+            raise HTTPException(
+                status_code=400,
+                detail="transcript must be valid JSON",
+            ) from exc
+        return export_service.transcript_markdown_to_segments(text)
+
+    if isinstance(parsed, dict):
+        if isinstance(parsed.get("segments"), list):
+            parsed = parsed["segments"]
+        elif isinstance(parsed.get("transcript"), list):
+            parsed = parsed["transcript"]
+
+    if not isinstance(parsed, list) or not parsed:
+        raise HTTPException(
+            status_code=400,
+            detail="transcript must be a non-empty JSON array of segments",
+        )
+
+    segments: List[Dict[str, Any]] = []
+    for index, item in enumerate(parsed):
+        if not isinstance(item, dict):
+            raise HTTPException(
+                status_code=400,
+                detail=f"transcript[{index}] must be an object",
+            )
+        try:
+            segment = Segment(**item)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(
+                status_code=400,
+                detail=f"transcript[{index}] must include numeric start/end and text",
+            ) from exc
+        segments.append(
+            segment.model_dump() if hasattr(segment, "model_dump") else segment.dict()
+        )
+    return segments
+
+
 @router.get("", response_model=List[LessonListResponse])
 def get_lessons(
     course_id: Optional[int] = Query(None, description="Filter by single course ID"),
@@ -157,6 +210,16 @@ def get_lessons(
     if course_ids:
         parsed_ids = [int(x) for x in course_ids.split(",") if x.strip().isdigit()]
     lessons = crud.get_lesson_list_lessons(session, course_id=course_id, course_ids=parsed_ids)
+    return lesson_service.build_lesson_list_items(lessons, session)
+
+
+@router.get("/deleted", response_model=List[LessonListResponse])
+def get_deleted_lessons(
+    session: Session = Depends(get_session),
+    _claims: Dict[str, Any] = Depends(require_roles(["admin"])),
+):
+    """Get soft-deleted lessons for admin recovery."""
+    lessons = crud.get_lesson_list_lessons(session, only_deleted=True)
     return lesson_service.build_lesson_list_items(lessons, session)
 
 
@@ -203,15 +266,17 @@ async def import_legacy_lesson(
     audio_file: UploadFile = File(...),
     pdf_files: List[UploadFile] = File(default_factory=list),
     brief: Optional[str] = Form(None),
+    transcript: str = Form(...),
     theme_ids: Optional[List[str]] = Form(None),
     editor_ids: Optional[List[str]] = Form(None),
     legacy_url: Optional[str] = Form(None),
     session: Session = Depends(get_session),
     _: None = Depends(_require_import_api_key),
 ):
-    """Import a legacy lesson using a fixed API key and enqueue transcription."""
-    from services.audit import log_event
+    """Import a legacy lesson using a fixed API key and provided transcription."""
     from storage import s3_enabled, upload_audio_fileobj, upload_document_fileobj
+
+    transcript_segments = _parse_legacy_transcript(transcript)
 
     if not s3_enabled():
         raise HTTPException(status_code=500, detail="S3 is not configured")
@@ -244,6 +309,7 @@ async def import_legacy_lesson(
             date=date,
             hebrew_year=(hebrew_year or "").strip() or None,
             brief=(brief or "").strip() or None,
+            transcript=transcript_segments,
             theme_ids=_parse_int_form_list(theme_ids, "theme_ids"),
             editor_ids=_parse_string_form_list(editor_ids, "editor_ids"),
             legacy_url=(legacy_url or "").strip() or None,
@@ -277,31 +343,21 @@ async def import_legacy_lesson(
             await file.close()
         uploaded_pdf_keys.append(object_key)
 
+    statuses = lesson_service.normalize_step_statuses(getattr(lesson, "step_statuses", None))
+    if transcript_segments:
+        statuses["transcription"] = "in_progress"
+    lesson.step_statuses = statuses
+
     if uploaded_pdf_keys:
         lesson.pdf_files = uploaded_pdf_keys
-        session.add(lesson)
-        session.commit()
-        session.refresh(lesson)
 
-    task = crud.create_task(
-        session=session,
-        task_type="transcription",
-        parameters={"lesson_id": lesson.id},
-        created_by_id="legacy_import",
-    )
-    log_event(
-        session=session,
-        actor={"sub": "legacy_import", "role": "import"},
-        entity_type="lesson",
-        entity_id=str(lesson.id),
-        action="pipeline.rerun_requested",
-        payload={"task_type": "transcription", "task_id": task.id},
-    )
+    session.add(lesson)
     session.commit()
+    session.refresh(lesson)
 
     return LegacyLessonImportResponse(
         lesson=lesson_service.build_lesson_response(lesson, session),
-        task_id=task.id,
+        task_id=None,
     )
 
 
@@ -453,9 +509,8 @@ def delete_lesson(
     lesson = crud.get_lesson(session, lesson_id)
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
-    if not crud.delete_lesson(session, lesson_id):
+    if not crud.delete_lesson(session, lesson_id, deleted_by=claims.get("sub")):
         raise HTTPException(status_code=404, detail="Lesson not found")
-    from services.audit import log_event
     log_event(
         session=session,
         actor={"sub": claims.get("sub"), "role": _extract_role(claims)},
@@ -466,6 +521,29 @@ def delete_lesson(
     )
     session.commit()
     return None
+
+
+@router.post("/{lesson_hashid}/restore", response_model=LessonResponse)
+def restore_deleted_lesson(
+    lesson_hashid: str,
+    session: Session = Depends(get_session),
+    claims: Dict[str, Any] = Depends(require_roles(["admin"])),
+):
+    """Restore a soft-deleted lesson."""
+    lesson_id = decode_id(lesson_hashid)
+    restored = crud.restore_lesson(session, lesson_id)
+    if not restored:
+        raise HTTPException(status_code=404, detail="Deleted lesson not found")
+    log_event(
+        session=session,
+        actor={"sub": claims.get("sub"), "role": _extract_role(claims)},
+        entity_type="lesson",
+        entity_id=str(lesson_id),
+        action="lesson.restored",
+        payload={"title": restored.title},
+    )
+    session.commit()
+    return lesson_service.build_lesson_response(restored, session)
 
 
 @router.get("/{lesson_hashid}/versions", response_model=List[VersionResponse])

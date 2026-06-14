@@ -74,8 +74,8 @@ class LessonCreate(BaseModel):
     date: Optional[datetime] = None
     hebrew_year: Optional[str] = None
     duration: Optional[float] = None
-    transcript: Optional[Dict[str, Any]] = None
-    corrected_transcript: Optional[Dict[str, Any]] = None
+    transcript: Optional[List[Dict[str, Any]]] = None
+    corrected_transcript: Optional[List[Dict[str, Any]]] = None
     brief: Optional[str] = None
     summary: Optional[str] = None
     pdf_files: Optional[List[str]] = None
@@ -224,6 +224,8 @@ class LessonListResponse(BaseModel):
     status: str = "draft"
     process_status: Optional[str] = None
     step_statuses: Dict[str, str] = Field(default_factory=dict)
+    deleted_at: Optional[datetime] = None
+    deleted_by: Optional[str] = None
     edition_done: bool = False
     sources_done: bool = False
     summary_done: bool = False
@@ -256,6 +258,8 @@ class LessonResponse(BaseModel):
     status: str = "draft"
     process_status: Optional[str] = None
     step_statuses: Dict[str, str] = Field(default_factory=dict)
+    deleted_at: Optional[datetime] = None
+    deleted_by: Optional[str] = None
     theme_ids: List[int]
     themes: List[ThemeResponse] = []
     course: Optional[CourseResponse] = None
@@ -282,7 +286,7 @@ class LegacyLessonImportResponse(BaseModel):
     """Result returned by the fixed-key legacy lesson import endpoint."""
 
     lesson: LessonResponse
-    task_id: int
+    task_id: Optional[int] = None
 
 
 class LessonBulkCsvImportResponse(BaseModel):

@@ -794,6 +794,7 @@ onBeforeUnmount(() => {
 
 defineExpose({
   isViewingDetail: computed(() => selectedLessonDetail.value !== null),
+  goToLessonsHome: closeLesson,
   openCreateModal,
   startHomeTour,
   startLessonDetailTour,

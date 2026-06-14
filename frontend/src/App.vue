@@ -31,6 +31,7 @@ import BookletDetail from './views/BookletDetail.vue';
 import ProcessingTasks from './views/ProcessingTasks.vue';
 import UsersManagement from './views/UsersManagement.vue';
 import AuditLogViewer from './views/AuditLogViewer.vue';
+import AdminDeletedLessons from './views/AdminDeletedLessons.vue';
 import ModelPresets from './views/ModelPresets.vue';
 import Preferences from './views/Preferences.vue';
 
@@ -55,7 +56,7 @@ const getInitialRoute = () => {
   const path = raw.length > 1 && raw.endsWith('/') ? raw.slice(0, -1) : raw;
 
   // Known routes
-  const routes = ['/search', '/assistant', '/courses', '/themes', '/glossary', '/booklets', '/booklets/detail', '/processing', '/users', '/admin/audit-log', '/model-presets', '/preferences'];
+  const routes = ['/search', '/assistant', '/courses', '/themes', '/glossary', '/booklets', '/booklets/detail', '/processing', '/users', '/admin', '/admin/audit-log', '/model-presets', '/preferences'];
   const match = routes.find(r => path === r);
   if (match) return match;
 
@@ -119,6 +120,7 @@ const helpPageConfig = computed(() => {
   }
   if (currentRoute.value === '/processing') return { slug: 'processing', supportsTour: false, videoUrl: '' };
   if (currentRoute.value === '/users') return { slug: 'users', supportsTour: false, videoUrl: '' };
+  if (currentRoute.value === '/admin') return { slug: 'admin', supportsTour: false, videoUrl: '' };
   if (currentRoute.value === '/admin/audit-log') return { slug: 'audit-log', supportsTour: false, videoUrl: '' };
   if (currentRoute.value === '/model-presets') return { slug: 'model-presets', supportsTour: false, videoUrl: '' };
   if (currentRoute.value === '/preferences') return { slug: 'preferences', supportsTour: false, videoUrl: '' };
@@ -179,8 +181,9 @@ const handleNavigation = (route) => {
   }
   // Update URL without lesson ID when navigating to main routes
   if (route === '/lessons') {
-    // Only update if we're not on a lesson detail page
-    if (!window.location.pathname.match(/^\/lessons\/[a-zA-Z0-9]+$/)) {
+    if (lessonsListRef.value?.goToLessonsHome) {
+      lessonsListRef.value.goToLessonsHome();
+    } else {
       window.history.pushState({}, '', route);
     }
   } else {
@@ -211,6 +214,8 @@ const pageTitle = computed(() => {
       return t('nav.processing');
     case '/users':
       return t('users.title');
+    case '/admin':
+      return t('admin.title');
     case '/admin/audit-log':
       return t('nav.audit');
     case '/model-presets':
@@ -656,6 +661,13 @@ watch(
         <Preferences />
       </div>
 
+      <!-- Admin View -->
+      <div v-else-if="currentRoute === '/admin'">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <AdminDeletedLessons />
+        </div>
+      </div>
+
       <!-- Global Audit View -->
       <div v-else-if="currentRoute === '/admin/audit-log'">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -664,7 +676,7 @@ watch(
       </div>
 
       <!-- Placeholder for other views -->
-      <main v-else-if="!isViewingDetail && currentRoute !== '/lessons' && currentRoute !== '/search' && currentRoute !== '/assistant' && currentRoute !== '/courses' && currentRoute !== '/themes' && currentRoute !== '/glossary' && currentRoute !== '/booklets' && currentRoute !== '/booklets/detail' && currentRoute !== '/processing' && currentRoute !== '/users' && currentRoute !== '/admin/audit-log' && currentRoute !== '/model-presets' && currentRoute !== '/preferences'" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main v-else-if="!isViewingDetail && currentRoute !== '/lessons' && currentRoute !== '/search' && currentRoute !== '/assistant' && currentRoute !== '/courses' && currentRoute !== '/themes' && currentRoute !== '/glossary' && currentRoute !== '/booklets' && currentRoute !== '/booklets/detail' && currentRoute !== '/processing' && currentRoute !== '/users' && currentRoute !== '/admin' && currentRoute !== '/admin/audit-log' && currentRoute !== '/model-presets' && currentRoute !== '/preferences'" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-8 text-center transition-colors">
           <h2 class="text-2xl font-bold text-gray-900 dark:text-white mb-4">
             {{ pageTitle }}

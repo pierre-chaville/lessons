@@ -298,6 +298,10 @@ def delete_glossary_entry(session: Session, entry_id: int) -> bool:
 
 
 # Lesson CRUD
+def _active_lesson_statement(statement):
+    return statement.where(Lesson.deleted_at.is_(None))
+
+
 def create_lesson(
     session: Session,
     title: str,
@@ -337,23 +341,30 @@ def create_lesson(
     return lesson
 
 
-def get_lesson(session: Session, lesson_id: int) -> Optional[Lesson]:
+def get_lesson(session: Session, lesson_id: int, include_deleted: bool = False) -> Optional[Lesson]:
     """Get lesson by ID"""
-    return session.get(Lesson, lesson_id)
+    lesson = session.get(Lesson, lesson_id)
+    if lesson and lesson.deleted_at is not None and not include_deleted:
+        return None
+    return lesson
 
 
 def get_all_lessons(
     session: Session,
     course_id: Optional[int] = None,
     course_ids: Optional[List[int]] = None,
+    include_deleted: bool = False,
 ) -> List[Lesson]:
     """Get all lessons, optionally filtered by course(s), sorted by date (latest first)."""
     if course_ids:
-        statement = select(Lesson).where(Lesson.course_id.in_(course_ids)).order_by(Lesson.date.desc())
+        statement = select(Lesson).where(Lesson.course_id.in_(course_ids))
     elif course_id:
-        statement = select(Lesson).where(Lesson.course_id == course_id).order_by(Lesson.date.desc())
+        statement = select(Lesson).where(Lesson.course_id == course_id)
     else:
-        statement = select(Lesson).order_by(Lesson.date.desc())
+        statement = select(Lesson)
+    if not include_deleted:
+        statement = _active_lesson_statement(statement)
+    statement = statement.order_by(Lesson.date.desc())
     return list(session.exec(statement).all())
 
 
@@ -361,14 +372,24 @@ def get_lesson_list_lessons(
     session: Session,
     course_id: Optional[int] = None,
     course_ids: Optional[List[int]] = None,
+    include_deleted: bool = False,
+    only_deleted: bool = False,
 ) -> List[Lesson]:
     """Get lessons for list views without loading heavy transcript/content columns."""
     if course_ids:
-        statement = select(Lesson).where(Lesson.course_id.in_(course_ids)).order_by(Lesson.date.desc())
+        statement = select(Lesson).where(Lesson.course_id.in_(course_ids))
     elif course_id:
-        statement = select(Lesson).where(Lesson.course_id == course_id).order_by(Lesson.date.desc())
+        statement = select(Lesson).where(Lesson.course_id == course_id)
     else:
-        statement = select(Lesson).order_by(Lesson.date.desc())
+        statement = select(Lesson)
+
+    if only_deleted:
+        statement = statement.where(Lesson.deleted_at.is_not(None))
+    elif not include_deleted:
+        statement = _active_lesson_statement(statement)
+    statement = statement.order_by(
+        Lesson.deleted_at.desc() if only_deleted else Lesson.date.desc()
+    )
 
     statement = statement.options(
         load_only(
@@ -383,6 +404,8 @@ def get_lesson_list_lessons(
             Lesson.status,
             Lesson.process_status,
             Lesson.step_statuses,
+            Lesson.deleted_at,
+            Lesson.deleted_by,
             Lesson.themes_json,
         ),
         selectinload(Lesson.course).load_only(
@@ -420,7 +443,7 @@ def update_lesson(
     legacy_url: Optional[str] = None,
 ) -> Optional[Lesson]:
     """Update a lesson"""
-    lesson = session.get(Lesson, lesson_id)
+    lesson = get_lesson(session, lesson_id)
     if lesson:
         # title/corrected_transcript/edited_transcript/brief/summary are versioned.
         # They must be changed via services.versioning.update_content.
@@ -461,17 +484,34 @@ def update_lesson(
     return lesson
 
 
-def delete_lesson(session: Session, lesson_id: int) -> bool:
-    """Delete a lesson and its associated sources and editors"""
-    lesson = session.get(Lesson, lesson_id)
-    if lesson:
-        delete_lesson_editors(session, lesson_id)
-        delete_lesson_sources(session, lesson_id)
-        delete_content_versions(session, lesson_id)
-        session.delete(lesson)
-        session.commit()
-        return True
-    return False
+def delete_lesson(
+    session: Session,
+    lesson_id: int,
+    deleted_by: Optional[str] = None,
+) -> bool:
+    """Soft-delete a lesson without removing its related content."""
+    lesson = get_lesson(session, lesson_id)
+    if not lesson:
+        return False
+    lesson.deleted_at = datetime.utcnow()
+    lesson.deleted_by = deleted_by
+    session.add(lesson)
+    session.commit()
+    session.refresh(lesson)
+    return True
+
+
+def restore_lesson(session: Session, lesson_id: int) -> Optional[Lesson]:
+    """Restore a previously soft-deleted lesson."""
+    lesson = get_lesson(session, lesson_id, include_deleted=True)
+    if not lesson or lesson.deleted_at is None:
+        return None
+    lesson.deleted_at = None
+    lesson.deleted_by = None
+    session.add(lesson)
+    session.commit()
+    session.refresh(lesson)
+    return lesson
 
 
 def delete_content_versions(session: Session, lesson_id: int) -> int:

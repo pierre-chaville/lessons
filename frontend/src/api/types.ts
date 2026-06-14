@@ -174,6 +174,8 @@ export interface LessonListItem {
   status: LessonStatus
   process_status: string | null
   step_statuses: Record<LessonWorkflowStep, LessonWorkflowStepStatus>
+  deleted_at?: string | null
+  deleted_by?: string | null
   edition_done?: boolean
   sources_done?: boolean
   summary_done?: boolean
@@ -202,6 +204,8 @@ export interface LessonDetail {
   status: LessonStatus
   process_status: string | null
   step_statuses: Record<LessonWorkflowStep, LessonWorkflowStepStatus>
+  deleted_at?: string | null
+  deleted_by?: string | null
   theme_ids: number[]
   themes: Theme[]
   course: Course | null
