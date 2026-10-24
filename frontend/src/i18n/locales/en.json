@@ -293,6 +293,7 @@
     "statusUpdating": "Updating...",
     "editors": "Editors",
     "processingStatus": "Processing",
+    "transcriptionBeingProcessed": "Transcription being processed",
     "processStatusTranscript": "Transcription",
     "processStatusEdition": "Edition",
     "processStatusSourcesExtraction": "Sources extraction",

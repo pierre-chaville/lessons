@@ -391,12 +391,18 @@ const availableSourcesPrompts = ref<Array<{ name: string; text: string }>>([])
 const useFlexMode = ref(false)
 const isCreatingTasks = ref(false)
 const isCheckingActiveTasks = ref(false)
+const launchBlockedMessage = ref('')
 
 // Configure marked options
 marked.setOptions({ breaks: true, gfm: true })
 
-// Processing status
-const isProcessing = computed(() => !!props.lesson.process_status)
+// Processing status. A newly created session queues transcription before
+// process_status is set, so that pending task has to count as processing too.
+const hasPendingTranscription = ref(false)
+const isTranscriptionProcessing = computed(
+  () => props.lesson.process_status === 'transcript' || hasPendingTranscription.value,
+)
+const isProcessing = computed(() => !!props.lesson.process_status || hasPendingTranscription.value)
 
 const processStatusLabel = computed(() => {
   const statusMap: Record<string, string> = {
@@ -415,6 +421,27 @@ const processStatusLabel = computed(() => {
 let refreshInterval: ReturnType<typeof setInterval> | null = null
 let awaitingProcessing = false  // true after creating tasks, before worker picks them up
 
+const transcriptReady = (lesson: { transcript?: { text?: string }[] | null }) =>
+  !!(lesson.transcript && lesson.transcript.length > 0)
+
+const taskLessonId = (task: Task): number | null => {
+  const rawLessonId = task.parameters?.lesson_id
+  if (typeof rawLessonId === 'number' && Number.isFinite(rawLessonId)) return rawLessonId
+  if (typeof rawLessonId === 'string') {
+    const parsed = Number(rawLessonId)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return null
+}
+
+const transcriptionTaskActive = (tasks: Task[]) =>
+  tasks.some(
+    (task) =>
+      taskLessonId(task) === props.lesson.id &&
+      task.task_type === 'transcription' &&
+      (task.status === 'pending' || task.status === 'running'),
+  )
+
 const refreshLesson = async () => {
   try {
     const updated = await lessonsApi.get(props.lesson.hashid)
@@ -422,9 +449,37 @@ const refreshLesson = async () => {
     if (updated.process_status) {
       // Worker has picked up the task — no longer "awaiting"
       awaitingProcessing = false
-    } else if (!awaitingProcessing) {
-      // Processing finished (status went from non-null → null) — stop polling
+      return
+    }
+    if (transcriptReady(updated)) {
+      hasPendingTranscription.value = false
+      awaitingProcessing = false
       stopPolling()
+      return
+    }
+    if (hasPendingTranscription.value || awaitingProcessing) {
+      const tasks = await tasksApi.list()
+      const stillTranscribing = transcriptionTaskActive(tasks)
+      hasPendingTranscription.value = stillTranscribing
+      if (!stillTranscribing) {
+        awaitingProcessing = false
+        stopPolling()
+      }
+      return
+    }
+    stopPolling()
+  } catch { /* silent */ }
+}
+
+const watchForTranscription = async () => {
+  if (transcriptReady(props.lesson) || props.lesson.process_status) return
+  try {
+    const tasks = await tasksApi.list()
+    const stillTranscribing = transcriptionTaskActive(tasks)
+    hasPendingTranscription.value = stillTranscribing
+    if (stillTranscribing) {
+      awaitingProcessing = true
+      startPolling()
     }
   } catch { /* silent */ }
 }
@@ -448,6 +503,11 @@ watch(isProcessing, (processing) => {
   } else if (!awaitingProcessing) {
     stopPolling()
   }
+}, { immediate: true })
+
+watch(() => props.lesson.id, () => {
+  hasPendingTranscription.value = false
+  void watchForTranscription()
 }, { immediate: true })
 
 onBeforeUnmount(() => {
@@ -1883,6 +1943,16 @@ const deleteLesson = async () => {
 // Process option availability: depends on existing data + selected options
 const hasTranscript = computed(() => !!(props.lesson.transcript && props.lesson.transcript.length > 0))
 const hasCorrectedTranscript = computed(() => !!(props.lesson.corrected_transcript && props.lesson.corrected_transcript.length > 0))
+const hasExistingCorrection = computed(() => {
+  const corrected = props.lesson.corrected_transcript
+  if (!corrected || corrected.length === 0) return false
+  const metadata = props.lesson.correction_metadata
+  if (metadata && Object.keys(metadata).length > 0) return true
+  const raw = props.lesson.transcript
+  if (!raw || raw.length === 0) return true
+  if (corrected.length !== raw.length) return true
+  return corrected.some((segment, index) => (segment.text ?? '') !== (raw[index]?.text ?? ''))
+})
 const hasEditedTranscript = computed(() => editedParts.value.length > 0)
 const hasSourcesExtracted = computed(() => {
   return !!(props.lesson.sources && props.lesson.sources.length > 0)
@@ -2066,7 +2136,7 @@ const onLessonStatusSelection = (event: Event) => {
   updateStatus(target)
 }
 
-const canTranscribe = computed(() => !hasTranscript.value)
+const canTranscribe = computed(() => !hasTranscript.value && !isTranscriptionProcessing.value)
 const canCorrect = computed(() => hasTranscript.value || selectedProcesses.value.transcribe)
 const canEdition = computed(() => hasCorrectedTranscript.value || selectedProcesses.value.correct)
 const canExtraction = computed(() => hasEditedTranscript.value || selectedProcesses.value.edition)
@@ -2085,16 +2155,6 @@ watch([canTranscribe, canCorrect, canEdition, canExtraction, canSources, canSumm
   if (!canBrief.value) selectedProcesses.value.brief = false
 })
 
-const taskLessonId = (task: Task): number | null => {
-  const rawLessonId = task.parameters?.lesson_id
-  if (typeof rawLessonId === 'number' && Number.isFinite(rawLessonId)) return rawLessonId
-  if (typeof rawLessonId === 'string') {
-    const parsed = Number(rawLessonId)
-    if (Number.isFinite(parsed)) return parsed
-  }
-  return null
-}
-
 const sessionHasActiveTasks = (tasks: Task[]): boolean =>
   tasks.some(
     (task) =>
@@ -2105,15 +2165,20 @@ const sessionHasActiveTasks = (tasks: Task[]): boolean =>
 // Process tasks modal functions
 const openProcessModal = async () => {
   if (isCheckingActiveTasks.value) return
+  launchBlockedMessage.value = ''
+  if (isProcessing.value) {
+    launchBlockedMessage.value = t('lessons.cannotLaunchWhileTasksActive')
+    return
+  }
   isCheckingActiveTasks.value = true
   try {
     const tasks = await tasksApi.list()
     if (sessionHasActiveTasks(tasks)) {
-      toast.error(t('lessons.cannotLaunchWhileTasksActive'))
+      launchBlockedMessage.value = t('lessons.cannotLaunchWhileTasksActive')
       return
     }
   } catch {
-    toast.error(t('lessons.tasksCheckFailed'))
+    launchBlockedMessage.value = t('lessons.tasksCheckFailed')
     return
   } finally {
     isCheckingActiveTasks.value = false
@@ -2154,7 +2219,7 @@ const closeProcessModal = () => { showProcessModal.value = false }
 
 const selectAllRemaining = () => {
   // Select all steps that haven't been completed yet
-  if (!hasTranscript.value) selectedProcesses.value.transcribe = true
+  if (canTranscribe.value) selectedProcesses.value.transcribe = true
   if (!hasCorrectedTranscript.value) selectedProcesses.value.correct = true
   if (!hasEditedTranscript.value) selectedProcesses.value.edition = true
   if (!hasSourcesExtracted.value) selectedProcesses.value.extraction = true
@@ -2416,7 +2481,7 @@ const saveParagraph = async () => {
                   <div class="text-sm font-medium text-gray-900 dark:text-white">
                     {{ t('lessons.processCorrect') }}
                   </div>
-                  <div v-if="!(selectedProcesses.correct && hasCorrectedTranscript)" class="text-xs text-gray-500 dark:text-gray-400">
+                  <div v-if="!(selectedProcesses.correct && hasExistingCorrection)" class="text-xs text-gray-500 dark:text-gray-400">
                     {{ t('lessons.processCorrectDesc') }}
                   </div>
                   <p
@@ -2994,7 +3059,7 @@ const saveParagraph = async () => {
         </svg>
         <div>
           <span class="font-medium text-amber-800 dark:text-amber-300">
-            {{ t('lessons.processingStatus') }}: {{ processStatusLabel }}
+            {{ isTranscriptionProcessing ? t('lessons.transcriptionBeingProcessed') : `${t('lessons.processingStatus')}: ${processStatusLabel}` }}
           </span>
           <span class="ml-2 text-sm text-amber-700 dark:text-amber-400">
             — {{ t('lessons.processingMessage') }}
@@ -3002,8 +3067,9 @@ const saveParagraph = async () => {
         </div>
       </div>
 
-      <!-- Lesson Header -->
-      <div data-tour="detail-header" class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-6 mb-6 transition-colors">
+      <!-- Lesson details and workflow -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+      <div data-tour="detail-header" class="lg:col-span-2 bg-white dark:bg-gray-800 shadow-sm rounded-lg border border-gray-200 dark:border-gray-700 p-6 transition-colors">
         <div class="mb-4">
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div class="flex items-start gap-4 min-w-0">
@@ -3047,9 +3113,6 @@ const saveParagraph = async () => {
           </div>
         </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <!-- Left: lesson metadata/content -->
-          <div class="lg:col-span-2">
             <div
               v-if="lessonCoursePath"
               class="mb-3 flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300"
@@ -3142,10 +3205,10 @@ const saveParagraph = async () => {
               </span>
             </div>
 
-          </div>
+      </div>
 
-          <!-- Right: workflow -->
-          <div data-tour="detail-workflow" class="lg:col-span-1">
+      <!-- Workflow -->
+      <div data-tour="detail-workflow" class="bg-white dark:bg-gray-800 shadow-sm rounded-lg border border-gray-200 dark:border-gray-700 p-5 transition-colors">
             <div class="mb-3 flex items-center justify-between gap-3">
               <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200">
                 {{ t('lessons.workflow') }}
@@ -3161,6 +3224,12 @@ const saveParagraph = async () => {
                 {{ t('lessons.processLesson') }}
               </button>
             </div>
+            <p
+              v-if="launchBlockedMessage"
+              class="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-200"
+            >
+              {{ launchBlockedMessage }}
+            </p>
 
             <div class="space-y-2">
               <div v-if="lesson.editors && lesson.editors.length > 0" class="flex items-center justify-between gap-3 py-1">
@@ -3258,8 +3327,6 @@ const saveParagraph = async () => {
 
             </div>
           </div>
-        </div>
-        
       </div>
 
       <!-- Content Section with Toggle -->
