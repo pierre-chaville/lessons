@@ -23,6 +23,7 @@ import CourseTreeItem from '@/components/CourseTreeItem.vue'
 import { lessonsApi } from '@/api/lessons'
 import { coursesApi } from '@/api/courses'
 import { useAuth } from '@/composables/useAuth'
+import { hierarchyLabel } from '@/utils/hierarchyLabel'
 import type {
   ContentType,
   CourseTreeNode,
@@ -85,14 +86,21 @@ const availableHebrewYears = computed<string[]>(() => {
 })
 
 const availableThemes = computed<Array<{ id: number; name: string }>>(() => {
-  const byId = new Map<number, string>()
+  const byId = new Map<number, { id: number; name: string; parent_id: number | null }>()
   for (const lesson of lessons.value) {
     for (const theme of lesson.themes ?? []) {
-      if (!byId.has(theme.id)) byId.set(theme.id, theme.name)
+      if (!byId.has(theme.id)) {
+        byId.set(theme.id, {
+          id: theme.id,
+          name: theme.name,
+          parent_id: theme.parent_id ?? null,
+        })
+      }
     }
   }
-  return [...byId.entries()]
-    .map(([id, name]) => ({ id, name }))
+  const items = [...byId.values()]
+  return items
+    .map((theme) => ({ id: theme.id, name: hierarchyLabel(theme, items) }))
     .sort((a, b) => a.name.localeCompare(b.name))
 })
 
@@ -602,7 +610,8 @@ const closeCreateModal = () => {
   showCreateModal.value = false
 }
 
-const onLessonCreated = () => {
+const onLessonCreated = async (lesson: LessonDetailType) => {
+  await fetchLessonByHashid(lesson.hashid)
   fetchLessons()
   fetchTree()
 }

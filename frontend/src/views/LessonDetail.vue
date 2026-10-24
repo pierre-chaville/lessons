@@ -42,9 +42,11 @@ import { useToast } from '@/composables/useToast'
 import { usePermissions } from '@/composables/usePermissions'
 import { useAuth } from '@/composables/useAuth'
 import { formatApiDateTime } from '@/utils/dateTime'
+import { hierarchyLabel } from '@/utils/hierarchyLabel'
 import VersionHistoryPanel from '@/components/VersionHistoryPanel.vue'
 import MilkdownEditor from '@/components/MilkdownEditor.vue'
 import LessonDocumentModal from '@/components/LessonDocumentModal.vue'
+import MultiSelectDropdown from '@/components/MultiSelectDropdown.vue'
 import type {
   LessonDetail as LessonDetailType,
   LessonSource,
@@ -1639,6 +1641,8 @@ const fetchThemes = async () => {
   try { themes.value = await themesApi.list() } catch { /* silent */ }
 }
 
+const themeLabel = (theme: Theme) => hierarchyLabel(theme, themes.value)
+
 const fetchUsers = async () => {
   if (!['publisher', 'admin'].includes(role.value)) return
   try { users.value = await usersApi.list() } catch { /* silent */ }
@@ -1842,26 +1846,21 @@ const saveLesson = async () => {
   }
 }
 
-const toggleTheme = (themeId: number) => {
-  const index = editedLesson.value.theme_ids.indexOf(themeId)
-  if (index === -1) {
-    editedLesson.value.theme_ids.push(themeId)
-  } else {
-    editedLesson.value.theme_ids.splice(index, 1)
-  }
-}
-
-const toggleEditor = (userId: string) => {
-  const index = editedLesson.value.editor_ids.indexOf(userId)
-  if (index === -1) {
-    editedLesson.value.editor_ids.push(userId)
-  } else {
-    editedLesson.value.editor_ids.splice(index, 1)
-  }
-}
-
 const editorRoleUsers = computed(() =>
   users.value.filter((u) => u.role && ['editor', 'publisher', 'admin'].includes(u.role))
+)
+
+const themeOptions = computed(() =>
+  themes.value.map((theme) => ({ value: theme.id, label: themeLabel(theme) })),
+)
+
+const editorLabel = (editor: { id: string; first_name?: string | null; last_name?: string | null; email?: string | null }) =>
+  [editor.first_name, editor.last_name].filter(Boolean).join(' ') || editor.email || editor.id
+
+const editorOptions = computed(() =>
+  editorRoleUsers.value
+    .map((editor) => ({ value: editor.id, label: editorLabel(editor) }))
+    .sort((a, b) => a.label.localeCompare(b.label)),
 )
 
 // Delete lesson functions
@@ -2883,21 +2882,11 @@ const saveParagraph = async () => {
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   {{ t('lessons.themes') }}
                 </label>
-                <div class="flex flex-wrap gap-2">
-                  <button
-                    v-for="theme in themes"
-                    :key="theme.id"
-                    @click="toggleTheme(theme.id)"
-                    :class="[
-                      'px-3 py-1.5 rounded-full text-sm font-medium transition-colors',
-                      editedLesson.theme_ids.includes(theme.id)
-                        ? 'bg-indigo-600 text-white'
-                        : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
-                    ]"
-                  >
-                    {{ theme.name }}
-                  </button>
-                </div>
+                <MultiSelectDropdown
+                  v-model="editedLesson.theme_ids"
+                  :options="themeOptions"
+                  :placeholder="t('lessons.selectThemes')"
+                />
               </div>
 
               <!-- Editors -->
@@ -2905,21 +2894,12 @@ const saveParagraph = async () => {
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   {{ t('lessons.editors') }}
                 </label>
-                <div class="flex flex-wrap gap-2">
-                  <button
-                    v-for="user in editorRoleUsers"
-                    :key="user.id"
-                    @click="toggleEditor(user.id)"
-                    :class="[
-                      'px-3 py-1.5 rounded-full text-sm font-medium transition-colors',
-                      editedLesson.editor_ids.includes(user.id)
-                        ? 'bg-sky-600 text-white'
-                        : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
-                    ]"
-                  >
-                    {{ [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email || user.id }}
-                  </button>
-                </div>
+                <MultiSelectDropdown
+                  v-model="editedLesson.editor_ids"
+                  :options="editorOptions"
+                  :placeholder="t('lessons.selectEditors')"
+                  accent="sky"
+                />
               </div>
             </div>
           </div>

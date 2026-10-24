@@ -16,7 +16,9 @@ import { tasksApi } from '@/api/tasks'
 import { usersApi, type ClerkUser } from '@/api/users'
 import { useAuth } from '@/composables/useAuth'
 import { useToast } from '@/composables/useToast'
-import type { Course, CourseTreeNode, Theme } from '@/api/types'
+import type { Course, CourseTreeNode, LessonDetail, Theme } from '@/api/types'
+import { hierarchyLabel } from '@/utils/hierarchyLabel'
+import MultiSelectDropdown from '@/components/MultiSelectDropdown.vue'
 
 const props = defineProps<{
   isOpen: boolean
@@ -24,7 +26,7 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{
   (e: 'close'): void
-  (e: 'created'): void
+  (e: 'created', lesson: LessonDetail): void
 }>()
 
 const { t } = useI18n()
@@ -148,24 +150,6 @@ const removeFile = () => {
   if (fileInput.value) fileInput.value.value = ''
 }
 
-const toggleTheme = (themeId: number) => {
-  const index = themeIds.value.indexOf(themeId)
-  if (index === -1) {
-    themeIds.value.push(themeId)
-  } else {
-    themeIds.value.splice(index, 1)
-  }
-}
-
-const toggleEditor = (userId: string) => {
-  const index = editorIds.value.indexOf(userId)
-  if (index === -1) {
-    editorIds.value.push(userId)
-  } else {
-    editorIds.value.splice(index, 1)
-  }
-}
-
 const editorRoleUsers = computed(() =>
   users.value.filter((u) => {
     const role = (u.role || '').toLowerCase()
@@ -231,6 +215,21 @@ const fetchThemes = async () => {
   try { themes.value = await themesApi.list() } catch { /* silent */ }
 }
 
+const themeLabel = (theme: Theme) => hierarchyLabel(theme, themes.value)
+
+const themeOptions = computed(() =>
+  themes.value.map((theme) => ({ value: theme.id, label: themeLabel(theme) })),
+)
+
+const editorLabel = (editor: { id: string; first_name?: string | null; last_name?: string | null; email?: string | null }) =>
+  [editor.first_name, editor.last_name].filter(Boolean).join(' ') || editor.email || editor.id
+
+const editorOptions = computed(() =>
+  editorRoleUsers.value
+    .map((editor) => ({ value: editor.id, label: editorLabel(editor) }))
+    .sort((a, b) => a.label.localeCompare(b.label)),
+)
+
 const fetchUsers = async () => {
   try { users.value = await usersApi.list() } catch { /* silent */ }
 }
@@ -267,7 +266,7 @@ const createLesson = async () => {
       parameters: { lesson_id: lesson.id },
     })
     resetForm()
-    emit('created')
+    emit('created', lesson)
     emit('close')
   } catch {
     toast.error(t('lessons.createFailed'))
@@ -464,22 +463,12 @@ watch(date, (nextDate) => {
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   {{ t('lessons.themes') }}
                 </label>
-                <div class="flex flex-wrap gap-2">
-                  <button
-                    v-for="theme in themes"
-                    :key="theme.id"
-                    @click="toggleTheme(theme.id)"
-                    :disabled="isUploading"
-                    :class="[
-                      'px-3 py-1.5 rounded-full text-sm font-medium transition-colors disabled:opacity-50',
-                      themeIds.includes(theme.id)
-                        ? 'bg-indigo-600 text-white'
-                        : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
-                    ]"
-                  >
-                    {{ theme.name }}
-                  </button>
-                </div>
+                <MultiSelectDropdown
+                  v-model="themeIds"
+                  :options="themeOptions"
+                  :placeholder="t('lessons.selectThemes')"
+                  :disabled="isUploading"
+                />
               </div>
 
               <!-- Editors -->
@@ -487,22 +476,13 @@ watch(date, (nextDate) => {
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   {{ t('lessons.editors') }} *
                 </label>
-                <div class="flex flex-wrap gap-2">
-                  <button
-                    v-for="user in editorRoleUsers"
-                    :key="user.id"
-                    @click="toggleEditor(user.id)"
-                    :disabled="isUploading"
-                    :class="[
-                      'px-3 py-1.5 rounded-full text-sm font-medium transition-colors disabled:opacity-50',
-                      editorIds.includes(user.id)
-                        ? 'bg-sky-600 text-white'
-                        : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
-                    ]"
-                  >
-                    {{ [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email || user.id }}
-                  </button>
-                </div>
+                <MultiSelectDropdown
+                  v-model="editorIds"
+                  :options="editorOptions"
+                  :placeholder="t('lessons.selectEditors')"
+                  accent="sky"
+                  :disabled="isUploading"
+                />
               </div>
             </div>
           </div>

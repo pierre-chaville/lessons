@@ -17,6 +17,7 @@ import { coursesApi } from '@/api/courses'
 import { themesApi } from '@/api/themes'
 import { lessonsApi } from '@/api/lessons'
 import { apiClient } from '@/api/client'
+import { hierarchyLabel } from '@/utils/hierarchyLabel'
 import type { Course, Theme, SearchLessonResult, LessonDetail as LessonDetailType } from '@/api/types'
 
 const { t } = useI18n()
@@ -286,7 +287,7 @@ onMounted(async () => {
             <div class="relative w-64">
               <ListboxButton class="relative w-full cursor-pointer rounded-md bg-white dark:bg-gray-700 py-2 pl-3 pr-10 text-left shadow-sm ring-1 ring-inset ring-gray-300 dark:ring-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-600 sm:text-sm">
                 <span class="block truncate text-gray-900 dark:text-gray-100">
-                  {{ selectedTheme ? selectedTheme.name : t('search.allThemes') }}
+                  {{ selectedTheme ? hierarchyLabel(selectedTheme, themes) : t('search.allThemes') }}
                 </span>
                 <span class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
                   <ChevronUpDownIcon class="h-5 w-5 text-gray-400" aria-hidden="true" />
@@ -327,7 +328,7 @@ onMounted(async () => {
                       'relative cursor-pointer select-none py-2 pl-3 pr-9'
                     ]">
                       <span :class="[selected ? 'font-semibold' : 'font-normal', 'block truncate']">
-                        {{ theme.name }}
+                        {{ hierarchyLabel(theme, themes) }}
                       </span>
                       <span v-if="selected" :class="[
                         active ? 'text-white' : 'text-indigo-600',

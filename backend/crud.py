@@ -94,9 +94,26 @@ def delete_course(session: Session, course_id: int) -> bool:
 
 
 # Theme CRUD
-def create_theme(session: Session, name: str) -> Theme:
-    """Create a new theme"""
-    theme = Theme(name=name)
+def create_theme(
+    session: Session,
+    name: str,
+    description: Optional[str] = None,
+    parent_id: Optional[int] = None,
+    sort_order: Optional[int] = None,
+) -> Theme:
+    """Create a new theme. Auto-assigns sort_order at end of siblings if not provided."""
+    if sort_order is None:
+        max_order = session.exec(
+            select(func.coalesce(func.max(Theme.sort_order), -1))
+            .where(Theme.parent_id == parent_id)
+        ).one()
+        sort_order = max_order + 1
+    theme = Theme(
+        name=name,
+        description=description,
+        parent_id=parent_id,
+        sort_order=sort_order,
+    )
     session.add(theme)
     session.commit()
     session.refresh(theme)
@@ -109,8 +126,8 @@ def get_theme(session: Session, theme_id: int) -> Optional[Theme]:
 
 
 def get_all_themes(session: Session) -> List[Theme]:
-    """Get all themes"""
-    statement = select(Theme)
+    """Get all themes ordered by sort_order, then name"""
+    statement = select(Theme).order_by(Theme.sort_order, Theme.name)
     return list(session.exec(statement).all())
 
 
@@ -122,11 +139,31 @@ def get_themes_by_ids(session: Session, theme_ids: List[int]) -> List[Theme]:
     return list(session.exec(statement).all())
 
 
-def update_theme(session: Session, theme_id: int, name: str) -> Optional[Theme]:
-    """Update a theme"""
+def update_theme(
+    session: Session,
+    theme_id: int,
+    name: Optional[str] = None,
+    description: Optional[str] = None,
+    parent_id: object = None,
+    sort_order: Optional[int] = None,
+    *,
+    update_description: bool = False,
+) -> Optional[Theme]:
+    """Update a theme. Pass parent_id=0 to clear the parent.
+
+    Description is applied when a value is provided, or when update_description
+    is set so an explicit null can clear it.
+    """
     theme = session.get(Theme, theme_id)
     if theme:
-        theme.name = name
+        if name is not None:
+            theme.name = name
+        if description is not None or update_description:
+            theme.description = description
+        if parent_id is not None:
+            theme.parent_id = parent_id if parent_id != 0 else None
+        if sort_order is not None:
+            theme.sort_order = sort_order
         session.add(theme)
         session.commit()
         session.refresh(theme)
@@ -134,9 +171,31 @@ def update_theme(session: Session, theme_id: int, name: str) -> Optional[Theme]:
 
 
 def delete_theme(session: Session, theme_id: int) -> bool:
-    """Delete a theme"""
+    """Delete a theme.
+
+    Children are re-parented to this theme's parent, and the theme id is
+    removed from lessons that referenced it.
+    """
     theme = session.get(Theme, theme_id)
     if theme:
+        children = list(
+            session.exec(select(Theme).where(Theme.parent_id == theme_id)).all()
+        )
+        for child in children:
+            child.parent_id = theme.parent_id
+            session.add(child)
+
+        lessons = list(
+            session.exec(
+                select(Lesson).where(Lesson.themes_json.is_not(None))
+            ).all()
+        )
+        for lesson in lessons:
+            theme_ids = lesson.get_themes()
+            if theme_id in theme_ids:
+                lesson.set_themes([item for item in theme_ids if item != theme_id])
+                session.add(lesson)
+
         session.delete(theme)
         session.commit()
         return True

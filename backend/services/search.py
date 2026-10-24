@@ -55,7 +55,14 @@ def _build_course_resp(course) -> CourseResponse | None:
 
 def _build_theme_resps(themes) -> list[ThemeResponse]:
     return [
-        ThemeResponse(id=t.id, hashid=encode_id(t.id), name=t.name)
+        ThemeResponse(
+            id=t.id,
+            hashid=encode_id(t.id),
+            name=t.name,
+            description=getattr(t, "description", None),
+            parent_id=getattr(t, "parent_id", None),
+            sort_order=getattr(t, "sort_order", 0) or 0,
+        )
         for t in themes
     ]
 
