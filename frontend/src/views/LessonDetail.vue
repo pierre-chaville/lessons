@@ -56,6 +56,7 @@ import type {
   Theme,
   ContentType,
   AuditLogRow,
+  Task,
 } from '@/api/types'
 
 const props = defineProps<{
@@ -387,6 +388,7 @@ const selectedSourcesPrompt = ref('')
 const availableSourcesPrompts = ref<Array<{ name: string; text: string }>>([])
 const useFlexMode = ref(false)
 const isCreatingTasks = ref(false)
+const isCheckingActiveTasks = ref(false)
 
 // Configure marked options
 marked.setOptions({ breaks: true, gfm: true })
@@ -1886,6 +1888,10 @@ const hasEditedTranscript = computed(() => editedParts.value.length > 0)
 const hasSourcesExtracted = computed(() => {
   return !!(props.lesson.sources && props.lesson.sources.length > 0)
 })
+const hasVerifiedSources = computed(() =>
+  (props.lesson.sources ?? []).some((source) => source.verification_status != null),
+)
+const hasBriefContent = computed(() => !!props.lesson.brief)
 
 const WORKFLOW_STEPS: LessonWorkflowStep[] = [
   'transcription',
@@ -2061,6 +2067,7 @@ const onLessonStatusSelection = (event: Event) => {
   updateStatus(target)
 }
 
+const canTranscribe = computed(() => !hasTranscript.value)
 const canCorrect = computed(() => hasTranscript.value || selectedProcesses.value.transcribe)
 const canEdition = computed(() => hasCorrectedTranscript.value || selectedProcesses.value.correct)
 const canExtraction = computed(() => hasEditedTranscript.value || selectedProcesses.value.edition)
@@ -2069,7 +2076,8 @@ const canSummary = computed(() => hasEditedTranscript.value || selectedProcesses
 const canBrief = computed(() => !!props.lesson.summary || selectedProcesses.value.summary)
 
 // Uncheck options that become disabled
-watch([canCorrect, canEdition, canExtraction, canSources, canSummary, canBrief], () => {
+watch([canTranscribe, canCorrect, canEdition, canExtraction, canSources, canSummary, canBrief], () => {
+  if (!canTranscribe.value) selectedProcesses.value.transcribe = false
   if (!canCorrect.value) selectedProcesses.value.correct = false
   if (!canEdition.value) selectedProcesses.value.edition = false
   if (!canExtraction.value) selectedProcesses.value.extraction = false
@@ -2078,8 +2086,40 @@ watch([canCorrect, canEdition, canExtraction, canSources, canSummary, canBrief],
   if (!canBrief.value) selectedProcesses.value.brief = false
 })
 
+const taskLessonId = (task: Task): number | null => {
+  const rawLessonId = task.parameters?.lesson_id
+  if (typeof rawLessonId === 'number' && Number.isFinite(rawLessonId)) return rawLessonId
+  if (typeof rawLessonId === 'string') {
+    const parsed = Number(rawLessonId)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return null
+}
+
+const sessionHasActiveTasks = (tasks: Task[]): boolean =>
+  tasks.some(
+    (task) =>
+      taskLessonId(task) === props.lesson.id &&
+      (task.status === 'pending' || task.status === 'running'),
+  )
+
 // Process tasks modal functions
 const openProcessModal = async () => {
+  if (isCheckingActiveTasks.value) return
+  isCheckingActiveTasks.value = true
+  try {
+    const tasks = await tasksApi.list()
+    if (sessionHasActiveTasks(tasks)) {
+      toast.error(t('lessons.cannotLaunchWhileTasksActive'))
+      return
+    }
+  } catch {
+    toast.error(t('lessons.tasksCheckFailed'))
+    return
+  } finally {
+    isCheckingActiveTasks.value = false
+  }
+
   selectedProcesses.value = {
     transcribe: false, correct: false, edition: false, extraction: false, summary: false, brief: false, sources: false,
   }
@@ -2134,7 +2174,9 @@ const createTasks = async () => {
   try {
     isCreatingTasks.value = true
     const taskOrder = ['transcribe', 'correct', 'edition', 'extraction', 'summary', 'brief', 'sources']
-    const orderedTasks = taskOrder.filter((t) => selectedTasks.includes(t))
+    const orderedTasks = taskOrder.filter(
+      (taskType) => selectedTasks.includes(taskType) && (taskType !== 'transcribe' || canTranscribe.value),
+    )
     const taskTypeMap: Record<string, string> = {
       transcribe: 'transcription', correct: 'correction', edition: 'edition',
       extraction: 'extraction', summary: 'summary', brief: 'brief', sources: 'sources',
@@ -2334,12 +2376,18 @@ const saveParagraph = async () => {
 
           <!-- Process Selection -->
           <div class="space-y-2 mb-6">
-            <!-- Transcribe (always available) -->
-            <label class="flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors">
+            <!-- Transcribe (unavailable once a transcript already exists) -->
+            <label :class="[
+              'flex items-center gap-3 p-3 rounded-lg border transition-colors',
+              canTranscribe
+                ? 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer'
+                : 'border-gray-100 dark:border-gray-800 opacity-50 cursor-not-allowed'
+            ]">
               <input
                 type="checkbox"
                 v-model="selectedProcesses.transcribe"
-                class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                :disabled="!canTranscribe"
+                class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 disabled:opacity-50"
               />
               <div>
                 <div class="text-sm font-medium text-gray-900 dark:text-white">
@@ -2369,9 +2417,16 @@ const saveParagraph = async () => {
                   <div class="text-sm font-medium text-gray-900 dark:text-white">
                     {{ t('lessons.processCorrect') }}
                   </div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400">
+                  <div v-if="!(selectedProcesses.correct && hasCorrectedTranscript)" class="text-xs text-gray-500 dark:text-gray-400">
                     {{ t('lessons.processCorrectDesc') }}
                   </div>
+                  <p
+                    v-else
+                    class="flex items-start gap-1 text-xs font-medium text-amber-700 dark:text-amber-300"
+                  >
+                    <ExclamationTriangleIcon class="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                    <span>{{ t('lessons.replaceCorrectionWarning') }}</span>
+                  </p>
                 </div>
               </label>
               <div v-if="selectedProcesses.correct && availableCorrectionPrompts.length > 0">
@@ -2411,9 +2466,16 @@ const saveParagraph = async () => {
                   <div class="text-sm font-medium text-gray-900 dark:text-white">
                     {{ t('lessons.processEdition') }}
                   </div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400">
+                  <div v-if="!(selectedProcesses.edition && hasEditedTranscript)" class="text-xs text-gray-500 dark:text-gray-400">
                     {{ t('lessons.processEditionDesc') }}
                   </div>
+                  <p
+                    v-else
+                    class="flex items-start gap-1 text-xs font-medium text-amber-700 dark:text-amber-300"
+                  >
+                    <ExclamationTriangleIcon class="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                    <span>{{ t('lessons.replaceEditionWarning') }}</span>
+                  </p>
                 </div>
               </label>
               <div v-if="selectedProcesses.edition && availableEditionPrompts.length > 0">
@@ -2453,9 +2515,16 @@ const saveParagraph = async () => {
                   <div class="text-sm font-medium text-gray-900 dark:text-white">
                     {{ t('lessons.processExtraction') }}
                   </div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400">
+                  <div v-if="!(selectedProcesses.extraction && hasSourcesExtracted)" class="text-xs text-gray-500 dark:text-gray-400">
                     {{ t('lessons.processExtractionDesc') }}
                   </div>
+                  <p
+                    v-else
+                    class="flex items-start gap-1 text-xs font-medium text-amber-700 dark:text-amber-300"
+                  >
+                    <ExclamationTriangleIcon class="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                    <span>{{ t('lessons.replaceExtractionWarning') }}</span>
+                  </p>
                 </div>
               </label>
               <div v-if="selectedProcesses.extraction && availableExtractionPrompts.length > 0">
@@ -2495,9 +2564,16 @@ const saveParagraph = async () => {
                   <div class="text-sm font-medium text-gray-900 dark:text-white">
                     {{ t('lessons.processSources') }}
                   </div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400">
+                  <div v-if="!(selectedProcesses.sources && hasVerifiedSources)" class="text-xs text-gray-500 dark:text-gray-400">
                     {{ t('lessons.processSourcesDesc') }}
                   </div>
+                  <p
+                    v-else
+                    class="flex items-start gap-1 text-xs font-medium text-amber-700 dark:text-amber-300"
+                  >
+                    <ExclamationTriangleIcon class="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                    <span>{{ t('lessons.replaceSourcesWarning') }}</span>
+                  </p>
                 </div>
               </label>
               <div v-if="selectedProcesses.sources && availableSourcesPrompts.length > 0">
@@ -2537,9 +2613,16 @@ const saveParagraph = async () => {
                   <div class="text-sm font-medium text-gray-900 dark:text-white">
                     {{ t('lessons.processSummary') }}
                   </div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400">
+                  <div v-if="!(selectedProcesses.summary && hasSummary)" class="text-xs text-gray-500 dark:text-gray-400">
                     {{ t('lessons.processSummaryDesc') }}
                   </div>
+                  <p
+                    v-else
+                    class="flex items-start gap-1 text-xs font-medium text-amber-700 dark:text-amber-300"
+                  >
+                    <ExclamationTriangleIcon class="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                    <span>{{ t('lessons.replaceSummaryWarning') }}</span>
+                  </p>
                 </div>
               </label>
               <div v-if="selectedProcesses.summary && availableSummaryPrompts.length > 0">
@@ -2579,9 +2662,16 @@ const saveParagraph = async () => {
                   <div class="text-sm font-medium text-gray-900 dark:text-white">
                     {{ t('lessons.processBrief') }}
                   </div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400">
+                  <div v-if="!(selectedProcesses.brief && hasBriefContent)" class="text-xs text-gray-500 dark:text-gray-400">
                     {{ t('lessons.processBriefDesc') }}
                   </div>
+                  <p
+                    v-else
+                    class="flex items-start gap-1 text-xs font-medium text-amber-700 dark:text-amber-300"
+                  >
+                    <ExclamationTriangleIcon class="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                    <span>{{ t('lessons.replaceBriefWarning') }}</span>
+                  </p>
                 </div>
               </label>
             </div>
@@ -3084,13 +3174,8 @@ const saveParagraph = async () => {
                 v-if="!isEditingLesson && canEditLesson"
                 data-tour="detail-process-button"
                 @click="openProcessModal"
-                :disabled="isProcessing"
-                :class="[
-                  'inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-md transition-colors',
-                  isProcessing
-                    ? 'bg-indigo-400 text-white cursor-not-allowed opacity-50'
-                    : 'text-white bg-indigo-600 hover:bg-indigo-700'
-                ]"
+                :disabled="isCheckingActiveTasks"
+                class="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-md transition-colors text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <CogIcon class="h-3.5 w-3.5" />
                 {{ t('lessons.processLesson') }}

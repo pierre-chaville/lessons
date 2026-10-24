@@ -65,7 +65,6 @@ const isLaunchingTasks = ref(false)
 const itemsCsvInput = ref<HTMLInputElement | null>(null)
 
 const selectedProcesses = ref({
-  transcribe: false,
   correct: false,
   edition: false,
   extraction: false,
@@ -588,7 +587,6 @@ const loadPrompts = (
 
 const openProcessModal = async () => {
   selectedProcesses.value = {
-    transcribe: false,
     correct: false,
     edition: false,
     extraction: false,
@@ -617,7 +615,6 @@ const closeProcessModal = () => {
 
 const selectAllProcesses = () => {
   selectedProcesses.value = {
-    transcribe: true,
     correct: true,
     edition: true,
     extraction: true,
@@ -638,7 +635,6 @@ const launchBookletTasks = async () => {
   }
 
   const taskTypeMap: Record<string, string> = {
-    transcribe: 'transcription',
     correct: 'correction',
     edition: 'edition',
     extraction: 'extraction',
@@ -1098,22 +1094,6 @@ watch(() => props.bookletId, loadDetail)
           </div>
 
           <div class="space-y-2 mb-6">
-            <label class="flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors">
-              <input
-                type="checkbox"
-                v-model="selectedProcesses.transcribe"
-                class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
-              />
-              <div>
-                <div class="text-sm font-medium text-gray-900 dark:text-white">
-                  {{ t('lessons.processTranscribe') }}
-                </div>
-                <div class="text-xs text-gray-500 dark:text-gray-400">
-                  {{ t('lessons.processTranscribeDesc') }}
-                </div>
-              </div>
-            </label>
-
             <div class="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)] gap-3 items-start">
               <label class="flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors">
                 <input
