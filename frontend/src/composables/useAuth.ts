@@ -1,6 +1,6 @@
 import { computed } from 'vue'
 import { useUser, useAuth as useClerkAuth } from '@clerk/vue'
-import { apiClient } from '@/api/client'
+import { apiClient, setAuthTokenGetter } from '@/api/client'
 import type { Role } from '@/types'
 
 /**
@@ -22,11 +22,16 @@ export function useAuth() {
     () => (user.value?.publicMetadata?.role as Role) ?? 'reader',
   )
 
+  const resolveToken = async () => {
+    const template = import.meta.env.VITE_CLERK_JWT_TEMPLATE
+    return template ? await getToken.value({ template }) : await getToken.value()
+  }
+
   if (!interceptorRegistered) {
     interceptorRegistered = true
+    setAuthTokenGetter(resolveToken)
     apiClient.interceptors.request.use(async (config) => {
-      const template = import.meta.env.VITE_CLERK_JWT_TEMPLATE
-      const token = template ? await getToken.value({ template }) : await getToken.value()
+      const token = await resolveToken()
       if (token) {
         config.headers.Authorization = `Bearer ${token}`
       }

@@ -8,11 +8,11 @@ import {
   PaperAirplaneIcon,
   SparklesIcon,
 } from '@heroicons/vue/24/outline'
-import { CheckIcon } from '@heroicons/vue/20/solid'
+import { CheckCircleIcon, CheckIcon } from '@heroicons/vue/20/solid'
 import { marked } from 'marked'
 import { coursesApi } from '@/api/courses'
 import { lessonsApi } from '@/api/lessons'
-import { searchApi } from '@/api/search'
+import { searchApi, type RagProgressStep } from '@/api/search'
 import type { CourseTreeNode, LessonListItem, RagSearchCitation } from '@/api/types'
 
 type CourseScope = {
@@ -37,8 +37,19 @@ const selectedVariant = ref<RagVariant>('edited')
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const sourceColumnRef = ref<HTMLElement | null>(null)
 const highlightedReference = ref<number | null>(null)
+const progressStep = ref<RagProgressStep | null>(null)
+const progressSteps: RagProgressStep[] = ['search', 'rerank', 'generate']
 const variantOptions: RagVariant[] = ['edited', 'summary']
 let highlightTimeout: ReturnType<typeof setTimeout> | null = null
+
+const progressStepStatus = (step: RagProgressStep): 'done' | 'active' | 'pending' => {
+  if (!isLoading.value || !progressStep.value) return 'pending'
+  const currentIndex = progressSteps.indexOf(progressStep.value)
+  const stepIndex = progressSteps.indexOf(step)
+  if (stepIndex < currentIndex) return 'done'
+  if (stepIndex === currentIndex) return 'active'
+  return 'pending'
+}
 
 const allCourseScope = computed<CourseScope>(() => ({
   id: null,
@@ -189,20 +200,32 @@ const submitQuestion = async () => {
 
   try {
     isLoading.value = true
+    progressStep.value = 'search'
     errorMessage.value = ''
     answer.value = ''
     citations.value = []
-    const response = await searchApi.askAi({
-      question: cleanQuestion,
-      lesson_ids: scopedLessonIds.value,
-      variant: selectedVariant.value,
-    })
+    const response = await searchApi.askAi(
+      {
+        question: cleanQuestion,
+        lesson_ids: scopedLessonIds.value,
+        variant: selectedVariant.value,
+      },
+      {
+        onProgress: (step) => {
+          progressStep.value = step
+        },
+        onToken: (token) => {
+          answer.value += token
+        },
+      },
+    )
     answer.value = response.answer
     citations.value = response.citations
   } catch {
     errorMessage.value = t('assistant.searchFailed')
   } finally {
     isLoading.value = false
+    progressStep.value = null
   }
 }
 
@@ -237,23 +260,20 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="min-h-[calc(100vh-5rem)] bg-gray-50 dark:bg-gray-900 px-4 py-10">
-    <div
-      :class="[
-        'mx-auto transition-all duration-500',
-        hasAnswer || isLoading || errorMessage ? 'max-w-5xl' : 'max-w-3xl pt-16 md:pt-28'
-      ]"
-    >
-      <div class="text-center mb-8">
-        <div class="inline-flex items-center justify-center rounded-2xl bg-indigo-100 dark:bg-indigo-900/40 p-3 mb-4">
-          <SparklesIcon class="h-8 w-8 text-indigo-600 dark:text-indigo-300" />
+  <div class="min-h-[calc(100vh-5rem)] bg-gray-50 dark:bg-gray-900 px-4 sm:px-6 lg:px-8 py-5">
+    <div class="mx-auto w-full">
+      <div class="mb-4 flex items-center gap-3">
+        <div class="inline-flex items-center justify-center rounded-xl bg-indigo-100 dark:bg-indigo-900/40 p-2">
+          <SparklesIcon class="h-5 w-5 text-indigo-600 dark:text-indigo-300" />
         </div>
-        <h1 class="text-3xl font-bold text-gray-900 dark:text-white">
-          {{ t('assistant.title') }}
-        </h1>
-        <p class="mt-2 text-sm text-gray-600 dark:text-gray-400">
-          {{ t('assistant.subtitle') }}
-        </p>
+        <div class="min-w-0">
+          <h1 class="text-xl font-semibold text-gray-900 dark:text-white">
+            {{ t('assistant.title') }}
+          </h1>
+          <p class="text-xs text-gray-600 dark:text-gray-400">
+            {{ t('assistant.subtitle') }}
+          </p>
+        </div>
       </div>
 
       <form
@@ -266,8 +286,7 @@ onMounted(async () => {
           rows="3"
           :placeholder="t('assistant.placeholder')"
           class="block w-full resize-none border-0 bg-transparent px-6 py-5 text-base text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-0"
-          @keydown.enter.ctrl.prevent="submitQuestion"
-          @keydown.enter.meta.prevent="submitQuestion"
+          @keydown.enter.exact.prevent="submitQuestion"
         ></textarea>
 
         <div class="flex flex-col gap-3 border-t border-gray-100 dark:border-gray-700 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
@@ -406,6 +425,49 @@ onMounted(async () => {
           <SparklesIcon class="h-5 w-5 animate-pulse" />
           <span class="text-sm font-medium">{{ t('assistant.thinking') }}</span>
         </div>
+        <ol class="mt-5 space-y-3">
+          <li
+            v-for="step in progressSteps"
+            :key="step"
+            class="flex items-center gap-3"
+          >
+            <span
+              :class="[
+                'flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full',
+                progressStepStatus(step) === 'done'
+                  ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900/50 dark:text-indigo-300'
+                  : progressStepStatus(step) === 'active'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-gray-100 text-gray-400 dark:bg-gray-700 dark:text-gray-500'
+              ]"
+            >
+              <CheckCircleIcon
+                v-if="progressStepStatus(step) === 'done'"
+                class="h-5 w-5"
+              />
+              <span
+                v-else-if="progressStepStatus(step) === 'active'"
+                class="h-2.5 w-2.5 rounded-full bg-white animate-pulse"
+              />
+              <span
+                v-else
+                class="h-2 w-2 rounded-full bg-current opacity-60"
+              />
+            </span>
+            <span
+              :class="[
+                'text-sm',
+                progressStepStatus(step) === 'done'
+                  ? 'font-medium text-gray-700 dark:text-gray-200'
+                  : progressStepStatus(step) === 'active'
+                    ? 'font-semibold text-indigo-700 dark:text-indigo-300'
+                    : 'text-gray-400 dark:text-gray-500'
+              ]"
+            >
+              {{ t(`assistant.steps.${step}`) }}
+            </span>
+          </li>
+        </ol>
       </div>
 
       <div v-if="errorMessage" class="mt-8 rounded-2xl border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/30 p-5 text-sm text-red-700 dark:text-red-300">
@@ -419,6 +481,11 @@ onMounted(async () => {
             @click="handleAnswerClick"
             v-html="answerHtml"
           ></div>
+          <span
+            v-if="isLoading && progressStep === 'generate'"
+            class="mt-1 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-indigo-500 align-middle"
+            aria-hidden="true"
+          />
         </article>
 
         <aside

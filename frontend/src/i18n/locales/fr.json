@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "Cours du Beer Moshe"
+    "title": "Gestion de cours"
   },
   "auth": {
     "loading": "Chargement de l'utilisateur...",
@@ -624,6 +624,11 @@
     "ask": "Demander",
     "asking": "Recherche...",
     "thinking": "Recherche dans le corpus et préparation de la réponse...",
+    "steps": {
+      "search": "Recherche des sources",
+      "rerank": "Réordonnancement des sources",
+      "generate": "Génération de la réponse"
+    },
     "clear": "Effacer",
     "sources": "Sources",
     "chunkNumber": "chunk {number}",

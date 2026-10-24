@@ -1,12 +1,18 @@
 """Search router — /search endpoint for fuzzy transcript search."""
 
+import json
+import logging
+
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import StreamingResponse
 from sqlmodel import Session
 from typing import List, Optional
 
-from database import get_session
-from schemas.search import SearchLessonResult, RagSearchRequest, RagSearchResponse
-from services.search import answer_rag_question, search_lessons
+from database import engine, get_session
+from schemas.search import SearchLessonResult, RagSearchRequest
+from services.search import iter_answer_rag_question, search_lessons
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/search", tags=["Search"])
 
@@ -39,15 +45,26 @@ def search_corrected_transcript(
     )
 
 
-@router.post("/ai", response_model=RagSearchResponse)
-def ai_assistant_search(
-    payload: RagSearchRequest,
-    session: Session = Depends(get_session),
-):
-    """Answer a natural language question using RAG over indexed lesson chunks."""
-    return answer_rag_question(
-        question=payload.question,
-        lesson_ids=payload.lesson_ids,
-        variant=payload.variant,
-        session=session,
-    )
+@router.post("/ai")
+def ai_assistant_search(payload: RagSearchRequest):
+    """Answer a natural language question using RAG over indexed lesson chunks.
+
+    Streams NDJSON progress events (`search`, `rerank`, `generate`) followed by a result.
+    """
+
+    def event_stream():
+        # Keep the DB session open for the full stream lifetime (Depends would close early).
+        with Session(engine) as session:
+            try:
+                for event in iter_answer_rag_question(
+                    question=payload.question,
+                    lesson_ids=payload.lesson_ids,
+                    variant=payload.variant,
+                    session=session,
+                ):
+                    yield json.dumps(event) + "\n"
+            except Exception as exc:
+                logger.exception("RAG assistant search failed")
+                yield json.dumps({"type": "error", "message": str(exc)}) + "\n"
+
+    return StreamingResponse(event_stream(), media_type="application/x-ndjson")

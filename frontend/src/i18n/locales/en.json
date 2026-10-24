@@ -624,6 +624,11 @@
     "ask": "Ask",
     "asking": "Asking...",
     "thinking": "Searching the corpus and preparing an answer...",
+    "steps": {
+      "search": "Searching sources",
+      "rerank": "Reranking sources",
+      "generate": "Generating answer"
+    },
     "clear": "Clear",
     "sources": "Sources",
     "chunkNumber": "chunk {number}",
