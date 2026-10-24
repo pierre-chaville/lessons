@@ -22,6 +22,8 @@ def _import_worker_with_stubs(monkeypatch):
     fake_models = types.ModuleType("models")
     fake_models.ModelPreset = type("ModelPreset", (), {})
     fake_models.Task = type("Task", (), {})
+    fake_models.TASK_ORIGIN_LESSON = "lesson"
+    fake_models.TASK_ORIGIN_BOOKLET = "booklet"
     monkeypatch.setitem(sys.modules, "models", fake_models)
 
     fake_models_lesson = types.ModuleType("models.lesson")
@@ -65,18 +67,50 @@ def _import_worker_with_stubs(monkeypatch):
     return importlib.import_module("worker")
 
 
-def test_task_uses_flex_only_when_requested(monkeypatch):
+def test_task_origin_routes_booklet_launches_separately(monkeypatch):
     worker = _import_worker_with_stubs(monkeypatch)
 
-    assert worker.task_uses_flex(SimpleNamespace(parameters={"use_flex": True})) is True
-    assert worker.task_uses_flex(SimpleNamespace(parameters={"use_flex": False})) is False
-    assert worker.task_uses_flex(SimpleNamespace(parameters={"lesson_id": 1})) is False
-    assert worker.task_uses_flex(SimpleNamespace(parameters=None)) is False
+    assert worker.task_origin(SimpleNamespace(parameters={"origin": "booklet", "use_flex": True})) == "booklet"
+    assert worker.task_origin(SimpleNamespace(parameters={"origin": "lesson", "use_flex": True})) == "lesson"
+    assert worker.task_origin(SimpleNamespace(parameters={"lesson_id": 1, "use_flex": False})) == "lesson"
+    assert worker.task_origin(SimpleNamespace(parameters=None)) == "lesson"
 
 
-def test_task_worker_loop_polls_requested_flex_queue(monkeypatch):
+def test_get_pending_task_keeps_lesson_queue_free_of_booklet_work(monkeypatch):
     worker = _import_worker_with_stubs(monkeypatch)
-    task = SimpleNamespace(id=10, task_type="summary", parameters={"use_flex": True})
+    booklet_task = SimpleNamespace(
+        id=2,
+        parameters={"lesson_id": 4, "origin": "booklet", "booklet_id": 9, "use_flex": True},
+    )
+    lesson_task = SimpleNamespace(
+        id=1,
+        parameters={"lesson_id": 3, "origin": "lesson", "use_flex": False},
+    )
+    legacy_task = SimpleNamespace(id=3, parameters={"lesson_id": 5, "use_flex": True})
+
+    class FakeQuery:
+        def where(self, *_args, **_kwargs):
+            return self
+
+        def order_by(self, *_args, **_kwargs):
+            return self
+
+    class FakeSession:
+        def exec(self, _statement):
+            return iter([booklet_task, lesson_task, legacy_task])
+
+    monkeypatch.setattr(worker, "select", lambda *_args, **_kwargs: FakeQuery())
+    worker.Task.status = "status"
+    worker.Task.created_at = "created_at"
+
+    assert worker.get_pending_task(FakeSession(), origin="lesson").id == 1
+    assert worker.get_pending_task(FakeSession(), origin="booklet").id == 2
+    assert worker.get_pending_task(FakeSession()).id == 2
+
+
+def test_task_worker_loop_polls_requested_origin_queue(monkeypatch):
+    worker = _import_worker_with_stubs(monkeypatch)
+    task = SimpleNamespace(id=10, task_type="summary", parameters={"origin": "lesson"})
     calls = {"filters": [], "processed": []}
 
     class FakeSession:
@@ -89,8 +123,8 @@ def test_task_worker_loop_polls_requested_flex_queue(monkeypatch):
         def __exit__(self, *_args):
             return False
 
-    def fake_get_pending_task(_session, use_flex=None):
-        calls["filters"].append(use_flex)
+    def fake_get_pending_task(_session, origin=None):
+        calls["filters"].append(origin)
         return task
 
     def fake_process_task(_session, queued_task):
@@ -103,11 +137,11 @@ def test_task_worker_loop_polls_requested_flex_queue(monkeypatch):
 
     worker.should_stop = False
     try:
-        worker.task_worker_loop("flex-test", True)
+        worker.task_worker_loop("lesson-test", "lesson")
     finally:
         worker.should_stop = True
 
-    assert calls == {"filters": [True], "processed": [10]}
+    assert calls == {"filters": ["lesson"], "processed": [10]}
 
 
 def test_process_task_dispatches_summary_only(monkeypatch):

@@ -13,6 +13,7 @@ from sqlmodel import Session, select
 from auth import _extract_role, require_roles
 from database import get_session
 from models import BookletStatus, GenerationFormat, Lesson
+from models.task import TASK_ORIGIN_BOOKLET
 from schemas.booklet import (
     BookletCreate,
     BookletDetailResponse,
@@ -533,7 +534,12 @@ def launch_booklet_tasks(
                         provided_params = maybe_params
                         break
         for lesson_id in lesson_ids:
-            task_parameters = {"lesson_id": lesson_id, **provided_params}
+            task_parameters = {
+                "lesson_id": lesson_id,
+                **provided_params,
+                "origin": TASK_ORIGIN_BOOKLET,
+                "booklet_id": booklet_id,
+            }
             created = crud.create_task(
                 session=session,
                 task_type=task_type,
