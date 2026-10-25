@@ -7,7 +7,7 @@ from datetime import datetime
 
 from sqlalchemy import bindparam, text
 from sqlmodel import Session
-from typing import List, Optional
+from typing import Iterator, List, Optional
 
 import crud
 import search_utils
@@ -55,7 +55,14 @@ def _build_course_resp(course) -> CourseResponse | None:
 
 def _build_theme_resps(themes) -> list[ThemeResponse]:
     return [
-        ThemeResponse(id=t.id, hashid=encode_id(t.id), name=t.name)
+        ThemeResponse(
+            id=t.id,
+            hashid=encode_id(t.id),
+            name=t.name,
+            description=getattr(t, "description", None),
+            parent_id=getattr(t, "parent_id", None),
+            sort_order=getattr(t, "sort_order", 0) or 0,
+        )
         for t in themes
     ]
 
@@ -331,24 +338,51 @@ def _to_citation(
     )
 
 
-def answer_rag_question(
+def _chunk_text(chunk) -> str:
+    """Extract plain text from a LangChain chat stream chunk."""
+    content = getattr(chunk, "content", None)
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict):
+                if block.get("type") == "text" or "text" in block:
+                    parts.append(str(block.get("text") or ""))
+            else:
+                text = getattr(block, "text", None)
+                if text:
+                    parts.append(str(text))
+        return "".join(parts)
+    return str(content)
+
+
+def iter_answer_rag_question(
     question: str,
     session: Session,
     lesson_ids: Optional[list[int]] = None,
     variant: str = "edited",
-) -> RagSearchResponse:
+) -> Iterator[dict]:
+    """Yield progress events, answer tokens, then a final result event."""
     clean_question = question.strip()
     if not clean_question:
-        return RagSearchResponse(answer="", citations=[])
+        yield {"type": "result", "answer": "", "citations": []}
+        return
 
     scoped_lesson_ids = None
     if lesson_ids is not None:
         scoped_lesson_ids = [int(lesson_id) for lesson_id in lesson_ids if int(lesson_id) > 0]
         if not scoped_lesson_ids:
-            return RagSearchResponse(
-                answer="No lessons match the selected context scope.",
-                citations=[],
-            )
+            yield {
+                "type": "result",
+                "answer": "No lessons match the selected context scope.",
+                "citations": [],
+            }
+            return
 
     config = load_config()
     rag_config = config.get("rag") if isinstance(config.get("rag"), dict) else {}
@@ -361,6 +395,7 @@ def answer_rag_question(
     llm_model = str(rag_config.get("llm_model") or "openai/gpt-5.4")
     llm_prompt = str(rag_config.get("llm_prompt") or "")
 
+    yield {"type": "progress", "step": "search"}
     query_embedding = embed_texts_openrouter([clean_question], embedding_model)[0]
     candidates = _merge_candidates([
         *_fetch_vector_candidates(session, query_embedding, scoped_lesson_ids, source_variant, retrieval_k),
@@ -368,11 +403,14 @@ def answer_rag_question(
     ])
 
     if not candidates:
-        return RagSearchResponse(
-            answer="I could not find relevant lesson excerpts for this question in the selected scope.",
-            citations=[],
-        )
+        yield {
+            "type": "result",
+            "answer": "I could not find relevant lesson excerpts for this question in the selected scope.",
+            "citations": [],
+        }
+        return
 
+    yield {"type": "progress", "step": "rerank"}
     selected = candidates[:reranking_top_n]
     rerank_scores_by_chunk_id: dict[int, float] = {}
     try:
@@ -392,16 +430,23 @@ def answer_rag_question(
     except Exception as exc:
         logger.warning("RAG reranking failed; using combined retrieval scores: %s", exc)
 
+    yield {"type": "progress", "step": "generate"}
     prompt = _build_answer_prompt(clean_question, selected, llm_prompt)
     llm = get_llm_model(
         provider="openrouter",
         model=llm_model,
         temperature=0.2,
     )
-    response = llm.invoke(prompt)
-    register_token_usage_from_response(response)
-    answer = getattr(response, "content", str(response))
+    answer_parts: list[str] = []
+    for chunk in llm.stream(prompt):
+        register_token_usage_from_response(chunk)
+        token = _chunk_text(chunk)
+        if not token:
+            continue
+        answer_parts.append(token)
+        yield {"type": "token", "content": token}
 
+    answer = "".join(answer_parts)
     used_reference_numbers = _extract_used_reference_numbers(str(answer or ""), len(selected))
     citations = []
     for reference_number in used_reference_numbers:
@@ -414,4 +459,26 @@ def answer_rag_question(
                 reference_number,
             )
         )
-    return RagSearchResponse(answer=str(answer or "").strip(), citations=citations)
+    result = RagSearchResponse(answer=str(answer or "").strip(), citations=citations)
+    yield {"type": "result", **result.model_dump(mode="json")}
+
+
+def answer_rag_question(
+    question: str,
+    session: Session,
+    lesson_ids: Optional[list[int]] = None,
+    variant: str = "edited",
+) -> RagSearchResponse:
+    final: RagSearchResponse | None = None
+    for event in iter_answer_rag_question(
+        question=question,
+        session=session,
+        lesson_ids=lesson_ids,
+        variant=variant,
+    ):
+        if event.get("type") != "result":
+            continue
+        final = RagSearchResponse.model_validate(
+            {key: value for key, value in event.items() if key != "type"}
+        )
+    return final or RagSearchResponse(answer="", citations=[])

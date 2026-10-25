@@ -8,10 +8,18 @@ import {
   TrashIcon,
 } from '@heroicons/vue/24/outline'
 import { usePermissions } from '@/composables/usePermissions'
-import type { CourseTreeNode } from '@/api/types'
+import type { Resource } from '@/types'
+
+interface OrgTreeNode {
+  id: number
+  hashid: string
+  name: string
+  lesson_count: number
+  children: OrgTreeNode[]
+}
 
 const props = withDefaults(defineProps<{
-  node: CourseTreeNode
+  node: OrgTreeNode
   depth: number
   expanded: Set<number>
   selectedId?: number | null
@@ -21,6 +29,8 @@ const props = withDefaults(defineProps<{
   isLast?: boolean
   draggedId?: number | null
   dropTargetId?: number | null
+  permissionResource?: Resource
+  nodeIdLabel?: string
 }>(), {
   selectedId: null,
   showActions: true,
@@ -29,18 +39,20 @@ const props = withDefaults(defineProps<{
   isLast: false,
   draggedId: null,
   dropTargetId: null,
+  permissionResource: 'courses',
+  nodeIdLabel: 'Course ID',
 })
 
 const emit = defineEmits<{
   (e: 'toggle', id: number): void
-  (e: 'edit', node: CourseTreeNode): void
-  (e: 'delete', node: CourseTreeNode): void
-  (e: 'select', node: CourseTreeNode): void
-  (e: 'moveUp', node: CourseTreeNode): void
-  (e: 'moveDown', node: CourseTreeNode): void
-  (e: 'dragStart', node: CourseTreeNode): void
-  (e: 'dragEnter', node: CourseTreeNode): void
-  (e: 'drop', node: CourseTreeNode): void
+  (e: 'edit', node: OrgTreeNode): void
+  (e: 'delete', node: OrgTreeNode): void
+  (e: 'select', node: OrgTreeNode): void
+  (e: 'moveUp', node: OrgTreeNode): void
+  (e: 'moveDown', node: OrgTreeNode): void
+  (e: 'dragStart', node: OrgTreeNode): void
+  (e: 'dragEnter', node: OrgTreeNode): void
+  (e: 'drop', node: OrgTreeNode): void
   (e: 'dragEnd'): void
 }>()
 
@@ -49,7 +61,7 @@ const { can } = usePermissions()
 const hasChildren = () => props.node.children.length > 0
 const isExpanded = () => props.expanded.has(props.node.id)
 const isSelected = () => props.selectedId === props.node.id
-const canDrag = () => props.showActions && can('courses', 'update')
+const canDrag = () => props.showActions && can(props.permissionResource, 'update')
 const isDropTarget = () => props.dropTargetId === props.node.id && props.draggedId !== props.node.id
 
 const handleRowClick = () => {
@@ -139,13 +151,13 @@ const handleDrop = (event: DragEvent) => {
       <span
         v-if="showCourseId"
         class="flex-shrink-0 rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[11px] font-medium text-gray-500 dark:bg-gray-700 dark:text-gray-400"
-        :title="`Course ID: ${node.id}`"
+        :title="`${nodeIdLabel}: ${node.id}`"
       >
         #{{ node.id }}
       </span>
 
       <!-- Move up/down buttons (Courses page only) -->
-      <template v-if="showActions && can('courses', 'update')">
+      <template v-if="showActions && can(permissionResource, 'update')">
         <button
           :disabled="isFirst"
           class="flex-shrink-0 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-all disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
@@ -164,7 +176,7 @@ const handleDrop = (event: DragEvent) => {
 
       <!-- Edit button (Courses page only) -->
       <button
-        v-if="showActions && can('courses', 'update')"
+        v-if="showActions && can(permissionResource, 'update')"
         class="flex-shrink-0 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-all"
         @click.stop="emit('edit', node)"
       >
@@ -173,7 +185,7 @@ const handleDrop = (event: DragEvent) => {
 
       <!-- Delete button (Courses page only) -->
       <button
-        v-if="showActions && can('courses', 'delete')"
+        v-if="showActions && can(permissionResource, 'delete')"
         class="flex-shrink-0 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-red-100 dark:hover:bg-red-900/30 text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-all"
         @click.stop="emit('delete', node)"
       >
@@ -201,6 +213,8 @@ const handleDrop = (event: DragEvent) => {
         :is-last="idx === node.children.length - 1"
         :dragged-id="draggedId"
         :drop-target-id="dropTargetId"
+        :permission-resource="permissionResource"
+        :node-id-label="nodeIdLabel"
         @toggle="(id) => emit('toggle', id)"
         @edit="(n) => emit('edit', n)"
         @delete="(n) => emit('delete', n)"

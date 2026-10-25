@@ -42,9 +42,11 @@ import { useToast } from '@/composables/useToast'
 import { usePermissions } from '@/composables/usePermissions'
 import { useAuth } from '@/composables/useAuth'
 import { formatApiDateTime } from '@/utils/dateTime'
+import { hierarchyLabel } from '@/utils/hierarchyLabel'
 import VersionHistoryPanel from '@/components/VersionHistoryPanel.vue'
 import MilkdownEditor from '@/components/MilkdownEditor.vue'
 import LessonDocumentModal from '@/components/LessonDocumentModal.vue'
+import MultiSelectDropdown from '@/components/MultiSelectDropdown.vue'
 import type {
   LessonDetail as LessonDetailType,
   LessonSource,
@@ -56,6 +58,7 @@ import type {
   Theme,
   ContentType,
   AuditLogRow,
+  Task,
 } from '@/api/types'
 
 const props = defineProps<{
@@ -387,12 +390,19 @@ const selectedSourcesPrompt = ref('')
 const availableSourcesPrompts = ref<Array<{ name: string; text: string }>>([])
 const useFlexMode = ref(false)
 const isCreatingTasks = ref(false)
+const isCheckingActiveTasks = ref(false)
+const launchBlockedMessage = ref('')
 
 // Configure marked options
 marked.setOptions({ breaks: true, gfm: true })
 
-// Processing status
-const isProcessing = computed(() => !!props.lesson.process_status)
+// Processing status. A newly created session queues transcription before
+// process_status is set, so that pending task has to count as processing too.
+const hasPendingTranscription = ref(false)
+const isTranscriptionProcessing = computed(
+  () => props.lesson.process_status === 'transcript' || hasPendingTranscription.value,
+)
+const isProcessing = computed(() => !!props.lesson.process_status || hasPendingTranscription.value)
 
 const processStatusLabel = computed(() => {
   const statusMap: Record<string, string> = {
@@ -411,6 +421,27 @@ const processStatusLabel = computed(() => {
 let refreshInterval: ReturnType<typeof setInterval> | null = null
 let awaitingProcessing = false  // true after creating tasks, before worker picks them up
 
+const transcriptReady = (lesson: { transcript?: { text?: string }[] | null }) =>
+  !!(lesson.transcript && lesson.transcript.length > 0)
+
+const taskLessonId = (task: Task): number | null => {
+  const rawLessonId = task.parameters?.lesson_id
+  if (typeof rawLessonId === 'number' && Number.isFinite(rawLessonId)) return rawLessonId
+  if (typeof rawLessonId === 'string') {
+    const parsed = Number(rawLessonId)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return null
+}
+
+const transcriptionTaskActive = (tasks: Task[]) =>
+  tasks.some(
+    (task) =>
+      taskLessonId(task) === props.lesson.id &&
+      task.task_type === 'transcription' &&
+      (task.status === 'pending' || task.status === 'running'),
+  )
+
 const refreshLesson = async () => {
   try {
     const updated = await lessonsApi.get(props.lesson.hashid)
@@ -418,9 +449,37 @@ const refreshLesson = async () => {
     if (updated.process_status) {
       // Worker has picked up the task — no longer "awaiting"
       awaitingProcessing = false
-    } else if (!awaitingProcessing) {
-      // Processing finished (status went from non-null → null) — stop polling
+      return
+    }
+    if (transcriptReady(updated)) {
+      hasPendingTranscription.value = false
+      awaitingProcessing = false
       stopPolling()
+      return
+    }
+    if (hasPendingTranscription.value || awaitingProcessing) {
+      const tasks = await tasksApi.list()
+      const stillTranscribing = transcriptionTaskActive(tasks)
+      hasPendingTranscription.value = stillTranscribing
+      if (!stillTranscribing) {
+        awaitingProcessing = false
+        stopPolling()
+      }
+      return
+    }
+    stopPolling()
+  } catch { /* silent */ }
+}
+
+const watchForTranscription = async () => {
+  if (transcriptReady(props.lesson) || props.lesson.process_status) return
+  try {
+    const tasks = await tasksApi.list()
+    const stillTranscribing = transcriptionTaskActive(tasks)
+    hasPendingTranscription.value = stillTranscribing
+    if (stillTranscribing) {
+      awaitingProcessing = true
+      startPolling()
     }
   } catch { /* silent */ }
 }
@@ -444,6 +503,11 @@ watch(isProcessing, (processing) => {
   } else if (!awaitingProcessing) {
     stopPolling()
   }
+}, { immediate: true })
+
+watch(() => props.lesson.id, () => {
+  hasPendingTranscription.value = false
+  void watchForTranscription()
 }, { immediate: true })
 
 onBeforeUnmount(() => {
@@ -1637,6 +1701,8 @@ const fetchThemes = async () => {
   try { themes.value = await themesApi.list() } catch { /* silent */ }
 }
 
+const themeLabel = (theme: Theme) => hierarchyLabel(theme, themes.value)
+
 const fetchUsers = async () => {
   if (!['publisher', 'admin'].includes(role.value)) return
   try { users.value = await usersApi.list() } catch { /* silent */ }
@@ -1840,26 +1906,21 @@ const saveLesson = async () => {
   }
 }
 
-const toggleTheme = (themeId: number) => {
-  const index = editedLesson.value.theme_ids.indexOf(themeId)
-  if (index === -1) {
-    editedLesson.value.theme_ids.push(themeId)
-  } else {
-    editedLesson.value.theme_ids.splice(index, 1)
-  }
-}
-
-const toggleEditor = (userId: string) => {
-  const index = editedLesson.value.editor_ids.indexOf(userId)
-  if (index === -1) {
-    editedLesson.value.editor_ids.push(userId)
-  } else {
-    editedLesson.value.editor_ids.splice(index, 1)
-  }
-}
-
 const editorRoleUsers = computed(() =>
   users.value.filter((u) => u.role && ['editor', 'publisher', 'admin'].includes(u.role))
+)
+
+const themeOptions = computed(() =>
+  themes.value.map((theme) => ({ value: theme.id, label: themeLabel(theme) })),
+)
+
+const editorLabel = (editor: { id: string; first_name?: string | null; last_name?: string | null; email?: string | null }) =>
+  [editor.first_name, editor.last_name].filter(Boolean).join(' ') || editor.email || editor.id
+
+const editorOptions = computed(() =>
+  editorRoleUsers.value
+    .map((editor) => ({ value: editor.id, label: editorLabel(editor) }))
+    .sort((a, b) => a.label.localeCompare(b.label)),
 )
 
 // Delete lesson functions
@@ -1882,10 +1943,24 @@ const deleteLesson = async () => {
 // Process option availability: depends on existing data + selected options
 const hasTranscript = computed(() => !!(props.lesson.transcript && props.lesson.transcript.length > 0))
 const hasCorrectedTranscript = computed(() => !!(props.lesson.corrected_transcript && props.lesson.corrected_transcript.length > 0))
+const hasExistingCorrection = computed(() => {
+  const corrected = props.lesson.corrected_transcript
+  if (!corrected || corrected.length === 0) return false
+  const metadata = props.lesson.correction_metadata
+  if (metadata && Object.keys(metadata).length > 0) return true
+  const raw = props.lesson.transcript
+  if (!raw || raw.length === 0) return true
+  if (corrected.length !== raw.length) return true
+  return corrected.some((segment, index) => (segment.text ?? '') !== (raw[index]?.text ?? ''))
+})
 const hasEditedTranscript = computed(() => editedParts.value.length > 0)
 const hasSourcesExtracted = computed(() => {
   return !!(props.lesson.sources && props.lesson.sources.length > 0)
 })
+const hasVerifiedSources = computed(() =>
+  (props.lesson.sources ?? []).some((source) => source.verification_status != null),
+)
+const hasBriefContent = computed(() => !!props.lesson.brief)
 
 const WORKFLOW_STEPS: LessonWorkflowStep[] = [
   'transcription',
@@ -2061,6 +2136,7 @@ const onLessonStatusSelection = (event: Event) => {
   updateStatus(target)
 }
 
+const canTranscribe = computed(() => !hasTranscript.value && !isTranscriptionProcessing.value)
 const canCorrect = computed(() => hasTranscript.value || selectedProcesses.value.transcribe)
 const canEdition = computed(() => hasCorrectedTranscript.value || selectedProcesses.value.correct)
 const canExtraction = computed(() => hasEditedTranscript.value || selectedProcesses.value.edition)
@@ -2069,7 +2145,8 @@ const canSummary = computed(() => hasEditedTranscript.value || selectedProcesses
 const canBrief = computed(() => !!props.lesson.summary || selectedProcesses.value.summary)
 
 // Uncheck options that become disabled
-watch([canCorrect, canEdition, canExtraction, canSources, canSummary, canBrief], () => {
+watch([canTranscribe, canCorrect, canEdition, canExtraction, canSources, canSummary, canBrief], () => {
+  if (!canTranscribe.value) selectedProcesses.value.transcribe = false
   if (!canCorrect.value) selectedProcesses.value.correct = false
   if (!canEdition.value) selectedProcesses.value.edition = false
   if (!canExtraction.value) selectedProcesses.value.extraction = false
@@ -2078,8 +2155,35 @@ watch([canCorrect, canEdition, canExtraction, canSources, canSummary, canBrief],
   if (!canBrief.value) selectedProcesses.value.brief = false
 })
 
+const sessionHasActiveTasks = (tasks: Task[]): boolean =>
+  tasks.some(
+    (task) =>
+      taskLessonId(task) === props.lesson.id &&
+      (task.status === 'pending' || task.status === 'running'),
+  )
+
 // Process tasks modal functions
 const openProcessModal = async () => {
+  if (isCheckingActiveTasks.value) return
+  launchBlockedMessage.value = ''
+  if (isProcessing.value) {
+    launchBlockedMessage.value = t('lessons.cannotLaunchWhileTasksActive')
+    return
+  }
+  isCheckingActiveTasks.value = true
+  try {
+    const tasks = await tasksApi.list()
+    if (sessionHasActiveTasks(tasks)) {
+      launchBlockedMessage.value = t('lessons.cannotLaunchWhileTasksActive')
+      return
+    }
+  } catch {
+    launchBlockedMessage.value = t('lessons.tasksCheckFailed')
+    return
+  } finally {
+    isCheckingActiveTasks.value = false
+  }
+
   selectedProcesses.value = {
     transcribe: false, correct: false, edition: false, extraction: false, summary: false, brief: false, sources: false,
   }
@@ -2115,7 +2219,7 @@ const closeProcessModal = () => { showProcessModal.value = false }
 
 const selectAllRemaining = () => {
   // Select all steps that haven't been completed yet
-  if (!hasTranscript.value) selectedProcesses.value.transcribe = true
+  if (canTranscribe.value) selectedProcesses.value.transcribe = true
   if (!hasCorrectedTranscript.value) selectedProcesses.value.correct = true
   if (!hasEditedTranscript.value) selectedProcesses.value.edition = true
   if (!hasSourcesExtracted.value) selectedProcesses.value.extraction = true
@@ -2134,7 +2238,9 @@ const createTasks = async () => {
   try {
     isCreatingTasks.value = true
     const taskOrder = ['transcribe', 'correct', 'edition', 'extraction', 'summary', 'brief', 'sources']
-    const orderedTasks = taskOrder.filter((t) => selectedTasks.includes(t))
+    const orderedTasks = taskOrder.filter(
+      (taskType) => selectedTasks.includes(taskType) && (taskType !== 'transcribe' || canTranscribe.value),
+    )
     const taskTypeMap: Record<string, string> = {
       transcribe: 'transcription', correct: 'correction', edition: 'edition',
       extraction: 'extraction', summary: 'summary', brief: 'brief', sources: 'sources',
@@ -2334,12 +2440,18 @@ const saveParagraph = async () => {
 
           <!-- Process Selection -->
           <div class="space-y-2 mb-6">
-            <!-- Transcribe (always available) -->
-            <label class="flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors">
+            <!-- Transcribe (unavailable once a transcript already exists) -->
+            <label :class="[
+              'flex items-center gap-3 p-3 rounded-lg border transition-colors',
+              canTranscribe
+                ? 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer'
+                : 'border-gray-100 dark:border-gray-800 opacity-50 cursor-not-allowed'
+            ]">
               <input
                 type="checkbox"
                 v-model="selectedProcesses.transcribe"
-                class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                :disabled="!canTranscribe"
+                class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 disabled:opacity-50"
               />
               <div>
                 <div class="text-sm font-medium text-gray-900 dark:text-white">
@@ -2369,9 +2481,16 @@ const saveParagraph = async () => {
                   <div class="text-sm font-medium text-gray-900 dark:text-white">
                     {{ t('lessons.processCorrect') }}
                   </div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400">
+                  <div v-if="!(selectedProcesses.correct && hasExistingCorrection)" class="text-xs text-gray-500 dark:text-gray-400">
                     {{ t('lessons.processCorrectDesc') }}
                   </div>
+                  <p
+                    v-else
+                    class="flex items-start gap-1 text-xs font-medium text-amber-700 dark:text-amber-300"
+                  >
+                    <ExclamationTriangleIcon class="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                    <span>{{ t('lessons.replaceCorrectionWarning') }}</span>
+                  </p>
                 </div>
               </label>
               <div v-if="selectedProcesses.correct && availableCorrectionPrompts.length > 0">
@@ -2411,9 +2530,16 @@ const saveParagraph = async () => {
                   <div class="text-sm font-medium text-gray-900 dark:text-white">
                     {{ t('lessons.processEdition') }}
                   </div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400">
+                  <div v-if="!(selectedProcesses.edition && hasEditedTranscript)" class="text-xs text-gray-500 dark:text-gray-400">
                     {{ t('lessons.processEditionDesc') }}
                   </div>
+                  <p
+                    v-else
+                    class="flex items-start gap-1 text-xs font-medium text-amber-700 dark:text-amber-300"
+                  >
+                    <ExclamationTriangleIcon class="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                    <span>{{ t('lessons.replaceEditionWarning') }}</span>
+                  </p>
                 </div>
               </label>
               <div v-if="selectedProcesses.edition && availableEditionPrompts.length > 0">
@@ -2453,9 +2579,16 @@ const saveParagraph = async () => {
                   <div class="text-sm font-medium text-gray-900 dark:text-white">
                     {{ t('lessons.processExtraction') }}
                   </div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400">
+                  <div v-if="!(selectedProcesses.extraction && hasSourcesExtracted)" class="text-xs text-gray-500 dark:text-gray-400">
                     {{ t('lessons.processExtractionDesc') }}
                   </div>
+                  <p
+                    v-else
+                    class="flex items-start gap-1 text-xs font-medium text-amber-700 dark:text-amber-300"
+                  >
+                    <ExclamationTriangleIcon class="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                    <span>{{ t('lessons.replaceExtractionWarning') }}</span>
+                  </p>
                 </div>
               </label>
               <div v-if="selectedProcesses.extraction && availableExtractionPrompts.length > 0">
@@ -2495,9 +2628,16 @@ const saveParagraph = async () => {
                   <div class="text-sm font-medium text-gray-900 dark:text-white">
                     {{ t('lessons.processSources') }}
                   </div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400">
+                  <div v-if="!(selectedProcesses.sources && hasVerifiedSources)" class="text-xs text-gray-500 dark:text-gray-400">
                     {{ t('lessons.processSourcesDesc') }}
                   </div>
+                  <p
+                    v-else
+                    class="flex items-start gap-1 text-xs font-medium text-amber-700 dark:text-amber-300"
+                  >
+                    <ExclamationTriangleIcon class="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                    <span>{{ t('lessons.replaceSourcesWarning') }}</span>
+                  </p>
                 </div>
               </label>
               <div v-if="selectedProcesses.sources && availableSourcesPrompts.length > 0">
@@ -2537,9 +2677,16 @@ const saveParagraph = async () => {
                   <div class="text-sm font-medium text-gray-900 dark:text-white">
                     {{ t('lessons.processSummary') }}
                   </div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400">
+                  <div v-if="!(selectedProcesses.summary && hasSummary)" class="text-xs text-gray-500 dark:text-gray-400">
                     {{ t('lessons.processSummaryDesc') }}
                   </div>
+                  <p
+                    v-else
+                    class="flex items-start gap-1 text-xs font-medium text-amber-700 dark:text-amber-300"
+                  >
+                    <ExclamationTriangleIcon class="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                    <span>{{ t('lessons.replaceSummaryWarning') }}</span>
+                  </p>
                 </div>
               </label>
               <div v-if="selectedProcesses.summary && availableSummaryPrompts.length > 0">
@@ -2579,9 +2726,16 @@ const saveParagraph = async () => {
                   <div class="text-sm font-medium text-gray-900 dark:text-white">
                     {{ t('lessons.processBrief') }}
                   </div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400">
+                  <div v-if="!(selectedProcesses.brief && hasBriefContent)" class="text-xs text-gray-500 dark:text-gray-400">
                     {{ t('lessons.processBriefDesc') }}
                   </div>
+                  <p
+                    v-else
+                    class="flex items-start gap-1 text-xs font-medium text-amber-700 dark:text-amber-300"
+                  >
+                    <ExclamationTriangleIcon class="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                    <span>{{ t('lessons.replaceBriefWarning') }}</span>
+                  </p>
                 </div>
               </label>
             </div>
@@ -2793,21 +2947,11 @@ const saveParagraph = async () => {
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   {{ t('lessons.themes') }}
                 </label>
-                <div class="flex flex-wrap gap-2">
-                  <button
-                    v-for="theme in themes"
-                    :key="theme.id"
-                    @click="toggleTheme(theme.id)"
-                    :class="[
-                      'px-3 py-1.5 rounded-full text-sm font-medium transition-colors',
-                      editedLesson.theme_ids.includes(theme.id)
-                        ? 'bg-indigo-600 text-white'
-                        : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
-                    ]"
-                  >
-                    {{ theme.name }}
-                  </button>
-                </div>
+                <MultiSelectDropdown
+                  v-model="editedLesson.theme_ids"
+                  :options="themeOptions"
+                  :placeholder="t('lessons.selectThemes')"
+                />
               </div>
 
               <!-- Editors -->
@@ -2815,21 +2959,12 @@ const saveParagraph = async () => {
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   {{ t('lessons.editors') }}
                 </label>
-                <div class="flex flex-wrap gap-2">
-                  <button
-                    v-for="user in editorRoleUsers"
-                    :key="user.id"
-                    @click="toggleEditor(user.id)"
-                    :class="[
-                      'px-3 py-1.5 rounded-full text-sm font-medium transition-colors',
-                      editedLesson.editor_ids.includes(user.id)
-                        ? 'bg-sky-600 text-white'
-                        : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
-                    ]"
-                  >
-                    {{ [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email || user.id }}
-                  </button>
-                </div>
+                <MultiSelectDropdown
+                  v-model="editedLesson.editor_ids"
+                  :options="editorOptions"
+                  :placeholder="t('lessons.selectEditors')"
+                  accent="sky"
+                />
               </div>
             </div>
           </div>
@@ -2924,7 +3059,7 @@ const saveParagraph = async () => {
         </svg>
         <div>
           <span class="font-medium text-amber-800 dark:text-amber-300">
-            {{ t('lessons.processingStatus') }}: {{ processStatusLabel }}
+            {{ isTranscriptionProcessing ? t('lessons.transcriptionBeingProcessed') : `${t('lessons.processingStatus')}: ${processStatusLabel}` }}
           </span>
           <span class="ml-2 text-sm text-amber-700 dark:text-amber-400">
             — {{ t('lessons.processingMessage') }}
@@ -2932,8 +3067,9 @@ const saveParagraph = async () => {
         </div>
       </div>
 
-      <!-- Lesson Header -->
-      <div data-tour="detail-header" class="bg-white dark:bg-gray-800 shadow-sm rounded-lg p-6 mb-6 transition-colors">
+      <!-- Lesson details and workflow -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+      <div data-tour="detail-header" class="lg:col-span-2 bg-white dark:bg-gray-800 shadow-sm rounded-lg border border-gray-200 dark:border-gray-700 p-6 transition-colors">
         <div class="mb-4">
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div class="flex items-start gap-4 min-w-0">
@@ -2977,9 +3113,6 @@ const saveParagraph = async () => {
           </div>
         </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <!-- Left: lesson metadata/content -->
-          <div class="lg:col-span-2">
             <div
               v-if="lessonCoursePath"
               class="mb-3 flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300"
@@ -3072,10 +3205,10 @@ const saveParagraph = async () => {
               </span>
             </div>
 
-          </div>
+      </div>
 
-          <!-- Right: workflow -->
-          <div data-tour="detail-workflow" class="lg:col-span-1">
+      <!-- Workflow -->
+      <div data-tour="detail-workflow" class="bg-white dark:bg-gray-800 shadow-sm rounded-lg border border-gray-200 dark:border-gray-700 p-5 transition-colors">
             <div class="mb-3 flex items-center justify-between gap-3">
               <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200">
                 {{ t('lessons.workflow') }}
@@ -3084,18 +3217,19 @@ const saveParagraph = async () => {
                 v-if="!isEditingLesson && canEditLesson"
                 data-tour="detail-process-button"
                 @click="openProcessModal"
-                :disabled="isProcessing"
-                :class="[
-                  'inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-md transition-colors',
-                  isProcessing
-                    ? 'bg-indigo-400 text-white cursor-not-allowed opacity-50'
-                    : 'text-white bg-indigo-600 hover:bg-indigo-700'
-                ]"
+                :disabled="isCheckingActiveTasks"
+                class="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-md transition-colors text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <CogIcon class="h-3.5 w-3.5" />
                 {{ t('lessons.processLesson') }}
               </button>
             </div>
+            <p
+              v-if="launchBlockedMessage"
+              class="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-200"
+            >
+              {{ launchBlockedMessage }}
+            </p>
 
             <div class="space-y-2">
               <div v-if="lesson.editors && lesson.editors.length > 0" class="flex items-center justify-between gap-3 py-1">
@@ -3193,8 +3327,6 @@ const saveParagraph = async () => {
 
             </div>
           </div>
-        </div>
-        
       </div>
 
       <!-- Content Section with Toggle -->

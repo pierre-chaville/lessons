@@ -7,6 +7,7 @@ from typing import List, Dict, Any
 import crud
 from auth import require_roles, _extract_role
 from database import get_session
+from models.task import TASK_ORIGIN_LESSON
 from schemas.task import TaskCreate, TaskResponse
 from services.audit import log_event
 
@@ -41,10 +42,12 @@ def create_task(
                     status_code=403,
                     detail="You are not assigned as an editor for this lesson",
                 )
+    parameters = dict(task.parameters or {})
+    parameters["origin"] = TASK_ORIGIN_LESSON
     created = crud.create_task(
         session=session,
         task_type=task.task_type,
-        parameters=task.parameters,
+        parameters=parameters,
         created_by_id=claims.get("sub"),
     )
     lesson_id = (task.parameters or {}).get("lesson_id")
@@ -113,6 +116,10 @@ def create_test_task(
     return crud.create_task(
         session=session,
         task_type=task_type,
-        parameters={"test": True, "message": f"Test {task_type} task"},
+        parameters={
+            "test": True,
+            "message": f"Test {task_type} task",
+            "origin": TASK_ORIGIN_LESSON,
+        },
         created_by_id=_.get("sub"),
     )

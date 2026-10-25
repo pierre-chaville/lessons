@@ -105,14 +105,32 @@ export interface Theme {
   id: number
   hashid: string
   name: string
+  description: string | null
+  parent_id: number | null
+  sort_order: number
+}
+
+export interface ThemeTreeNode {
+  id: number
+  hashid: string
+  name: string
+  description: string | null
+  parent_id: number | null
+  sort_order: number
+  lesson_count: number
+  children: ThemeTreeNode[]
 }
 
 export interface ThemeCreate {
   name: string
+  description?: string | null
+  parent_id?: number | null
 }
 
 export interface ThemeUpdate {
   name?: string
+  description?: string | null
+  parent_id?: number | null
 }
 
 // ── Glossary ──────────────────────────────────────────────────────────────────

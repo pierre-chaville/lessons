@@ -8,7 +8,7 @@ import time
 from datetime import datetime
 from sqlmodel import Session, select
 from database import engine
-from models import ModelPreset, Task
+from models import TASK_ORIGIN_BOOKLET, TASK_ORIGIN_LESSON, ModelPreset, Task
 from models.lesson import Lesson
 from services import (
     correct_transcript,
@@ -171,20 +171,26 @@ def set_lesson_process_status(session: Session, lesson_id: int, status: str | No
         session.refresh(lesson)
 
 
-def task_uses_flex(task: Task) -> bool:
-    """Return whether a task was requested with OpenRouter flex mode."""
+def task_origin(task: Task) -> str:
+    """Return the launch origin that selects this task's worker queue.
+
+    Tasks without an origin stay on the lesson queue. That covers lesson-page
+    launches and any tasks created before booklet launches were tagged.
+    """
     params = task.parameters or {}
     if not isinstance(params, dict):
-        return False
-    return bool(params.get("use_flex", False))
+        return TASK_ORIGIN_LESSON
+    if params.get("origin") == TASK_ORIGIN_BOOKLET:
+        return TASK_ORIGIN_BOOKLET
+    return TASK_ORIGIN_LESSON
 
 
-def get_pending_task(session: Session, use_flex: bool | None = None) -> Task | None:
-    """Get the oldest pending task, optionally scoped to flex/non-flex mode."""
+def get_pending_task(session: Session, origin: str | None = None) -> Task | None:
+    """Get the oldest pending task, optionally scoped to a launch origin."""
     statement = select(Task).where(Task.status == "pending").order_by(Task.created_at)
     pending_tasks = session.exec(statement)
     for task in pending_tasks:
-        if use_flex is None or task_uses_flex(task) == use_flex:
+        if origin is None or task_origin(task) == origin:
             return task
     return None
 
@@ -746,22 +752,21 @@ def rag_embedding_refresh_loop():
     logger.info("RAG embedding refresh loop stopped")
 
 
-def task_worker_loop(worker_name: str, use_flex: bool):
+def task_worker_loop(worker_name: str, origin: str):
     """Poll and process one task queue serially."""
-    mode_label = "flex" if use_flex else "non-flex"
-    logger.info("%s task worker started, polling for %s tasks...", worker_name, mode_label)
+    logger.info("%s task worker started, polling for %s tasks...", worker_name, origin)
     while not should_stop:
         try:
             found_task = False
             with Session(engine) as session:
-                task = get_pending_task(session, use_flex=use_flex)
+                task = get_pending_task(session, origin=origin)
 
                 if task:
                     found_task = True
                     logger.info(
                         "%s found pending %s task %s of type '%s'",
                         worker_name,
-                        mode_label,
+                        origin,
                         task.id,
                         task.task_type,
                     )
@@ -783,8 +788,8 @@ def task_worker_loop(worker_name: str, use_flex: bool):
 
 
 def worker_loop():
-    """Main worker supervisor that runs flex and non-flex task loops."""
-    logger.info("Worker started, polling for flex and non-flex tasks...")
+    """Run the lesson-page queue and the booklet-page queue in parallel."""
+    logger.info("Worker started, polling for lesson and booklet tasks...")
 
     try:
         with Session(engine) as session:
@@ -804,14 +809,14 @@ def worker_loop():
     task_threads = [
         threading.Thread(
             target=task_worker_loop,
-            args=("non-flex", False),
-            name="task-worker-non-flex",
+            args=("lesson", TASK_ORIGIN_LESSON),
+            name="task-worker-lesson",
             daemon=True,
         ),
         threading.Thread(
             target=task_worker_loop,
-            args=("flex", True),
-            name="task-worker-flex",
+            args=("booklet", TASK_ORIGIN_BOOKLET),
+            name="task-worker-booklet",
             daemon=True,
         ),
     ]

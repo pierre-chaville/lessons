@@ -374,6 +374,23 @@ def _run_migrations():
                 ))
             logger.info("Migration: added 'sort_order' column to course table")
 
+    if "theme" in tables:
+        columns = {col["name"] for col in inspector.get_columns("theme")}
+        with engine.begin() as conn:
+            if "description" not in columns:
+                conn.execute(text("ALTER TABLE theme ADD COLUMN description TEXT"))
+                logger.info("Migration: added 'description' column to theme table")
+            if "parent_id" not in columns:
+                conn.execute(text(
+                    "ALTER TABLE theme ADD COLUMN parent_id INTEGER REFERENCES theme(id)"
+                ))
+                logger.info("Migration: added 'parent_id' column to theme table")
+            if "sort_order" not in columns:
+                conn.execute(text(
+                    "ALTER TABLE theme ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"
+                ))
+                logger.info("Migration: added 'sort_order' column to theme table")
+
     if "task" in tables:
         columns = {col["name"] for col in inspector.get_columns("task")}
         if "created_by_id" not in columns:

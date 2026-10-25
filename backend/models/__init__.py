@@ -6,7 +6,7 @@ from models.theme import Theme
 from models.lesson import Lesson
 from models.lesson_editor import LessonEditor
 from models.lesson_source import LessonSource
-from models.task import Task
+from models.task import TASK_ORIGIN_BOOKLET, TASK_ORIGIN_LESSON, Task
 from models.model_preset import ModelPreset
 from models.glossary import GlossaryEntry
 from models.sefaria_cache import SefariaCache
@@ -31,6 +31,8 @@ __all__ = [
     "LessonEditor",
     "LessonSource",
     "Task",
+    "TASK_ORIGIN_LESSON",
+    "TASK_ORIGIN_BOOKLET",
     "ModelPreset",
     "GlossaryEntry",
     "SefariaCache",

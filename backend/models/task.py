@@ -5,6 +5,11 @@ from sqlalchemy import JSON
 from typing import Optional, Dict, Any
 from datetime import datetime
 
+# Launch origin selects which worker queue processes the task.
+# Lesson-page tasks stay on their own queue so booklet bulk launches cannot block them.
+TASK_ORIGIN_LESSON = "lesson"
+TASK_ORIGIN_BOOKLET = "booklet"
+
 
 class Task(SQLModel, table=True):
     """Background task tracking"""
