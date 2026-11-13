@@ -1,0 +1,2 @@
+# Bench-only dependencies (on top of backend/requirements.txt), not needed by the app
+rapidfuzz>=3.9

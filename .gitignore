@@ -45,3 +45,9 @@ backend/data/
 docs/guide/fr/images/
 docs/guide/fr/guide-utilisateur.pdf
 docs/guide/fr/guide-utilisateur-editeur.pdf
+
+# benchmark
+backend/bench/data/
+backend/bench/configs/
+backend/bench/prompts/
+backend/bench/results/

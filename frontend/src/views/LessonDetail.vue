@@ -1514,14 +1514,24 @@ const getExportTypeLabel = (exportType: 'summary' | 'edited' | 'transcript' | 's
 const buildLessonExportFilename = (
   exportType: 'summary' | 'edited' | 'transcript' | 'sources' | 'sources_detailed',
   extension: LessonExportFormat,
+  transcriptType?: 'initial' | 'corrected',
 ): string => {
   const datePart = formatDate(props.lesson.date) || 'undated'
   const titlePart = slugifyFilenamePart(props.lesson.title)
-  const exportTypePart = slugifyFilenamePart(getExportTypeLabel(exportType))
+  const exportTypeLabel = transcriptType === 'initial'
+    ? t('lessons.initialTranscript')
+    : transcriptType === 'corrected'
+      ? t('lessons.correctedTranscript')
+      : getExportTypeLabel(exportType)
+  const exportTypePart = slugifyFilenamePart(exportTypeLabel)
   return `${datePart}_${titlePart}_${exportTypePart}.${extension}`
 }
 
-const handleLessonExport = async (payload: { format: LessonExportFormat; includeFields: string[] }) => {
+const handleLessonExport = async (payload: {
+  format: LessonExportFormat
+  includeFields: string[]
+  transcriptType: 'initial' | 'corrected'
+}) => {
   if (isSubmittingLessonDocument.value) return
   try {
     isSubmittingLessonDocument.value = true
@@ -1531,14 +1541,17 @@ const handleLessonExport = async (payload: { format: LessonExportFormat; include
     }
     lessonExportPreferences.value = updatedPreferences
     saveLessonExportPreferences(updatedPreferences)
-    const transcriptType = props.lesson.corrected_transcript ? 'corrected' : 'initial'
     const blob = await lessonsApi.exportDocument(props.lesson.hashid, tabExportType.value, {
       format: payload.format,
       include_fields: payload.includeFields,
-      transcript_type: transcriptType,
+      transcript_type: payload.transcriptType,
       lang: locale.value,
     })
-    const filename = buildLessonExportFilename(tabExportType.value, payload.format)
+    const filename = buildLessonExportFilename(
+      tabExportType.value,
+      payload.format,
+      tabExportType.value === 'transcript' ? payload.transcriptType : undefined,
+    )
     triggerDownload(blob, filename)
     showLessonDocumentModal.value = false
   } catch {
@@ -4945,6 +4958,8 @@ const saveParagraph = async () => {
       :submitting="isSubmittingLessonDocument"
       :default-format="defaultLessonExportFormat"
       :default-fields="defaultLessonExportFields"
+      :has-initial-transcript="!!props.lesson.transcript?.length"
+      :has-corrected-transcript="!!props.lesson.corrected_transcript?.length"
       @close="closeLessonDocumentModal"
       @export="handleLessonExport"
       @import="handleLessonImport"

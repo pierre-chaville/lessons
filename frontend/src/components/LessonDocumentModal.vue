@@ -6,6 +6,7 @@ import { Dialog, DialogPanel, DialogTitle } from '@headlessui/vue'
 type ModalMode = 'export' | 'import'
 type ViewType = 'summary' | 'edited' | 'transcript'
 type ExportFormat = 'md' | 'docx' | 'pdf'
+type TranscriptType = 'initial' | 'corrected'
 
 const props = withDefaults(
   defineProps<{
@@ -15,24 +16,32 @@ const props = withDefaults(
     submitting?: boolean
     defaultFormat?: ExportFormat
     defaultFields?: string[]
+    hasInitialTranscript?: boolean
+    hasCorrectedTranscript?: boolean
   }>(),
   {
     submitting: false,
     defaultFormat: 'pdf',
     defaultFields: () => [],
+    hasInitialTranscript: false,
+    hasCorrectedTranscript: false,
   },
 )
 
 const emit = defineEmits<{
   (e: 'close'): void
-  (e: 'export', payload: { format: ExportFormat; includeFields: string[] }): void
+  (e: 'export', payload: { format: ExportFormat; includeFields: string[]; transcriptType: TranscriptType }): void
   (e: 'import', payload: { file: File | null }): void
 }>()
 
 const { t } = useI18n()
 
+const defaultTranscriptType = (): TranscriptType =>
+  props.hasCorrectedTranscript ? 'corrected' : 'initial'
+
 const selectedFormat = ref<ExportFormat>(props.defaultFormat)
 const selectedFields = ref<string[]>([...props.defaultFields])
+const selectedTranscriptType = ref<TranscriptType>(defaultTranscriptType())
 const selectedFile = ref<File | null>(null)
 
 watch(
@@ -41,9 +50,15 @@ watch(
     if (!open) return
     selectedFormat.value = props.defaultFormat
     selectedFields.value = [...props.defaultFields]
+    selectedTranscriptType.value = defaultTranscriptType()
     selectedFile.value = null
   },
 )
+
+const transcriptTypeOptions = computed(() => [
+  { value: 'initial' as const, label: t('lessons.initialTranscript'), available: props.hasInitialTranscript },
+  { value: 'corrected' as const, label: t('lessons.correctedTranscript'), available: props.hasCorrectedTranscript },
+])
 
 const exportFieldOptions = computed(() => [
   { key: 'title', label: t('lessons.lessonTitle') },
@@ -76,7 +91,11 @@ const onFileSelected = (event: Event) => {
 
 const onConfirm = () => {
   if (props.mode === 'export') {
-    emit('export', { format: selectedFormat.value, includeFields: [...selectedFields.value] })
+    emit('export', {
+      format: selectedFormat.value,
+      includeFields: [...selectedFields.value],
+      transcriptType: selectedTranscriptType.value,
+    })
     return
   }
   emit('import', { file: selectedFile.value })
@@ -93,6 +112,29 @@ const onConfirm = () => {
         </DialogTitle>
 
         <div v-if="mode === 'export'" class="space-y-5">
+          <div v-if="viewType === 'transcript'">
+            <p class="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+              {{ t('lessons.exportTranscriptVersionLabel') }}
+            </p>
+            <div class="inline-flex rounded-md border border-gray-300 dark:border-gray-600 overflow-hidden">
+              <button
+                v-for="option in transcriptTypeOptions"
+                :key="option.value"
+                type="button"
+                :disabled="!option.available"
+                @click="selectedTranscriptType = option.value"
+                :class="[
+                  'px-3 py-1.5 text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
+                  selectedTranscriptType === option.value
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-white text-gray-700 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
+                ]"
+              >
+                {{ option.label }}
+              </button>
+            </div>
+          </div>
+
           <div>
             <p class="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">
               {{ t('lessons.exportFormatLabel') }}

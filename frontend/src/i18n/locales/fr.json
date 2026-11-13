@@ -215,6 +215,7 @@
     "importModalTitle": "Importer {tab}",
     "exportFormatLabel": "Format de sortie",
     "exportFieldsLabel": "Inclure ces champs au début",
+    "exportTranscriptVersionLabel": "Version de la transcription",
     "importFileHelp": "Sélectionnez un document Markdown (.md) ou Word (.docx) à importer.",
     "downloadSourcesPDF": "Télécharger PDF Sources",
     "downloadDetailedSourcesPDF": "Télécharger Revue Détaillée",

@@ -339,7 +339,8 @@ def get_llm_model(
     Raises:
         ValueError: If provider is not supported or API key is missing
     """
-    config = load_config()
+    # The config (stored in DB) is only needed to resolve the provider or task settings.
+    config = load_config() if (task_name or not provider) else {}
     
     # Get provider and API key from config/.env
     selected_provider = provider or config.get('provider', 'OpenAI')
