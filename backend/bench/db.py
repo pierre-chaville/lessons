@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS generations (
     function            TEXT NOT NULL,
     version             TEXT NOT NULL,
     model_alias         TEXT NOT NULL,
+    provider            TEXT,           -- openai | anthropic | openrouter (NULL: before the provider field)
     model_id            TEXT NOT NULL,
     params              TEXT NOT NULL,  -- JSON
     prompt_path         TEXT NOT NULL,
@@ -98,6 +99,7 @@ class BenchDB:
             self.conn = sqlite3.connect(path)
             self.conn.execute("PRAGMA journal_mode=WAL")
             self.conn.executescript(SCHEMA)
+            self._migrate()
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys=ON")
 
@@ -105,6 +107,13 @@ class BenchDB:
     def open_existing(cls, path: Path) -> Optional["BenchDB"]:
         """Read-only access, or None if the database does not exist yet."""
         return cls(path, readonly=True) if path.is_file() else None
+
+    def _migrate(self) -> None:
+        """Columns added after the first version of the schema."""
+        columns = {row[1] for row in self.conn.execute("PRAGMA table_info(generations)")}
+        if "provider" not in columns:
+            self.conn.execute("ALTER TABLE generations ADD COLUMN provider TEXT")
+            self.conn.commit()
 
     def close(self) -> None:
         self.conn.close()

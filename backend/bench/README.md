@@ -124,7 +124,8 @@ functions while injecting the model and the prompt of the campaign. Every adapte
 contract:
 
 ```python
-def correction(text: str, *, item: LessonItem, model: str, prompt: str, params: dict, timeout: float) -> dict:
+def correction(text: str, *, item: LessonItem, provider: str, model: str, prompt: str, params: dict,
+               timeout: float) -> dict:
     # returns {"output": str | dict, "tokens_in": int, "tokens_out": int, "cost_usd": float | None, "meta": dict}
 ```
 
@@ -137,7 +138,8 @@ def correction(text: str, *, item: LessonItem, model: str, prompt: str, params: 
   LLM to detect it, so that a fallback is never scored as a real output.
 
 The app calls LLMs through LangChain (`services.llm_utils.get_llm_model`), so candidate models are
-limited to the providers it supports: `openai/...`, `anthropic/...`, `openrouter/...`.
+limited to the providers it supports: `openai`, `anthropic` and `openrouter` (any model available
+on OpenRouter, e.g. Gemini).
 
 `correction` runs `services.correction.correct_segment_group` with the app grouping. Step params:
 `segments_per_group` (default 10), `max_concurrency` (default 10), `glossary` (default `false`:
@@ -176,12 +178,24 @@ they are merged over the model `params`.
 
 A campaign is a YAML file in `configs/` defining:
 - the dataset (list of lesson folders) and its version;
-- the candidate models (short alias → model id + parameters + price);
+- the candidate models (short alias → model id + provider + parameters + price);
 - for each step: prompts, models, input source, repeats and metrics;
-- the judge, the cost budget and the report options.
+- the judge (model + provider + parameters), the cost budget and the report options.
 
-Model ids use the LiteLLM format (`openai/...`, `anthropic/...`, `gemini/...`). Each model must
-have a unique alias, and steps, baselines and pairwise comparisons always refer to **aliases**.
+`provider` is one of the providers of the app: `openai`, `anthropic` or `openrouter`. The model id
+is sent as is to that provider: `gpt-5.4` with `openai`, `openai/gpt-5.4` with `openrouter`.
+
+```yaml
+models:
+  gpt-5.4:
+    id: openai/gpt-5.4
+    provider: openrouter
+    params: { temperature: 0.2, max_tokens: 8000 }
+    price: [2.5, 15]
+```
+
+Each model must have a unique alias, and steps, baselines and pairwise comparisons always refer
+to **aliases**.
 
 One campaign = one file, kept in git (e.g. `campaign-2026-11_models.yaml`,
 `campaign-2026-12_summary_prompts.yaml`), so that every result can be traced back to its exact
@@ -284,7 +298,7 @@ more lessons is usually better than more repeats.
 
 ## Cache
 
-Every call is identified by a key: lesson id + step + function + step `version` + model id +
+Every call is identified by a key: lesson id + step + function + step `version` + provider + model id +
 parameters + **prompt content** + **input content** + repeat index. A call whose key already has a
 successful result in the database is never re-run; failed calls are retried at the next launch.
 
@@ -362,7 +376,7 @@ latency per call, the list of calls without output, and for correction an "input
 (scores of the raw transcript, i.e. the level to beat).
 
 For correction steps, a second report `<report>_<step>_errors.html` (linked from the main one)
-lists, per lesson, the segments where the initial transcript or a model differs from
+lists, per lesson (chosen in a dropdown), the segments where the initial transcript or a model differs from
 `corrected.md`: timestamps, initial, corrected, then one column per model (first successful
 repeat), empty when the model matches the gold, red with the differing words highlighted
 otherwise. Comparison ignores punctuation and spacing; case counts unless

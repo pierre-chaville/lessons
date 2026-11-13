@@ -29,6 +29,7 @@ from bench.db import BenchDB
 from bench.report import write_report
 from bench.report_correction import write_correction_errors
 from bench.score import metric_specs, score_jobs
+from bench.steps import PROVIDERS
 
 INPUT_SOURCES = ("raw", "gold", "pipeline")
 DEFAULTS = {"repeats": 1, "timeout_s": 180, "max_retries": 2, "input_source": "gold", "workers": 1}
@@ -133,17 +134,21 @@ def validate_config(config: dict, items: list[LessonItem], selected: Optional[li
     def warn(message: str) -> None:
         issues.append(Issue("warning", message))
 
+    def check_route(prefix: str, model_id: Any, provider: Any, report: Callable[[str], None] = error) -> None:
+        if not isinstance(model_id, str) or not model_id.strip():
+            report(f"{prefix}: model id must be a non-empty string, got {model_id!r}")
+        if not isinstance(provider, str) or provider.lower() not in PROVIDERS:
+            report(f"{prefix}: 'provider' must be one of {list(PROVIDERS)}, got {provider!r}")
+
     models = config.get("models")
     if not isinstance(models, dict) or not models:
-        error("'models' must be a mapping alias -> {id, params, price}")
+        error("'models' must be a mapping alias -> {id, provider, params, price}")
         models = {}
     for alias, spec in models.items():
         if not isinstance(spec, dict):
-            error(f"model {alias!r}: expected a mapping with id/params/price")
+            error(f"model {alias!r}: expected a mapping with id/provider/params/price")
             continue
-        model_id = spec.get("id")
-        if not isinstance(model_id, str) or "/" not in model_id:
-            error(f"model {alias!r}: 'id' must look like provider/model, got {model_id!r}")
+        check_route(f"model {alias!r}", spec.get("id"), spec.get("provider"))
         if parse_price(spec.get("price")) is None:
             error(f"model {alias!r}: 'price' must be [input, output] in USD per million tokens")
         if not isinstance(spec.get("params") or {}, dict):
@@ -221,7 +226,17 @@ def validate_config(config: dict, items: list[LessonItem], selected: Optional[li
         warn("budget.max_usd is not set: no cost limit")
     elif not isinstance(max_usd, (int, float)) or max_usd <= 0:
         error(f"budget.max_usd must be a positive number, got {max_usd!r}")
-    calibration = (config.get("judge") or {}).get("calibration_set")
+    judge = config.get("judge") or {}
+    uses_judge = any(
+        metric.startswith("judge_")
+        for name, step in steps.items()
+        if isinstance(step, dict) and (not selected or name in selected)
+        for metric, _ in metric_specs(step)
+    )
+    if judge or uses_judge:
+        # Only blocking when a selected step has a judge metric.
+        check_route("judge", judge.get("model"), judge.get("provider"), error if uses_judge else warn)
+    calibration = judge.get("calibration_set")
     if calibration and not (BENCH_DIR / str(calibration)).is_file():
         warn(f"judge.calibration_set not found: {calibration}")
     return issues
@@ -243,6 +258,7 @@ class Job:
     version: str
     item: LessonItem
     model_alias: str
+    provider: str
     model_id: str
     params: dict
     price: tuple[float, float]
@@ -274,6 +290,7 @@ class Job:
             "step": self.step,
             "function": self.function,
             "version": self.version,
+            "provider": self.provider,
             "model": self.model_id,
             "params": self.params,
             "prompt": sha256(self.prompt),
@@ -311,6 +328,7 @@ class Planner:
             version=step_version(step, func),
             item=item,
             model_alias=alias,
+            provider=str(model["provider"]).lower(),
             model_id=model["id"],
             params={**(model.get("params") or {}), **(step.get("params") or {})},
             price=parse_price(model.get("price")),
@@ -442,7 +460,7 @@ def execute(job: Job) -> Outcome:
         call_started = time.perf_counter()
         try:
             result = job.func(
-                job.input_text, item=job.item, model=job.model_id, prompt=job.prompt,
+                job.input_text, item=job.item, provider=job.provider, model=job.model_id, prompt=job.prompt,
                 params=dict(job.params), timeout=job.timeout,
             )
             if not isinstance(result, dict) or "output" not in result:
@@ -481,6 +499,7 @@ def generation_record(job: Job, outcome: Outcome) -> dict:
         "function": job.function,
         "version": job.version,
         "model_alias": job.model_alias,
+        "provider": job.provider,
         "model_id": job.model_id,
         "params": job.params,
         "prompt_path": job.prompt_path,

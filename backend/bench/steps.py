@@ -2,13 +2,15 @@
 
 Every adapter follows the same contract:
 
-    def <step>(text: str, *, item, model: str, prompt: str, params: dict, timeout: float) -> dict
+    def <step>(text: str, *, item, provider: str, model: str, prompt: str, params: dict,
+               timeout: float) -> dict
         returns {"output": str | dict, "tokens_in": int, "tokens_out": int,
                  "cost_usd": float | None, "meta": dict}
 
 - `text`: input of the step (content of initial.md / corrected.md / previous output)
 - `item`: the LessonItem being processed
-- `model`: model id in LiteLLM format (`openai/gpt-5.4`, `anthropic/...`, `openrouter/...`)
+- `provider`: `openai`, `anthropic` or `openrouter` (case-insensitive)
+- `model`: model id as the provider expects it (`gpt-5.4` for openai, `openai/gpt-5.4` for openrouter)
 - `prompt`: content of the prompt file
 - `params`: model params of the campaign + step-specific params
 - `timeout`: timeout of each LLM call, in seconds
@@ -34,7 +36,7 @@ VERSIONS = {
     "correction": 1,
 }
 
-_PROVIDERS = {"openai": "OpenAI", "anthropic": "Anthropic", "openrouter": "OpenRouter"}
+PROVIDERS = {"openai": "OpenAI", "anthropic": "Anthropic", "openrouter": "OpenRouter"}
 _LLM_PARAMS = {"temperature", "max_tokens", "thinking_mode", "use_flex"}
 
 
@@ -52,16 +54,14 @@ class StepError(RuntimeError):
         self.tokens_out = tokens_out
 
 
-def split_model_id(model: str) -> tuple[str, str]:
-    """`openai/gpt-5.4` -> ("OpenAI", "gpt-5.4"). OpenRouter ids keep their own prefix."""
-    prefix, sep, name = model.partition("/")
-    provider = _PROVIDERS.get(prefix.lower())
-    if not sep or not name or provider is None:
+def provider_name(provider: str) -> str:
+    """`openrouter` -> "OpenRouter" (the name expected by the app's `get_llm_model`)."""
+    name = PROVIDERS.get(str(provider).lower())
+    if name is None:
         raise StepError(
-            f"unsupported model id {model!r}: the app supports {', '.join(p + '/...' for p in _PROVIDERS)}",
-            retryable=False,
+            f"unsupported provider {provider!r}: the app supports {', '.join(PROVIDERS)}", retryable=False
         )
-    return provider, name
+    return name
 
 
 def _check_params(params: dict, step_params: set[str]) -> None:
@@ -83,13 +83,12 @@ def estimate_tokens(text: str, prompt: str, params: dict) -> tuple[int, int]:
     return tokens_in, min(approx_tokens(text), int(params.get("max_tokens") or 10**9))
 
 
-def _build_llm(model: str, params: dict, default_max_tokens: int):
+def _build_llm(provider: str, model: str, params: dict, default_max_tokens: int):
     from services.llm_utils import get_llm_model
 
-    provider, model_name = split_model_id(model)
     return get_llm_model(
-        provider=provider,
-        model=model_name,
+        provider=provider_name(provider),
+        model=model,
         temperature=params.get("temperature", 0.0),
         max_tokens=params.get("max_tokens", default_max_tokens),
         thinking_mode=params.get("thinking_mode"),
@@ -209,7 +208,8 @@ def estimate_correction(text: str, prompt: str, params: dict) -> tuple[int, int]
     return groups * per_group + segment_tokens, math.ceil(segment_tokens * 0.5)
 
 
-def correction(text: str, *, item: Any, model: str, prompt: str, params: dict, timeout: float) -> dict:
+def correction(text: str, *, item: Any, provider: str, model: str, prompt: str, params: dict,
+               timeout: float) -> dict:
     """Transcript correction, through `services.correction.correct_segment_group`.
 
     Step params:
@@ -227,7 +227,7 @@ def correction(text: str, *, item: Any, model: str, prompt: str, params: dict, t
         )
 
     segments_per_group = int(params.get("segments_per_group", 10))
-    llm = RecordingLLM(_build_llm(model, params, default_max_tokens=16000), timeout)
+    llm = RecordingLLM(_build_llm(provider, model, params, default_max_tokens=16000), timeout)
     corrected_texts = asyncio.run(
         _correct_segments(
             segments,
