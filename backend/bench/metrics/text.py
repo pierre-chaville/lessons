@@ -16,26 +16,33 @@ _HYPHENS = str.maketrans({c: "-" for c in "‐‑"})
 _SPEAKER_TAG_RE = re.compile(r"^\[[^\]]*\]\s*")
 
 
+def strip_speaker_tag(text: str) -> str:
+    return _SPEAKER_TAG_RE.sub("", text)
+
+
 def segment_texts(text: str) -> tuple[list[str], Optional[list[Segment]]]:
     """Texts to compare: the segment texts of a `- [start - end] text` transcript (speaker tags
     such as `[audience]` removed), else the whole text. Returns (texts, segments or None)."""
     segments, _ = parse_transcript(text)
     if not segments:
         return [text], None
-    return [_SPEAKER_TAG_RE.sub("", s.text) for s in segments], segments
+    return [strip_speaker_tag(s.text) for s in segments], segments
 
 
-def tokenize(text: str, strict: bool = False) -> list[str]:
+def tokenize(text: str, strict: bool = False, lowercase: bool = True) -> list[str]:
     """Words of a text.
 
     Default: lowercase, apostrophes unified, punctuation removed; apostrophes and hyphens inside
     words are kept (`l'a`, `ha-nahar`, `'hazal`), Hebrew letters keep their vowel points.
+    lowercase=False: same, but case counts.
     strict=True: raw whitespace split (case and punctuation count).
     """
     text = unicodedata.normalize("NFC", text)
     if strict:
         return text.split()
-    text = text.casefold().translate(_APOSTROPHES).translate(_HYPHENS)
+    if lowercase:
+        text = text.casefold()
+    text = text.translate(_APOSTROPHES).translate(_HYPHENS)
     kept = "".join(
         c if c.isalnum() or c in "'-" or unicodedata.category(c).startswith("M") else " " for c in text
     )

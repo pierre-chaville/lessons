@@ -57,7 +57,7 @@ def _fmt(value: Optional[float], digits: int = 3) -> str:
     return "–" if value is None else f"{value:.{digits}f}"
 
 
-def _step_table(step_name: str, step: dict, jobs: list[Any], db: BenchDB) -> str:
+def _step_table(step_name: str, step: dict, jobs: list[Any], db: BenchDB, link: Optional[Path] = None) -> str:
     columns = _columns(step)
     generation_ids = [j.cached_id for j in jobs if j.cached_id is not None]
     scores: dict[tuple[int, str], tuple[Optional[float], dict]] = {}
@@ -122,8 +122,9 @@ def _step_table(step_name: str, step: dict, jobs: list[Any], db: BenchDB) -> str
         tds += [f"<td>{html.escape(x)}</td>" for x in extra]
         body.append(f"<tr class='{'baseline' if is_baseline else ''}'>{''.join(tds)}</tr>")
 
+    link_html = f"<p class='meta'><a href='{html.escape(link.name)}'>Errors segment by segment</a></p>" if link else ""
     return f"""
-<h2>{html.escape(step_name)}</h2>
+<h2>{html.escape(step_name)}</h2>{link_html}
 <table>
   <thead><tr><th>model</th><th>prompt</th>{head}<th>calls ok</th><th>lessons</th>
   <th>USD / call</th><th>s / call</th><th>total USD</th></tr></thead>
@@ -170,7 +171,9 @@ def _failures(jobs: list[Any], db: BenchDB) -> str:
     return f"<details><summary>{len(missing)} call(s) without output</summary><ul>{''.join(items)}</ul></details>"
 
 
-def write_report(path: Path, *, config: dict, jobs: list[Any], db: BenchDB) -> Path:
+def write_report(path: Path, *, config: dict, jobs: list[Any], db: BenchDB,
+                 links: Optional[dict[str, Path]] = None) -> Path:
+    """`links`: {step: path of a detail report in the same folder}."""
     campaign = config.get("campaign") or {}
     name = campaign.get("name", "campaign")
     run = db.last_run(name)
@@ -184,22 +187,24 @@ def write_report(path: Path, *, config: dict, jobs: list[Any], db: BenchDB) -> P
     for step_name in steps:
         step_jobs = [j for j in jobs if j.step == step_name]
         if step_jobs:
-            sections.append(_step_table(step_name, steps[step_name], step_jobs, db))
+            sections.append(_step_table(step_name, steps[step_name], step_jobs, db, (links or {}).get(step_name)))
 
     page = f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><title>Bench – {html.escape(name)}</title>
 <style>
-  body {{ font-family: system-ui, sans-serif; margin: 2rem; color: #222; }}
+  :root {{ color-scheme: light dark; background: Canvas; color: CanvasText; }}
+  body {{ font-family: system-ui, sans-serif; margin: 2rem; }}
   h1 {{ margin-bottom: .2rem; }}
-  .meta {{ color: #666; font-size: .9rem; margin: .1rem 0; }}
+  .meta {{ opacity: .7; font-size: .9rem; margin: .1rem 0; }}
   table {{ border-collapse: collapse; margin: .5rem 0 1rem; font-size: .9rem; }}
-  th, td {{ border: 1px solid #ddd; padding: .35rem .6rem; text-align: right; white-space: nowrap; }}
-  th {{ background: #f4f4f4; }}
+  th, td {{ border: 1px solid rgba(128, 128, 128, .35); padding: .35rem .6rem; text-align: right; white-space: nowrap; }}
+  th {{ background: rgba(128, 128, 128, .15); }}
   td.label {{ text-align: left; }}
-  td.best {{ font-weight: bold; background: #e8f5e9; }}
-  tr.baseline td {{ color: #777; font-style: italic; background: #fafafa; }}
-  .spread {{ color: #999; font-size: .8rem; }}
+  td.best {{ font-weight: bold; background: rgba(76, 175, 80, .22); }}
+  tr.baseline td {{ opacity: .65; font-style: italic; background: rgba(128, 128, 128, .06); }}
+  .spread {{ opacity: .6; font-size: .8rem; }}
   details {{ font-size: .85rem; margin-bottom: 1.5rem; }}
+  a {{ color: LinkText; }}
 </style></head><body>
 <h1>{html.escape(name)}</h1>
 <p class="meta">{html.escape(campaign.get('description') or '')}</p>

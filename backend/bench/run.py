@@ -27,6 +27,7 @@ import yaml
 from bench.dataset import BENCH_DIR, TASK_DATASET, Issue, LessonItem, describe, format_transcript, load_dataset
 from bench.db import BenchDB
 from bench.report import write_report
+from bench.report_correction import write_correction_errors
 from bench.score import metric_specs, score_jobs
 
 INPUT_SOURCES = ("raw", "gold", "pipeline")
@@ -698,7 +699,18 @@ def run_campaign(config_path: Path, args: argparse.Namespace) -> int:
         if args.only in (None, "score"):
             score_jobs(config, jobs, db).print()
         if args.only in (None, "report"):
-            print(f"Report: {write_report(campaign.report_path, config=config, jobs=jobs, db=db)}")
+            report_options = config.get("report") or {}
+            links = {}
+            for step in campaign.steps:
+                step_jobs = [j for j in jobs if j.step == step]
+                if step_jobs and step_jobs[0].task == "correction":
+                    path = campaign.report_path.with_name(f"{campaign.report_path.stem}_{step}_errors.html")
+                    links[step] = write_correction_errors(
+                        path, config=config, step_name=step, jobs=step_jobs, db=db,
+                        case_sensitive=bool((report_options.get("correction_errors") or {}).get("case_sensitive", True)),
+                    )
+                    print(f"Report: {links[step]}")
+            print(f"Report: {write_report(campaign.report_path, config=config, jobs=jobs, db=db, links=links)}")
     finally:
         db.close()
     return code

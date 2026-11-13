@@ -361,6 +361,13 @@ one row per model × prompt, with for each metric the mean over lessons of the m
 latency per call, the list of calls without output, and for correction an "input, unchanged" row
 (scores of the raw transcript, i.e. the level to beat).
 
+For correction steps, a second report `<report>_<step>_errors.html` (linked from the main one)
+lists, per lesson, the segments where the initial transcript or a model differs from
+`corrected.md`: timestamps, initial, corrected, then one column per model (first successful
+repeat), empty when the model matches the gold, red with the differing words highlighted
+otherwise. Comparison ignores punctuation and spacing; case counts unless
+`report.correction_errors.case_sensitive: false`.
+
 Planned:
 - matrix model × step: mean score with confidence interval (bootstrap), cost per lesson, latency;
 - coverage vs faithfulness chart for edition and summary;
