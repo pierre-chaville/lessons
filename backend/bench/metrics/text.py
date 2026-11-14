@@ -58,6 +58,21 @@ def normalize(text: str, strict: bool = False) -> str:
     return " ".join(tokenize(text, strict))
 
 
+def plain_text(text: str) -> str:
+    """Text of a transcript (segments joined, timestamps and speaker tags removed) or of a markdown text."""
+    return " ".join(segment_texts(text)[0])
+
+
+def count_words(text: str) -> int:
+    """Words of a transcript or a markdown text (markdown symbols and punctuation are not words)."""
+    return len(tokenize(plain_text(text)))
+
+
+def contains_words(haystack: list[str], needle: list[str]) -> bool:
+    """True if the word sequence `needle` appears in `haystack` (tokens never contain spaces)."""
+    return bool(needle) and f" {' '.join(needle)} " in f" {' '.join(haystack)} "
+
+
 @dataclass
 class Unit:
     """Aligned piece of text: a segment when the transcripts keep the same segments, else the whole text."""

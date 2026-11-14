@@ -15,7 +15,7 @@ DATASET_KINDS = ("extracts", "full")
 
 REQUIRED_FILES = {
     "extracts": ("meta.yaml", "initial.md", "corrected.md", "edited.md", "edited_ideas.yaml"),
-    "full": ("meta.yaml", "corrected.md", "summary.md", "summary_keypoints.yaml"),
+    "full": ("meta.yaml", "corrected.md", "edited.md", "summary.md", "summary_keypoints.yaml"),
 }
 OPTIONAL_FILES = {
     "extracts": (),

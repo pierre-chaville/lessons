@@ -30,7 +30,14 @@ def reference_text(task: str, item: LessonItem) -> Optional[str]:
     """Gold text the metrics of a task compare the output with."""
     if task == "correction":
         return format_transcript(item.corrected or [])
+    if task == "edition":
+        return item.edited
+    if task == "summary":
+        return item.summary
     return None
+
+
+REFERENCE_FILES = {"correction": "corrected.md", "edition": "edited.md", "summary": "summary.md"}
 
 
 @dataclass
@@ -39,6 +46,7 @@ class ScoreSummary:
     scores: int = 0
     not_implemented: set[str] = field(default_factory=set)
     no_reference: set[str] = field(default_factory=set)
+    errors: dict[str, str] = field(default_factory=dict)  # step/metric -> first error
 
     def print(self) -> None:
         print(f"Scoring: {self.scores} scores on {self.generations} generations")
@@ -46,6 +54,8 @@ class ScoreSummary:
             print(f"  not implemented yet (skipped): {', '.join(sorted(self.not_implemented))}")
         if self.no_reference:
             print(f"  no reference for: {', '.join(sorted(self.no_reference))}")
+        for metric, error in self.errors.items():
+            print(f"  ERROR {metric}: {error}")
 
 
 def score_jobs(config: dict, jobs: list[Any], db: BenchDB) -> ScoreSummary:
@@ -63,10 +73,14 @@ def score_jobs(config: dict, jobs: list[Any], db: BenchDB) -> ScoreSummary:
             except KeyError:
                 summary.not_implemented.add(name)
                 continue
-            if reference is None:
+            if reference is None and getattr(module, "NEEDS_REFERENCE", True):
                 summary.no_reference.add(f"{job.step}/{name}")
                 continue
-            result = module.compute(output, input_text=job.input_text, reference=reference, options=options)
+            try:
+                result = module.compute(output, input_text=job.input_text, reference=reference, options=options)
+            except Exception as exc:
+                summary.errors.setdefault(f"{job.step}/{name}", f"{type(exc).__name__}: {exc}")
+                continue
             db.upsert_score(job.cached_id, name, options, result.value, result.details)
             summary.scores += 1
     db.commit()

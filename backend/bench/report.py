@@ -11,24 +11,29 @@ from pathlib import Path
 from statistics import mean, pstdev
 from typing import Any, Callable, Optional
 
-from bench.db import BenchDB
+from bench.db import BenchDB, options_json
 from bench.metrics import get_metric_module
-from bench.score import metric_specs, reference_text
+from bench.score import REFERENCE_FILES, metric_specs, reference_text
 
-BASELINE_LABEL = "input, unchanged"
+INPUT_BASELINE_LABEL = "input, unchanged"
 
 
 @dataclass
 class Column:
     label: str
-    higher_is_better: bool
+    higher_is_better: Optional[bool]  # None: no best value (e.g. a length checked against a range)
     extract: Callable[[float, dict], Optional[float]]  # (value, details) -> number
     percent: bool = False
+    digits: int = 3
 
     def format(self, value: Optional[float]) -> str:
         if value is None:
             return "–"
-        return f"{value * 100:.2f}" if self.percent else f"{value:.3f}"
+        return f"{value * 100:.2f}" if self.percent else f"{value:.{self.digits}f}"
+
+    @property
+    def arrow(self) -> str:
+        return {True: " ↑", False: " ↓"}.get(self.higher_is_better, "")
 
 
 def _columns(step: dict) -> list[tuple[str, dict, Column]]:
@@ -40,9 +45,13 @@ def _columns(step: dict) -> list[tuple[str, dict, Column]]:
         except KeyError:
             continue
         percent = getattr(module, "PERCENT", False)
-        columns.append((name, options, Column(name, module.HIGHER_IS_BETTER, lambda v, d: v, percent)))
+        percent_details = getattr(module, "PERCENT_DETAILS", set(module.REPORT_DETAILS) if percent else set())
+        digits = getattr(module, "DIGITS", 3)
+        columns.append((name, options, Column(name, module.HIGHER_IS_BETTER, lambda v, d: v, percent, digits)))
         for key, higher in module.REPORT_DETAILS.items():
-            columns.append((name, options, Column(key, higher, lambda v, d, key=key: d.get(key), percent)))
+            columns.append((name, options, Column(
+                key, higher, lambda v, d, key=key: d.get(key), key in percent_details, digits
+            )))
     return columns
 
 
@@ -60,9 +69,11 @@ def _fmt(value: Optional[float], digits: int = 3) -> str:
 def _step_table(step_name: str, step: dict, jobs: list[Any], db: BenchDB, link: Optional[Path] = None) -> str:
     columns = _columns(step)
     generation_ids = [j.cached_id for j in jobs if j.cached_id is not None]
-    scores: dict[tuple[int, str], tuple[Optional[float], dict]] = {}
+    # Scores computed with other options (e.g. before a change of the campaign) are ignored.
+    scores: dict[tuple[int, str, str], tuple[Optional[float], dict]] = {}
     for row in db.scores(generation_ids):
-        scores[(row["generation_id"], row["metric"])] = (row["value"], json.loads(row["details"] or "{}"))
+        key = (row["generation_id"], row["metric"], row["options"])
+        scores[key] = (row["value"], json.loads(row["details"] or "{}"))
     generations = {gid: db.generation(gid) for gid in generation_ids}
 
     groups: dict[tuple[str, str], list[Any]] = defaultdict(list)
@@ -72,12 +83,13 @@ def _step_table(step_name: str, step: dict, jobs: list[Any], db: BenchDB, link: 
     rows = []  # (label cells, metric cells [(mean, spread)], extra cells, is_baseline)
     for (alias, prompt), group in groups.items():
         cells = []
-        for metric, _, column in columns:
+        for metric, options, column in columns:
             by_lesson: dict[str, list[float]] = defaultdict(list)
             for job in group:
-                if job.cached_id is None or (job.cached_id, metric) not in scores:
+                key = (job.cached_id, metric, options_json(options))
+                if job.cached_id is None or key not in scores:
                     continue
-                value, details = scores[(job.cached_id, metric)]
+                value, details = scores[key]
                 number = column.extract(value, details)
                 if number is not None:
                     by_lesson[job.item.id].append(number)
@@ -94,19 +106,19 @@ def _step_table(step_name: str, step: dict, jobs: list[Any], db: BenchDB, link: 
 
     baseline = _baseline_row(jobs, columns)
     if baseline:
-        rows.append(([BASELINE_LABEL, ""], baseline, ["", "", "", "", ""], True))
+        rows.append(([baseline[0], ""], baseline[1], ["", "", "", "", ""], True))
 
     best: list[Optional[float]] = []
     for index, (_, _, column) in enumerate(columns):
         values = [r[1][index][0] for r in rows if not r[3] and r[1][index][0] is not None]
-        if len(values) < 2:
+        if len(values) < 2 or column.higher_is_better is None:
             best.append(None)
         else:
             best.append(max(values) if column.higher_is_better else min(values))
 
+    titles = {True: "higher is better", False: "lower is better", None: "no better direction"}
     head = "".join(
-        f"<th title=\"{'higher' if c.higher_is_better else 'lower'} is better\">{html.escape(c.label)}"
-        f"{' %' if c.percent else ''} {'↑' if c.higher_is_better else '↓'}</th>"
+        f"<th title=\"{titles[c.higher_is_better]}\">{html.escape(c.label)}{' %' if c.percent else ''}{c.arrow}</th>"
         for _, _, c in columns
     )
     body = []
@@ -133,9 +145,19 @@ def _step_table(step_name: str, step: dict, jobs: list[Any], db: BenchDB, link: 
 {_failures(jobs, db)}"""
 
 
-def _baseline_row(jobs: list[Any], columns) -> Optional[list[tuple[Optional[float], Optional[float]]]]:
-    """For correction: metrics of the input itself, i.e. what the model has to improve on."""
-    if not jobs or jobs[0].task != "correction":
+def _baseline_row(jobs: list[Any], columns) -> Optional[tuple[str, list[tuple[Optional[float], Optional[float]]]]]:
+    """(label, cells) of the row scoring a non-model text with the same metrics:
+    - correction: the input itself, i.e. what the model has to improve on;
+    - edition / summary: the hand-made reference (edited.md / summary.md), i.e. the expected level.
+    """
+    if not jobs:
+        return None
+    task = jobs[0].task
+    if task == "correction":
+        label = INPUT_BASELINE_LABEL
+    elif task in REFERENCE_FILES:
+        label = f"reference ({REFERENCE_FILES[task]})"
+    else:
         return None
     lessons = {}
     for job in jobs:
@@ -146,17 +168,25 @@ def _baseline_row(jobs: list[Any], columns) -> Optional[list[tuple[Optional[floa
     for metric, options, column in columns:
         by_lesson: dict[str, list[float]] = defaultdict(list)
         for lesson_id, job in lessons.items():
+            reference = reference_text(job.task, job.item)
+            text = job.input_text if task == "correction" else reference
+            if text is None:
+                continue
             key = (lesson_id, metric)
             if key not in results:
-                results[key] = get_metric_module(metric).compute(
-                    job.input_text, input_text=job.input_text,
-                    reference=reference_text(job.task, job.item), options=options,
-                )
+                try:
+                    results[key] = get_metric_module(metric).compute(
+                        text, input_text=job.input_text, reference=reference, options=options,
+                    )
+                except Exception:
+                    results[key] = None
+            if results[key] is None:
+                continue
             number = column.extract(results[key].value, results[key].details)
             if number is not None:
                 by_lesson[lesson_id].append(number)
         cells.append(_aggregate(by_lesson))
-    return cells
+    return label, cells
 
 
 def _failures(jobs: list[Any], db: BenchDB) -> str:
@@ -211,7 +241,9 @@ def write_report(path: Path, *, config: dict, jobs: list[Any], db: BenchDB,
 <p class="meta">Dataset {html.escape(str(config.get('dataset_version', '?')))} – last run {html.escape(run_info)}
  – report generated {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
 <p class="meta">Values: mean over lessons of the mean over repeats; ± = mean spread (std) between repeats.
-Best value per column in green. "{BASELINE_LABEL}" = scores of the step input itself.</p>
+Best value per column in green (columns without ↑/↓ have no best value). Grey rows score a text
+that is not a model output: "{INPUT_BASELINE_LABEL}" = the step input itself (correction),
+"reference (…)" = the hand-made reference (edition, summary).</p>
 {''.join(sections) or '<p>No generation for this campaign yet.</p>'}
 </body></html>
 """

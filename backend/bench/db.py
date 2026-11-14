@@ -87,6 +87,11 @@ def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
 
 
+def options_json(options: dict) -> str:
+    """Metric options as stored in scores.options."""
+    return _json(options)
+
+
 class BenchDB:
     """Access to results/bench.sqlite. Not thread-safe: use it from the main thread only."""
 

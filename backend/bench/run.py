@@ -26,12 +26,14 @@ import yaml
 
 from bench.dataset import BENCH_DIR, TASK_DATASET, Issue, LessonItem, describe, format_transcript, load_dataset
 from bench.db import BenchDB
+from bench.metrics import get_metric_module
 from bench.report import write_report
 from bench.report_correction import write_correction_errors
 from bench.score import metric_specs, score_jobs
 from bench.steps import PROVIDERS
 
 INPUT_SOURCES = ("raw", "gold", "pipeline")
+PRICING_PATH = BENCH_DIR / "configs" / "pricing.yaml"
 DEFAULTS = {"repeats": 1, "timeout_s": 180, "max_retries": 2, "input_source": "gold", "workers": 1}
 RETRY_DELAY_S = 2
 
@@ -70,6 +72,49 @@ def parse_price(price: Any) -> Optional[tuple[float, float]]:
 
 def compute_cost(price: tuple[float, float], tokens_in: int, tokens_out: int) -> float:
     return (tokens_in * price[0] + tokens_out * price[1]) / 1_000_000
+
+
+@dataclass
+class Pricing:
+    """Prices of configs/pricing.yaml, shared by all campaigns: a list of
+    `{id, price: [input, output], provider (optional)}` in USD per million tokens."""
+
+    path: Path
+    prices: dict[tuple[str, Optional[str]], tuple[float, float]]
+    issues: list[Issue]
+
+    def price(self, model_id: str, provider: Optional[str]) -> Optional[tuple[float, float]]:
+        """Entry with this id and provider, else the entry with this id and no provider."""
+        key = (model_id, str(provider).lower() if provider else None)
+        return self.prices.get(key) or self.prices.get((model_id, None))
+
+
+def load_pricing(path: Path = PRICING_PATH) -> Pricing:
+    pricing = Pricing(path, {}, [])
+    name = path.relative_to(BENCH_DIR).as_posix() if path.is_relative_to(BENCH_DIR) else str(path)
+    if not path.is_file():
+        pricing.issues.append(Issue("error", f"pricing file not found: {name}"))
+        return pricing
+    with path.open(encoding="utf-8-sig") as f:
+        entries = yaml.safe_load(f) or []
+    if not isinstance(entries, list):
+        pricing.issues.append(Issue("error", f"{name}: expected a list of {{id, price}}"))
+        return pricing
+    for index, entry in enumerate(entries, start=1):
+        model_id = entry.get("id") if isinstance(entry, dict) else None
+        price = parse_price(entry.get("price")) if isinstance(entry, dict) else None
+        if not isinstance(model_id, str) or price is None:
+            pricing.issues.append(Issue(
+                "error", f"{name}: entry {index}: expected {{id, price: [input, output]}}, got {entry!r}"
+            ))
+            continue
+        provider = entry.get("provider")
+        key = (model_id, str(provider).lower() if provider else None)
+        if key in pricing.prices:
+            pricing.issues.append(Issue("error", f"{name}: duplicate price for {model_id!r}"
+                                                 f"{f' ({provider})' if provider else ''}"))
+        pricing.prices[key] = price
+    return pricing
 
 
 def setting(config: dict, step: dict, key: str) -> Any:
@@ -140,17 +185,29 @@ def validate_config(config: dict, items: list[LessonItem], selected: Optional[li
         if not isinstance(provider, str) or provider.lower() not in PROVIDERS:
             report(f"{prefix}: 'provider' must be one of {list(PROVIDERS)}, got {provider!r}")
 
+    pricing = load_pricing()
+    issues += pricing.issues
+    used = {
+        alias
+        for name, step in (config.get("steps") or {}).items()
+        if isinstance(step, dict) and (not selected or name in selected)
+        for alias in step.get("models") or []
+    }
+
     models = config.get("models")
     if not isinstance(models, dict) or not models:
-        error("'models' must be a mapping alias -> {id, provider, params, price}")
+        error("'models' must be a mapping alias -> {id, provider, params}")
         models = {}
     for alias, spec in models.items():
         if not isinstance(spec, dict):
-            error(f"model {alias!r}: expected a mapping with id/provider/params/price")
+            error(f"model {alias!r}: expected a mapping with id/provider/params")
             continue
         check_route(f"model {alias!r}", spec.get("id"), spec.get("provider"))
-        if parse_price(spec.get("price")) is None:
-            error(f"model {alias!r}: 'price' must be [input, output] in USD per million tokens")
+        if "price" in spec:
+            warn(f"model {alias!r}: 'price' is ignored, prices are read from configs/pricing.yaml")
+        if isinstance(spec.get("id"), str) and pricing.price(spec["id"], spec.get("provider")) is None:
+            # Blocking only for the models that will be called.
+            (error if alias in used else warn)(f"model {alias!r}: no price for {spec['id']!r} in configs/pricing.yaml")
         if not isinstance(spec.get("params") or {}, dict):
             error(f"model {alias!r}: 'params' must be a mapping")
 
@@ -214,6 +271,12 @@ def validate_config(config: dict, items: list[LessonItem], selected: Optional[li
             error(f"{prefix}: 'params' must be a mapping")
 
         for metric, options in metric_specs(step):
+            try:
+                check = getattr(get_metric_module(metric), "check_options", None)
+            except KeyError:
+                check = None
+            for problem in check(options) if check else []:
+                error(f"{prefix}: metric {metric}: {problem}")
             baseline = options.get("baseline")
             if baseline and baseline not in models:
                 warn(f"{prefix}: metric {metric}: baseline {baseline!r} is not a model alias")
@@ -245,6 +308,14 @@ def validate_config(config: dict, items: list[LessonItem], selected: Optional[li
 # --------------------------------------------------------------------------- #
 # Planning
 # --------------------------------------------------------------------------- #
+
+
+def gold_input(task: str, item: LessonItem) -> str:
+    """Input of a step in `gold` mode: the hand-made output of the previous step of the app.
+    Summary: edited.md (the app summarizes the edited text)."""
+    if task == "summary":
+        return item.edited or ""
+    return format_transcript(item.corrected or [])
 
 
 @dataclass
@@ -308,6 +379,7 @@ class Planner:
         self.config = config
         self.items = items
         self.db = db
+        self.pricing = load_pricing()
         self._prompts: dict[str, str] = {}
 
     def prompt_text(self, path: str) -> str:
@@ -331,7 +403,7 @@ class Planner:
             provider=str(model["provider"]).lower(),
             model_id=model["id"],
             params={**(model.get("params") or {}), **(step.get("params") or {})},
-            price=parse_price(model.get("price")),
+            price=self.pricing.price(model["id"], model.get("provider")),
             prompt_path=str(prompt_path),
             prompt=self.prompt_text(str(prompt_path)),
             input_source=setting(self.config, step, "input_source"),
@@ -365,7 +437,7 @@ class Planner:
             job.input_text = format_transcript(job.item.initial or [])
             return True
         if job.input_source == "gold":
-            job.input_text = format_transcript(job.item.corrected or [])
+            job.input_text = gold_input(job.task, job.item)
             return True
         # pipeline: output of the previous step, same lesson and model, first prompt, first repeat
         prev_name = previous_step(self.config, job.step)
@@ -381,8 +453,8 @@ class Planner:
         return True
 
     def estimate(self, job: Job) -> None:
-        """Token estimate of one job. Unresolved pipeline inputs are approximated by corrected.md."""
-        text = job.input_text if job.input_text is not None else format_transcript(job.item.corrected or [])
+        """Token estimate of one job. Unresolved pipeline inputs are approximated by the gold input."""
+        text = job.input_text if job.input_text is not None else gold_input(job.task, job.item)
         module = sys.modules[job.func.__module__]
         estimator = getattr(module, f"estimate_{job.func.__name__}", None)
         if estimator is None:

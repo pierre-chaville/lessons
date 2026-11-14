@@ -34,6 +34,8 @@ from bench.dataset import Segment, format_transcript, parse_transcript
 # Bump when the code of an adapter (or of the app function it calls) changes. See README "Cache".
 VERSIONS = {
     "correction": 1,
+    "edition": 1,
+    "summary": 1,
 }
 
 PROVIDERS = {"openai": "OpenAI", "anthropic": "Anthropic", "openrouter": "OpenRouter"}
@@ -70,6 +72,16 @@ def _check_params(params: dict, step_params: set[str]) -> None:
         raise StepError(
             f"unknown params {sorted(unknown)} (allowed: {sorted(_LLM_PARAMS | step_params)})", retryable=False
         )
+
+
+def _parse_input_transcript(text: str) -> list[Segment]:
+    segments, problems = parse_transcript(text)
+    if problems or not segments:
+        raise StepError(
+            f"input is not a valid transcript ({len(problems)} invalid lines, {len(segments)} segments)",
+            retryable=False,
+        )
+    return segments
 
 
 def approx_tokens(text: str) -> int:
@@ -219,12 +231,7 @@ def correction(text: str, *, item: Any, provider: str, model: str, prompt: str, 
       The glossary content is not part of the cache key: bump the step version when it changes.
     """
     _check_params(params, _CORRECTION_PARAMS)
-    segments, problems = parse_transcript(text)
-    if problems or not segments:
-        raise StepError(
-            f"input is not a valid transcript ({len(problems)} invalid lines, {len(segments)} segments)",
-            retryable=False,
-        )
+    segments = _parse_input_transcript(text)
 
     segments_per_group = int(params.get("segments_per_group", 10))
     llm = RecordingLLM(_build_llm(provider, model, params, default_max_tokens=16000), timeout)
@@ -260,6 +267,177 @@ def correction(text: str, *, item: Any, provider: str, model: str, prompt: str, 
             "segments": len(segments),
             "segments_changed_by_llm": changed,
             "unparsed_output_lines": _count_unparsed_lines(llm.outputs, segments_per_group),
+            "glossary_replacements": glossary_report,
+        },
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Edition
+# --------------------------------------------------------------------------- #
+
+_EDITION_PARAMS = {"words_per_group", "max_concurrency", "glossary"}
+
+
+def _word_groups(segments: list[Segment], words_per_group: int) -> list[list[Segment]]:
+    """Same grouping as `services.edition.edit_transcript_async`."""
+    groups: list[list[Segment]] = []
+    current: list[Segment] = []
+    count = 0
+    for segment in segments:
+        words = len(segment.text.split())
+        if current and count + words > words_per_group:
+            groups.append(current)
+            current, count = [], 0
+        current.append(segment)
+        count += words
+    if current:
+        groups.append(current)
+    return groups
+
+
+def estimate_edition(text: str, prompt: str, params: dict) -> tuple[int, int]:
+    """One call per group (prompt + group text), writing about as much as it reads."""
+    from services.edition import PLAIN_TEXT_OUTPUT_INSTRUCTIONS
+
+    segments, _ = parse_transcript(text)
+    groups = _word_groups(segments, int(params.get("words_per_group", 1000))) or [[]]
+    per_group = approx_tokens(prompt) + approx_tokens(PLAIN_TEXT_OUTPUT_INSTRUCTIONS) + 10
+    segment_tokens = sum(approx_tokens(s.text) + 1 for s in segments)
+    return len(groups) * per_group + segment_tokens, segment_tokens
+
+
+def edition(text: str, *, item: Any, provider: str, model: str, prompt: str, params: dict,
+            timeout: float) -> dict:
+    """Edited version (markdown), through `services.edition.edit_segment_group_with_retry`.
+
+    Step params:
+    - words_per_group (default 1000, as the app worker)
+    - max_concurrency (default 10)
+    - glossary (default False): apply the glossary of the app DB to the output, as the app does.
+    The app paragraph post-processing (split of oversized paragraphs) is applied.
+    """
+    from services.edition import _split_oversized_markdown_paragraphs, edit_segment_group_with_retry
+
+    _check_params(params, _EDITION_PARAMS)
+    segments = _parse_input_transcript(text)
+    groups = _word_groups(segments, int(params.get("words_per_group", 1000)))
+    llm = RecordingLLM(_build_llm(provider, model, params, default_max_tokens=16000), timeout)
+    semaphore = asyncio.Semaphore(int(params.get("max_concurrency", 10)))
+
+    async def run_group(group: list[Segment]) -> str:
+        app_segments = [{"start": s.start, "end": s.end, "text": s.text} for s in group]
+        async with semaphore:
+            # The bench retries whole calls itself: no retry inside the app function.
+            return await edit_segment_group_with_retry(app_segments, llm, prompt, max_retries=1)
+
+    async def run_all() -> list[str]:
+        return await asyncio.gather(*(run_group(g) for g in groups))
+
+    parts = asyncio.run(run_all())
+    llm.raise_if_failed()
+
+    markdown = _split_oversized_markdown_paragraphs("\n\n".join(p.strip() for p in parts if p and p.strip()))
+    glossary_report: list = []
+    if params.get("glossary"):
+        from services.glossary_apply import apply_glossary_to_text_with_report
+
+        markdown, glossary_report = apply_glossary_to_text_with_report(markdown, _load_glossary_rules())
+        markdown = _split_oversized_markdown_paragraphs(markdown)
+    if not markdown.strip():
+        raise StepError("edited text is empty", tokens_in=llm.tokens_in, tokens_out=llm.tokens_out)
+
+    return {
+        "output": markdown,
+        "tokens_in": llm.tokens_in,
+        "tokens_out": llm.tokens_out,
+        "cost_usd": None,
+        "meta": {
+            "llm_calls": llm.calls,
+            "groups": len(groups),
+            "paragraph_retries": llm.calls - len(groups),  # app retry when a paragraph is too long
+            "segments": len(segments),
+            "paragraphs": len([b for b in markdown.split("\n\n") if b.strip()]),
+            "glossary_replacements": glossary_report,
+        },
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Summary
+# --------------------------------------------------------------------------- #
+
+_SUMMARY_PARAMS = {"glossary"}
+
+
+def _summary_input(text: str) -> tuple[str, str]:
+    """(text to summarize, kind). A markdown text (edited.md, edition output) is sent as is; a
+    transcript (pipeline from a correction step) without its timestamps, one segment per line."""
+    segments, problems = parse_transcript(text)
+    if segments and not problems:
+        return "\n".join(s.text for s in segments), "transcript"
+    return text.strip(), "text"
+
+
+def estimate_summary(text: str, prompt: str, params: dict) -> tuple[int, int]:
+    source, _ = _summary_input(text)
+    tokens_in = approx_tokens(prompt) + approx_tokens(source) + 10
+    return tokens_in, min(int(params.get("max_tokens") or 1200), math.ceil(approx_tokens(source) / 3))
+
+
+def summary(text: str, *, item: Any, provider: str, model: str, prompt: str, params: dict,
+            timeout: float) -> dict:
+    """Summary (markdown), through `services.summary.generate_summary_with_retry`.
+
+    The app summarizes the edited transcript ("Edited Text"): the input is edited.md in gold mode,
+    the edition output in pipeline mode.
+
+    Step params:
+    - glossary (default False): apply the glossary of the app DB to the input and the output, as
+      the app does.
+    max_tokens defaults to 1200, as the app.
+    """
+    from services.summary import generate_summary_with_retry
+
+    _check_params(params, _SUMMARY_PARAMS)
+    source, kind = _summary_input(text)
+    if not source:
+        raise StepError("input is empty", retryable=False)
+
+    glossary_report: list = []
+    rules = None
+    if params.get("glossary"):
+        from services.glossary_apply import apply_glossary_to_text_with_report
+
+        rules = _load_glossary_rules()
+        source, glossary_report = apply_glossary_to_text_with_report(source, rules)
+
+    llm = RecordingLLM(_build_llm(provider, model, params, default_max_tokens=1200), timeout)
+    try:
+        # The bench retries whole calls itself: no retry inside the app function.
+        output = asyncio.run(
+            generate_summary_with_retry(source, llm, prompt, input_label="Edited Text", max_retries=1)
+        )
+    except Exception:
+        llm.raise_if_failed()
+        raise
+    llm.raise_if_failed()
+
+    output = str(output or "").strip()
+    if rules is not None:
+        output, output_report = apply_glossary_to_text_with_report(output, rules)
+        glossary_report += output_report
+    if not output:
+        raise StepError("summary is empty", tokens_in=llm.tokens_in, tokens_out=llm.tokens_out)
+
+    return {
+        "output": output,
+        "tokens_in": llm.tokens_in,
+        "tokens_out": llm.tokens_out,
+        "cost_usd": None,
+        "meta": {
+            "llm_calls": llm.calls,
+            "input_kind": kind,
             "glossary_replacements": glossary_report,
         },
     }

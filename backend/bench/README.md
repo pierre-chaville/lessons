@@ -52,8 +52,8 @@ idea of a lesson is built over its whole length.
 |---|---|---|
 | `meta.yaml` | Metadata: source lesson, speaker, topic, start/end in the audio, audio quality, notes | all |
 | `initial.md` | Raw transcript = **input** of the correction step | extracts (and full, optional) |
-| `corrected.md` | Hand-corrected transcript = **gold** of the correction, and **input** of edition and summary in `gold` mode | all |
-| `edited.md` | Reference edited version, used in A/B comparison | extracts |
+| `corrected.md` | Hand-corrected transcript = **gold** of the correction, and **input** of edition in `gold` mode | all |
+| `edited.md` | Reference edited version, used in A/B comparison; in full lessons, **input** of the summary in `gold` mode | all |
 | `edited_ideas.yaml` | Ideas expected in the edited version (for `idea_coverage`) | extracts |
 | `summary.md` | Reference summary, used in A/B comparison | full |
 | `summary_keypoints.yaml` | Key points expected in the summary (for `keypoint_coverage`) | full |
@@ -115,7 +115,7 @@ The steps evaluated are part of the app workflow:
 |---|---|---|---|---|
 | `correction` | extracts | `initial.md` | `corrected.md` | wer, cer, edit_precision_recall, overcorrection_rate |
 | `edition` | extracts | `corrected.md` | `edited_ideas.yaml`, `edited.md` | idea_coverage, faithfulness, length_ratio, hebrew_quotes_preserved, judge_rubric, judge_pairwise |
-| `summary` | full | `corrected.md` | `summary_keypoints.yaml`, `summary.md` | keypoint_coverage, faithfulness, length_words, judge_pairwise |
+| `summary` | full | `edited.md` | `summary_keypoints.yaml`, `summary.md` | keypoint_coverage, faithfulness, length_words, judge_pairwise |
 
 ### Calling the app code
 
@@ -131,7 +131,7 @@ def correction(text: str, *, item: LessonItem, provider: str, model: str, prompt
 
 - `params` = model params of the campaign + step-specific params; unknown keys are rejected.
 - `timeout` applies to each LLM call.
-- `cost_usd` is `None` when the provider does not report it (the runner computes it from `price`).
+- `cost_usd` is `None` when the provider does not report it (the runner computes it from `configs/pricing.yaml`).
 - `meta` holds step diagnostics stored with the generation.
 - An adapter raises `StepError` when the generation must be recorded as failed (LLM error, timeout,
   truncated output). App functions often fall back to their input on error; the adapters wrap the
@@ -147,6 +147,23 @@ apply the glossary of the app DB after the LLM; its content is not in the cache 
 step `version` when it changes). `meta`: number of LLM calls, segments changed,
 `unparsed_output_lines` (lines of the model output that the app parser ignored) and glossary
 replacements.
+
+`edition` runs `services.edition.edit_segment_group_with_retry` on groups of segments built as in
+the app (by word count), then the app paragraph post-processing (oversized paragraphs split). The
+output is markdown. Step params: `words_per_group` (default 1000, as the app worker),
+`max_concurrency` (default 10), `glossary` (default `false`; the app applies it to the output).
+`meta`: LLM calls, groups, `paragraph_retries` (extra call made by the app when a paragraph is too
+long), paragraphs, glossary replacements.
+
+`summary` runs `services.summary.generate_summary_with_retry` (input label "Edited Text", as the
+app). In the app, the summary is made from the **edited** transcript, so its input is `edited.md`
+in `gold` mode and the output of `edition` in `pipeline` mode (`edited.md` is therefore required
+in full lessons). `max_tokens` defaults to 1200, as the app. Step params: `glossary` (default
+`false`; the app applies it to the input and the output). `meta`: LLM calls, `input_kind`
+(`transcript` or `text`), glossary replacements.
+
+The retries inside the app functions are disabled (`max_retries=1`): the bench retries whole calls
+itself (`defaults.max_retries`).
 
 By convention, step `correction` calls `steps.correction`. A step can override this with
 `function:` (e.g. to point directly to an app function) and declare a `version:` that must be bumped
@@ -178,7 +195,7 @@ they are merged over the model `params`.
 
 A campaign is a YAML file in `configs/` defining:
 - the dataset (list of lesson folders) and its version;
-- the candidate models (short alias → model id + provider + parameters + price);
+- the candidate models (short alias → model id + provider + parameters);
 - for each step: prompts, models, input source, repeats and metrics;
 - the judge (model + provider + parameters), the cost budget and the report options.
 
@@ -191,11 +208,13 @@ models:
     id: openai/gpt-5.4
     provider: openrouter
     params: { temperature: 0.2, max_tokens: 8000 }
-    price: [2.5, 15]
 ```
 
 Each model must have a unique alias, and steps, baselines and pairwise comparisons always refer
 to **aliases**.
+
+Prices are not in the campaigns: they are maintained in a single file, `configs/pricing.yaml`,
+shared by all campaigns (see Budget).
 
 One campaign = one file, kept in git (e.g. `campaign-2026-11_models.yaml`,
 `campaign-2026-12_summary_prompts.yaml`), so that every result can be traced back to its exact
@@ -238,11 +257,22 @@ Details of the correction metrics (`metrics/wer.py`, `cer.py`, `edit_precision_r
 - Each result has a `value` and `details` (error counts, worst segments, missed / wrong edits...).
 
 Tests: `python -m pytest bench/tests` (hand-made examples with known results).
-- **length_ratio** – number of words of the output / number of words of the input, checked against
-  a `[min, max]` range.
-- **length_words** – number of words of the output versus a `target` with a `tolerance`.
-- **hebrew_quotes_preserved** – share of the Hebrew quotations of the input (Hebrew-script spans and
-  transliterated terms from the glossary) found in the output (fuzzy match).
+- **length_ratio** (edition) – number of words of the output / number of words of the input,
+  checked against a range: options `min`, `max`; detail `in_range` (1 / 0, shown as the share of
+  calls in range).
+- **length_words** (summary) – number of words of the output versus a `target` with a relative
+  `tolerance` (default 0.2 = ± 20 %); details `deviation`, `abs_deviation`, `in_range`.
+- **hebrew_quotes_preserved** – share of the Hebrew of the input found in the output, each distinct
+  item counted once: Hebrew-script spans (vowel points ignored, fuzzy match with rapidfuzz
+  `partial_ratio` ≥ `threshold`, default 85) and transliterated terms of the app glossary present
+  in the input (found if the output has the standard form or a variation; case, hyphens and
+  apostrophes ignored, so `Beit ha-Miqdash` contains `HaMiqdash`). Options: `glossary` (default
+  `true`: read the glossary from the app DB at scoring time), `terms` (extra terms), `threshold`.
+  `None` when the input contains neither.
+- Words are counted on the text only: timestamps, speaker tags, markdown symbols and punctuation
+  are not words. In the report, length values have no "best" direction; the grey row
+  "reference (edited.md / summary.md)" gives the scores of the hand-made reference.
+- Metric options are checked by `--check` (e.g. `length_words` without `target`).
 - **format_valid** – the output respects the expected format (segments/timestamps for correction).
 
 ### LLM-based metrics
@@ -353,7 +383,21 @@ Set `LITELLM_LOCAL_MODEL_COST_MAP=True` to prevent LiteLLM from downloading its 
 
 ## Budget
 
-Each model declares its price (`price: {input_per_mtok, output_per_mtok}`). Before running, the
+Prices are read from `configs/pricing.yaml`, the single price list of all campaigns, in USD per
+million input / output tokens:
+
+```yaml
+- id: openai/gpt-5.4          # model id, as in the campaigns
+  price: [2.5, 15]            # or { input_per_mtok: 2.5, output_per_mtok: 15 }
+- id: openai/gpt-5.4
+  provider: openai            # optional: price for this provider only
+  price: [2.5, 15]
+```
+
+A model is priced by the entry with its id and provider, else by the entry with its id and no
+provider. `--check` reports an error for a model used by a step without a price, and a warning
+for a `price` left in a campaign (ignored). The cost of each call is stored with the generation, so
+changing a price only affects the next calls. Before running, the
 estimated cost of the calls that are not cached is displayed; the run does not start if it exceeds
 `budget.max_usd`, and asks for confirmation if `budget.dry_run_estimate` is true. During the run, no
 new call is started once the actual cost of the run + the estimate of the running calls and of the
@@ -372,8 +416,9 @@ At the end of a run, an HTML report is generated (`report.export`, default
 `results/report_<campaign>.html`). Currently implemented (minimal version): one table per step,
 one row per model × prompt, with for each metric the mean over lessons of the mean over repeats
 ± the spread between repeats, the best value per column highlighted, calls OK / planned, cost and
-latency per call, the list of calls without output, and for correction an "input, unchanged" row
-(scores of the raw transcript, i.e. the level to beat).
+latency per call, the list of calls without output, and a grey row scoring a non-model text:
+"input, unchanged" for correction (scores of the raw transcript, i.e. the level to beat),
+"reference (edited.md / summary.md)" for edition and summary (the level of the hand-made reference).
 
 For correction steps, a second report `<report>_<step>_errors.html` (linked from the main one)
 lists, per lesson (chosen in a dropdown), the segments where the initial transcript or a model differs from
