@@ -29,7 +29,7 @@ AUDIO_QUALITIES = {"good", "medium", "poor"}
 
 # Recommended number of entries (see README annotation guidelines)
 IDEAS_RANGE = (10, 25)
-KEYPOINTS_RANGE = (5, 10)
+KEYPOINTS_RANGE = (8, 22)  # prompts/summary_keypoints: 8-12 high + medium, 6-10 low
 
 MAX_REPORTED_LINES = 5
 
@@ -152,6 +152,13 @@ def _format_seconds(seconds: int) -> str:
     return f"{s}s"
 
 
+def paragraphs(markdown: str) -> list[str]:
+    """Non-empty paragraphs (blocks separated by blank lines) of a markdown text, each on one line.
+    Paragraph numbers (1-based) in the gold files refer to this list."""
+    blocks = re.split(r"\n\s*\n", markdown.replace("\r\n", "\n"))
+    return [" ".join(line.strip() for line in b.splitlines() if line.strip()) for b in blocks if b.strip()]
+
+
 def format_transcript(segments: list[Segment]) -> str:
     """Inverse of parse_transcript (same format as the app export)."""
     return "".join(f"- [{_format_seconds(s.start)} - {_format_seconds(s.end)}] {s.text}\n" for s in segments)
@@ -247,7 +254,9 @@ def _compare_segments(item: LessonItem) -> None:
             break
 
 
-def _load_points(item: LessonItem, name: str, recommended: tuple[int, int]) -> Optional[list[dict]]:
+def _load_points(item: LessonItem, name: str, recommended: tuple[int, int],
+                 n_paragraphs: Optional[int] = None) -> Optional[list[dict]]:
+    """`n_paragraphs`: number of paragraphs of edited.md, to check paragraph_start / paragraph_end."""
     data = _load_yaml(item, name)
     if data is None:
         if not item.issues or item.issues[-1].file != name:
@@ -281,7 +290,17 @@ def _load_points(item: LessonItem, name: str, recommended: tuple[int, int]) -> O
         importance = entry.get("importance")
         if importance not in IMPORTANCE_WEIGHTS:
             item.error(f"{where}: importance must be one of {list(IMPORTANCE_WEIGHTS)}, got {importance!r}", name)
-        unknown = set(entry) - {"id", "text", "importance"}
+        timestamp = entry.get("timestamp")
+        if timestamp is not None and parse_duration(str(timestamp)) is None:
+            item.error(f"{where}: invalid timestamp {timestamp!r} (expected e.g. '4m 04s')", name)
+        start, end = entry.get("paragraph_start"), entry.get("paragraph_end")
+        if start is not None or end is not None:
+            if not (isinstance(start, int) and isinstance(end, int) and 1 <= start <= end):
+                item.error(f"{where}: paragraph_start / paragraph_end must be integers with "
+                           f"1 <= start <= end, got {start!r} / {end!r}", name)
+            elif n_paragraphs is not None and end > n_paragraphs:
+                item.error(f"{where}: paragraph_end {end} > {n_paragraphs} (paragraphs of edited.md)", name)
+        unknown = set(entry) - {"id", "text", "importance", "timestamp", "paragraph_start", "paragraph_end"}
         if unknown:
             item.warn(f"{where}: unknown keys {sorted(unknown)}", name)
         valid.append(entry)
@@ -334,7 +353,8 @@ def load_lesson(path: Path, kind: str) -> LessonItem:
     if has("summary.md"):
         item.summary = _load_text(item, "summary.md")
     if has("summary_keypoints.yaml"):
-        item.keypoints = _load_points(item, "summary_keypoints.yaml", KEYPOINTS_RANGE)
+        n_paragraphs = len(paragraphs(item.edited)) if item.edited else None
+        item.keypoints = _load_points(item, "summary_keypoints.yaml", KEYPOINTS_RANGE, n_paragraphs)
     return item
 
 
