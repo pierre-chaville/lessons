@@ -58,6 +58,35 @@ def normalize(text: str, strict: bool = False) -> str:
     return " ".join(tokenize(text, strict))
 
 
+def strip_accents(word: str) -> str:
+    """Sinaï -> Sinai, מִשְׁכָּן -> משכן (combining marks removed)."""
+    decomposed = unicodedata.normalize("NFD", word)
+    return unicodedata.normalize("NFC", "".join(c for c in decomposed if unicodedata.category(c) != "Mn"))
+
+
+def norm_word(token: str) -> str:
+    """Token of `tokenize` (lowercase, no punctuation) without accents, inner apostrophes and hyphens:
+    ha-Nahar = HaNahar, Sinaï = Sinai."""
+    return strip_accents(token).replace("'", "").replace("-", "")
+
+
+def fold_word(token: str) -> str:
+    """norm_word + `fold`: transliteration variants are equal (Parashah = parasha)."""
+    return fold(norm_word(token))
+
+
+WORD_LEVELS = {"norm": norm_word, "fold": fold_word}
+
+
+def words_at_level(text: str, level: Optional[str] = None, strict: bool = False) -> list[str]:
+    """Words of `text` for the WER variants: tokenize (level None), then norm_word or fold_word."""
+    tokens = tokenize(text, strict)
+    if level is None:
+        return tokens
+    transform = WORD_LEVELS[level]
+    return [w for w in (transform(t) for t in tokens) if w]
+
+
 def plain_text(text: str) -> str:
     """Text of a transcript (segments joined, timestamps and speaker tags removed) or of a markdown text."""
     return " ".join(segment_texts(text)[0])
@@ -172,3 +201,22 @@ def unchanged_positions(source: list[str], target: list[str]) -> set[int]:
         if op.tag == "equal":
             kept.update(range(op.src_start, op.src_end))
     return kept
+
+
+def fold(word: str) -> str:
+    """ replaces transliterated words by their original form """
+    w = unicodedata.normalize("NFD", word.lower())
+    w = "".join(c for c in w if unicodedata.category(c) != "Mn")   # accents : Sinaï -> sinai
+    w = re.sub(r"[''`\-]", "", w)                                     # 'Omer, ha-Lou'hoth
+    for a, b in [("tz", "ts"), ("th", "t"), ("sh", "ch"), ("q", "k"), ("ou", "u"),
+                 ("ei", "e"), ("ph", "f"), ("ck", "k")]:
+        w = w.replace(a, b)
+    for a, b in [("1", "un"), ("2", "deux"), ("3", "trois"), ("4", "quatre"), ("5", "cinq"), ("6", "six"), ("7", "sept"), ("8", "huit"), ("9", "neuf"), ("0", "zero"),
+                 ("10", "dix"), ("20", "vingt"), ("30", "trente"), ("40", "quarante"), ("50", "cinquante"), 
+                 ("100", "cent"), ("1000", "mille")]:
+        if w == a:
+            w = b
+
+    w = re.sub(r"(.)\1+", r"\1", w)                                   # Assereth -> asereth
+    w = re.sub(r"(?<=[aeiouy])h$", "", w)                             # Moshéh, Marah -> moshe, mara
+    return w

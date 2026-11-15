@@ -3,7 +3,8 @@
 One table per lesson: a row per segment where the initial transcript or at least one model differs
 from corrected.md; columns: timestamps, initial, corrected, then one column per model x prompt
 (first successful repeat). A model cell is empty when the model's segment matches corrected.md,
-and shows the model text on a red background otherwise (differing words highlighted).
+and shows the model text otherwise, colored by severity (red: wer_fold error, orange: wer_norm
+error only, yellow: case / accents / apostrophes / hyphens only), differing words highlighted.
 """
 
 from __future__ import annotations
@@ -16,9 +17,15 @@ from typing import Any, Optional
 
 from rapidfuzz.distance import Levenshtein
 
-from bench.dataset import _format_seconds, parse_transcript
+from bench.dataset import _format_seconds, format_transcript, parse_transcript
 from bench.db import BenchDB
-from bench.metrics.text import strip_speaker_tag, tokenize
+from bench.metrics import get_metric_module
+from bench.metrics.text import WORD_LEVELS, strip_speaker_tag, tokenize
+
+# Severity of a difference, from the least to the most important: "minor" = counted by wer only
+# (case, accents, inner apostrophes / hyphens), "norm" = counted by wer_norm but not by wer_fold
+# (transliteration variant), "fold" = still counted by wer_fold (real error).
+SEVERITIES = ("minor", "norm", "fold")
 
 
 class Comparator:
@@ -27,49 +34,122 @@ class Comparator:
     def __init__(self, case_sensitive: bool = True):
         self.lowercase = not case_sensitive
 
-    def words(self, text: str) -> list[str]:
-        return tokenize(strip_speaker_tag(text), lowercase=self.lowercase)
+    def words(self, text: str, severity: str = "minor") -> list[str]:
+        """Words compared at a severity level: the words of the comparator for "minor", the words of
+        wer_norm / wer_fold for "norm" / "fold"."""
+        if severity == "minor":
+            return tokenize(strip_speaker_tag(text), lowercase=self.lowercase)
+        transform = WORD_LEVELS[severity]
+        return [w for w in map(transform, tokenize(strip_speaker_tag(text))) if w]
 
     def same(self, text: str, gold: str) -> bool:
         return self.words(text) == self.words(gold)
 
+    def severity(self, text: str, gold: str) -> Optional[str]:
+        """Most important level at which `text` differs from `gold` (None if they are the same)."""
+        for severity in reversed(SEVERITIES):
+            if self.words(text, severity) != self.words(gold, severity):
+                return severity
+        return None
+
     def highlight(self, text: str, gold: str) -> str:
-        """HTML of `text` with the words that differ from `gold` in <mark>."""
+        """HTML of `text` with the words that differ from `gold` in <mark class="severity">, and a
+        caret where gold words are missing. Each word gets the most important level at which it differs."""
         raw = text.split()
-        units = [(i, " ".join(self.words(w))) for i, w in enumerate(raw)]
-        units = [(i, u) for i, u in units if u]  # punctuation-only words are never marked
-        marked: set[int] = set()
-        for op in Levenshtein.opcodes([u for _, u in units], self.words(gold)):
-            if op.tag in ("replace", "delete"):
-                marked.update(units[k][0] for k in range(op.src_start, op.src_end))
-        return " ".join(f"<mark>{html.escape(w)}</mark>" if i in marked else html.escape(w) for i, w in enumerate(raw))
+        marked: dict[int, str] = {}
+        gaps: dict[int, str] = {}
+        for severity in SEVERITIES:
+            units = [(i, " ".join(self.words(w, severity))) for i, w in enumerate(raw)]
+            units = [(i, u) for i, u in units if u]  # punctuation-only words are never marked
+            for op in Levenshtein.opcodes([u for _, u in units], self.words(gold, severity)):
+                if op.tag in ("replace", "delete"):
+                    marked.update((units[k][0], severity) for k in range(op.src_start, op.src_end))
+                elif op.tag == "insert":
+                    gaps[units[op.src_start][0] if op.src_start < len(units) else len(raw)] = severity
+        out = []
+        for i, w in enumerate([*raw, ""]):
+            if i in gaps:
+                out.append(f"<mark class='{gaps[i]} gap' title='missing words'>‸</mark>")
+            if w:
+                out.append(f"<mark class='{marked[i]}'>{html.escape(w)}</mark>" if i in marked else html.escape(w))
+        return " ".join(out)
 
 
-def _model_outputs(jobs: list[Any], db: BenchDB) -> tuple[list[str], dict[str, dict[str, dict]]]:
-    """Columns (model / prompt labels) and {lesson: {column: {(start, end): text}}} (first OK repeat)."""
+def _model_outputs(jobs: list[Any], db: BenchDB) -> tuple[list[str], dict[str, dict[str, dict]], dict[str, dict[str, str]]]:
+    """Columns (model / prompt labels), {lesson: {column: {(start, end): text}}} and
+    {lesson: {column: raw output}} (first OK repeat)."""
     several_prompts = len({j.prompt_name for j in jobs}) > 1
     columns: list[str] = []
     outputs: dict[str, dict[str, dict]] = defaultdict(dict)
+    raw: dict[str, dict[str, str]] = defaultdict(dict)
     for job in sorted(jobs, key=lambda j: j.repeat):
         column = f"{job.model_alias} / {job.prompt_name}" if several_prompts else job.model_alias
         if column not in columns:
             columns.append(column)
         if job.cached_id is None or column in outputs[job.item.id]:
             continue
-        segments, _ = parse_transcript(db.generation(job.cached_id)["output"] or "")
+        raw[job.item.id][column] = db.generation(job.cached_id)["output"] or ""
+        segments, _ = parse_transcript(raw[job.item.id][column])
         outputs[job.item.id][column] = {(s.start, s.end): s.text for s in segments}
-    return columns, outputs
+    return columns, outputs, raw
+
+
+def _wer_fold_table(lessons: dict[str, Any], columns: list[str], raw: dict[str, dict[str, str]]) -> str:
+    """WER fold per lesson and model (initial = input unchanged); `all` = total errors / total gold words.
+    The best model of each column is in bold."""
+    wer_fold = get_metric_module("wer_fold")
+    stats: dict[str, dict[str, tuple[int, int]]] = defaultdict(dict)  # {row: {lesson: (errors, ref words)}}
+    for lesson_id, item in lessons.items():
+        reference = format_transcript(item.corrected or [])
+        texts = {"initial": format_transcript(item.initial or []), **raw.get(lesson_id, {})}
+        for row, text in texts.items():
+            details = wer_fold.compute(text, reference=reference).details
+            stats[row][lesson_id] = (details["errors"], details["ref_length"])
+
+    def rate(row: str, lesson_id: Optional[str]) -> Optional[float]:
+        if lesson_id is None:  # all lessons, only when the row has every lesson
+            if len(stats.get(row, {})) < len(lessons):
+                return None
+            errors, words = map(sum, zip(*stats[row].values()))
+        elif lesson_id in stats.get(row, {}):
+            errors, words = stats[row][lesson_id]
+        else:
+            return None
+        return errors / words if words else None
+
+    keys: list[Optional[str]] = [*lessons, None]
+    best = {}
+    for key in keys:
+        values = [v for v in (rate(c, key) for c in columns) if v is not None]
+        best[key] = min(values) if values else None
+    rows = []
+    for row in ["initial", *columns]:
+        cells = []
+        for key in keys:
+            value = rate(row, key)
+            text = "–" if value is None else f"{value * 100:.2f}%"
+            if value is not None and row != "initial" and value == best[key]:
+                text = f"<strong>{text}</strong>"
+            cells.append(f"<td>{text}</td>")
+        rows.append(f"<tr><td class='label'>{html.escape(row)}</td>{''.join(cells)}</tr>")
+    head = "".join(f"<th><a href=\"#{html.escape(l)}\">{html.escape(l)}</a></th>" for l in lessons)
+    return f"""
+<table class="summary">
+  <thead><tr><th>WER fold</th>{head}<th>all</th></tr></thead>
+  <tbody>{''.join(rows)}</tbody>
+</table>"""
 
 
 def write_correction_errors(path: Path, *, config: dict, step_name: str, jobs: list[Any], db: BenchDB,
                             case_sensitive: bool = True) -> Path:
     compare = Comparator(case_sensitive)
-    columns, outputs = _model_outputs(jobs, db)
+    columns, outputs, raw = _model_outputs(jobs, db)
     lessons = {}
     for job in jobs:
         lessons.setdefault(job.item.id, job.item)
 
-    wrong_counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    # {column: {lesson: {severity: wrong segments}}}
+    wrong_counts: dict[str, dict[str, dict[str, int]]] = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
     sections = []
     for lesson_id, item in lessons.items():
         initial = {(s.start, s.end): s.text for s in item.initial or []}
@@ -78,7 +158,7 @@ def write_correction_errors(path: Path, *, config: dict, step_name: str, jobs: l
         for gold in item.corrected or []:
             key = (gold.start, gold.end)
             init_text = initial.get(key, "")
-            init_wrong = not compare.same(init_text, gold.text)
+            init_severity = compare.severity(init_text, gold.text)
             cells, any_wrong = [], False
             for column in columns:
                 if column not in lesson_outputs:
@@ -86,22 +166,27 @@ def write_correction_errors(path: Path, *, config: dict, step_name: str, jobs: l
                     continue
                 text = lesson_outputs[column].get(key)
                 if text is None:
-                    cells.append("<td class='wrong'><em>missing segment</em></td>")
-                elif compare.same(text, gold.text):
-                    cells.append("<td></td>")
-                    continue
+                    severity = "fold"
+                    cells.append("<td class='wrong fold'><em>missing segment</em></td>")
                 else:
-                    cells.append(f"<td class='wrong'>{compare.highlight(text, gold.text)}</td>")
-                wrong_counts[column][lesson_id] += 1
+                    severity = compare.severity(text, gold.text)
+                    if severity is None:
+                        cells.append("<td></td>")
+                        continue
+                    cells.append(f"<td class='wrong {severity}'>{compare.highlight(text, gold.text)}</td>")
+                wrong_counts[column][lesson_id][severity] += 1
                 any_wrong = True
-            if init_wrong:
-                wrong_counts["initial"][lesson_id] += 1
-            if not (init_wrong or any_wrong):
+            if init_severity:
+                wrong_counts["initial"][lesson_id][init_severity] += 1
+            if not (init_severity or any_wrong):
                 continue
-            init_cell = compare.highlight(init_text, gold.text) if init_wrong else html.escape(init_text)
+            if init_severity:
+                init_cell = f"<td class='wrong {init_severity}'>{compare.highlight(init_text, gold.text)}</td>"
+            else:
+                init_cell = f"<td>{html.escape(init_text)}</td>"
             rows.append(
                 f"<tr><td class='ts'>{_format_seconds(gold.start)} – {_format_seconds(gold.end)}</td>"
-                f"<td>{init_cell}</td><td class='gold'>{html.escape(gold.text)}</td>{''.join(cells)}</tr>"
+                f"{init_cell}<td class='gold'>{html.escape(gold.text)}</td>{''.join(cells)}</tr>"
             )
 
         missing = [c for c in columns if c not in lesson_outputs]
@@ -116,22 +201,31 @@ def write_correction_errors(path: Path, *, config: dict, step_name: str, jobs: l
 </table>
 </section>""")
 
+    def count_cell(by_severity: dict[str, int], strong: bool = False) -> str:
+        total = sum(by_severity.values())
+        split = "".join(f"<span class='n {s}' title='{s}'>{by_severity.get(s, 0)}</span>"
+                        for s in reversed(SEVERITIES))
+        return f"<td>{f'<strong>{total}</strong>' if strong else total}{split}</td>"
+
     summary_rows = []
     for column in ["initial", *columns]:
         counts = wrong_counts.get(column, {})
         available = [l for l in lessons if column == "initial" or column in outputs.get(l, {})]
         cells = "".join(
-            f"<td>{counts.get(lesson_id, 0) if lesson_id in available else '–'}</td>" for lesson_id in lessons
+            count_cell(counts.get(lesson_id, {})) if lesson_id in available else "<td>–</td>" for lesson_id in lessons
         )
-        total = sum(counts.values()) if available else "–"
-        summary_rows.append(f"<tr><td class='label'>{html.escape(column)}</td>{cells}"
-                            f"<td><strong>{total}</strong></td></tr>")
+        totals_by_severity: dict[str, int] = defaultdict(int)
+        for by_severity in counts.values():
+            for severity, n in by_severity.items():
+                totals_by_severity[severity] += n
+        total = count_cell(totals_by_severity, strong=True) if available else "<td>–</td>"
+        summary_rows.append(f"<tr><td class='label'>{html.escape(column)}</td>{cells}{total}</tr>")
     totals = "".join(f"<td>{len(item.corrected or [])}</td>" for item in lessons.values())
     summary = f"""
 <table class="summary">
   <thead><tr><th>segments different from corrected</th>{''.join(f'<th><a href="#{html.escape(l)}">{html.escape(l)}</a></th>' for l in lessons)}<th>total</th></tr></thead>
   <tbody>{''.join(summary_rows)}<tr class='muted'><td class='label'>segments</td>{totals}<td></td></tr></tbody>
-</table>"""
+</table>{_wer_fold_table(lessons, columns, raw)}"""
 
     options = "".join(f"<option value='{html.escape(l)}'>{html.escape(l)}</option>" for l in lessons)
     picker = f"""
@@ -151,9 +245,18 @@ def write_correction_errors(path: Path, *, config: dict, step_name: str, jobs: l
   td {{ max-width: 22rem; }}
   td.ts {{ white-space: nowrap; opacity: .7; }}
   td.gold {{ background: rgba(76, 175, 80, .12); }}
-  td.wrong {{ background: rgba(229, 57, 53, .22); }}
+  td.wrong.fold {{ background: rgba(229, 57, 53, .2); }}
+  td.wrong.norm {{ background: rgba(251, 140, 0, .18); }}
+  td.wrong.minor {{ background: rgba(253, 216, 53, .16); }}
   td.na {{ background: rgba(128, 128, 128, .12); }}
-  mark {{ background: rgba(229, 57, 53, .45); color: inherit; border-radius: 2px; padding: 0 1px; }}
+  mark {{ color: inherit; border-radius: 2px; padding: 0 1px; }}
+  mark.fold, .n.fold {{ background: rgba(229, 57, 53, .5); }}
+  mark.norm, .n.norm {{ background: rgba(251, 140, 0, .5); }}
+  mark.minor, .n.minor {{ background: rgba(253, 216, 53, .5); }}
+  mark.gap {{ font-weight: bold; padding: 0 2px; user-select: none; }}
+  .n {{ display: inline-block; min-width: 1.4em; margin-left: .3rem; padding: 0 .2rem; border-radius: 3px;
+        font-size: .75rem; text-align: center; }}
+  .legend mark {{ padding: 0 .3rem; }}
   table.summary td {{ text-align: right; }}
   table.summary td.label {{ text-align: left; }}
   tr.muted td {{ opacity: .6; }}
@@ -168,7 +271,12 @@ def write_correction_errors(path: Path, *, config: dict, step_name: str, jobs: l
  – generated {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
 <p class="meta">A segment is wrong when its words differ from corrected.md ({rule}). Rows: segments
 where the initial transcript or a model is wrong. Model cells: empty = matches corrected.md,
-red = different (differing words highlighted), grey = no output. First successful repeat of each model.</p>
+colored = different (differing words highlighted, ‸ = missing words), grey = no output. First successful
+repeat of each model.</p>
+<p class="meta legend">Severity (the cell takes its most important one; summary: segments, then per severity):
+<mark class="fold">real error</mark> still counted by wer_fold –
+<mark class="norm">transliteration variant</mark> counted by wer_norm, not by wer_fold (Parashah / parasha) –
+<mark class="minor">minor</mark> case, accents, apostrophes or hyphens only (Sinaï / Sinai, ha-Nahar / HaNahar).</p>
 {summary}
 {picker}
 {''.join(sections)}

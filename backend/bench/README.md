@@ -160,7 +160,7 @@ The steps evaluated are part of the app workflow:
 
 | Step | Dataset | Input (`gold` mode) | References | Metrics |
 |---|---|---|---|---|
-| `correction` | extracts | `initial.md` | `corrected.md` | wer, cer, edit_precision_recall, overcorrection_rate |
+| `correction` | extracts | `initial.md` | `corrected.md` | wer, wer_norm, wer_fold, hebrew_term_accuracy, cer, edit_precision_recall, overcorrection_rate |
 | `edition` | extracts | `corrected.md` | `edited_ideas.yaml`, `edited.md` | idea_coverage, faithfulness, length_ratio, hebrew_quotes_preserved, judge_rubric, judge_pairwise |
 | `summary` | full | `edited.md` | `summary_keypoints.yaml`, `summary.md` | keypoint_coverage, faithfulness, length_words, judge_pairwise |
 
@@ -283,6 +283,21 @@ becomes unreadable.)
   Computed on the whole extract, and also per segment when the output keeps the same segments
   (timestamps are used for the alignment). Aggregated as total errors / total words, not as a mean
   of segment WERs.
+- **wer_norm** – same as wer, but accents, Hebrew vowel points and apostrophes / hyphens inside
+  words are also ignored (`Sinaï` = `Sinai`, `ha-Nahar` = `HaNahar`, `'Hazal` = `Hazal`).
+- **wer_fold** – same as wer_norm, plus each word goes through `fold()` (`metrics/text.py`), which
+  merges the usual transliteration variants (`Parashah` = `parasha`, `passouq` = `pasuk`,
+  `Shabbath` = `shabat`). The gap wer → wer_norm → wer_fold shows how much of the WER comes
+  from spelling variants of Hebrew words rather than real errors.
+- **hebrew_term_accuracy** – share of the Hebrew terms of `corrected.md` that the output spells
+  right, transliteration variants allowed (folded words, as wer_fold). Terms = words unknown to
+  the French dictionary of pyspellchecker, after removing French elisions (`d'emounah` →
+  `emounah`); hyphenated words are terms when one part is unknown (`ou-neqevah`, not
+  `moment-là`). Words with digits, roman numerals, `etc` and `ok` are ignored; option
+  `exclude: [...]` adds words to treat as French (inflected forms or names missing from the
+  dictionary). The folded words of `corrected.md` and of the output are aligned: a term is right
+  when it is aligned with the same folded word. Details: the most frequent errors
+  (`guehinnom -> guéhinam (×3)`, `∅` = word missing).
 - **cer** – same at character level (less sensitive to word splitting, useful for Hebrew terms).
 - **edit_precision_recall** – compares the edits made by the model (word diff `initial → output`)
   with the expected edits (diff `initial → corrected`). Precision = share of the model edits that are
@@ -294,7 +309,8 @@ Details of the correction metrics (`metrics/wer.py`, `cer.py`, `edit_precision_r
 `overcorrection_rate.py`):
 - Normalization: speaker tags (`[audience]`) removed, lowercase, apostrophes unified, punctuation
   removed; apostrophes and hyphens inside words are kept (`l'a`, `ha-Nahar`, `'Hazal`), Hebrew
-  keeps its vowel points. Option `strict: true` compares raw words (case and punctuation count).
+  keeps its vowel points (wer_norm / wer_fold go further, see above). Option `strict: true`
+  compares raw words (case and punctuation count); it only applies to wer and cer.
 - An **edit** is a maximal run of changed words in the word diff; a model edit is correct only if
   the gold has the same edit (same words replaced by the same words). F1 = 2 × correct /
   (model edits + expected edits); precision / recall are `None` when there is no model / expected

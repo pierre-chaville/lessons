@@ -5,6 +5,8 @@ When the output keeps the segments of the reference, the same rate is also compu
 segment (total errors / total words): it is higher when words moved across segments.
 
 Options: strict (default false): compare raw words (case and punctuation count).
+Variants: wer_norm (accents, inner apostrophes and hyphens ignored too), wer_fold (wer_norm +
+transliteration variants folded, see text.fold).
 """
 
 from __future__ import annotations
@@ -12,7 +14,7 @@ from __future__ import annotations
 from typing import Optional
 
 from bench.metrics import MetricResult
-from bench.metrics.text import ErrorCounts, error_counts, normalize, tokenize, units
+from bench.metrics.text import ErrorCounts, error_counts, units, words_at_level
 
 HIGHER_IS_BETTER = False
 PERCENT = True
@@ -20,11 +22,14 @@ REPORT_DETAILS: dict[str, bool] = {}
 WORST_SEGMENTS = 5
 
 
-def error_rate(output: str, reference: str, *, chars: bool, options: Optional[dict] = None) -> MetricResult:
-    strict = bool((options or {}).get("strict", False))
+def error_rate(output: str, reference: str, *, chars: bool, options: Optional[dict] = None,
+               level: Optional[str] = None) -> MetricResult:
+    """`level`: None (tokenize), "norm" or "fold" (see text.words_at_level)."""
+    strict = bool((options or {}).get("strict", False)) and level is None
 
     def sequence(text: str):
-        return normalize(text, strict) if chars else tokenize(text, strict)
+        words = words_at_level(text, level, strict)
+        return " ".join(words) if chars else words
 
     segment_units, aligned = units(reference, output)
     whole_ref = " ".join(u.texts[0] for u in segment_units)
