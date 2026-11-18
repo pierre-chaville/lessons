@@ -17,6 +17,7 @@ import json
 import re
 import time
 import unicodedata
+import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -29,6 +30,10 @@ from bench.metrics import get_metric_module
 
 DEFAULT_EVIDENCE_THRESHOLD = 85
 RETRY_DELAY_S = 2
+JSON_SCHEMA_PROVIDERS = {"openai", "openrouter"}
+
+# Raised by langchain_openai for every json_schema call, although nothing is streamed.
+warnings.filterwarnings("ignore", message="Streaming with Pydantic response_format not yet supported")
 
 
 # --------------------------------------------------------------------------- #
@@ -111,6 +116,10 @@ class JudgeCalls:
 
     def ask(self, schema, prompt: str):
         params = {**self.model.params, **({"use_flex": True} if self.model.flex else {})}
+        if self.model.provider in JSON_SCHEMA_PROVIDERS:
+            # response_format instead of function tools: OpenAI reasoning models refuse function
+            # tools in chat completions (reasoning_effort is on by default for some of them).
+            params.setdefault("structured_output_method", "json_schema")
         for attempt in range(self.model.max_retries + 1):
             self.calls += 1
             try:
@@ -120,7 +129,8 @@ class JudgeCalls:
             except Exception as exc:
                 self.tokens_in += int(getattr(exc, "tokens_in", 0) or 0)
                 self.tokens_out += int(getattr(exc, "tokens_out", 0) or 0)
-                if not getattr(exc, "retryable", True) or attempt == self.model.max_retries:
+                retryable = getattr(exc, "retryable", True) and getattr(exc, "status_code", None) not in (400, 401, 403, 404)
+                if not retryable or attempt == self.model.max_retries:
                     raise
                 time.sleep(RETRY_DELAY_S * 2**attempt)
                 continue

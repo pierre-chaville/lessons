@@ -396,7 +396,10 @@ output, a model from a different family than the candidates when possible.
 Implemented: `idea_coverage` and `faithfulness` (`bench/judge.py`, `metrics/idea_coverage.py`,
 `metrics/faithfulness.py`):
 - the judge is the campaign `judge` section (`model`, `provider`, `params`, optional `timeout_s`,
-  default 10 min, and `max_retries`); `--flex` applies to it too;
+  default 10 min, and `max_retries`); `--flex` applies to it too. For OpenAI and OpenRouter the
+  structured output uses `response_format` (`structured_output_method: json_schema`, overridable
+  in `params`), as OpenAI reasoning models refuse function tools; some reasoning models (e.g.
+  gpt-6-luna) only accept `temperature: 1`;
 - idea_coverage: one call per output; a `present` / `partial` idea whose quote is not found in the
   output counts as `absent` (`rejected_evidence`), an idea without verdict too (`missing_verdicts`);
 - faithfulness: one call to split the output into claims, then one call per `claims_per_call`
@@ -543,6 +546,30 @@ lists, per lesson (chosen in a dropdown), the segments where the initial transcr
 repeat), empty when the model matches the gold, red with the differing words highlighted
 otherwise. Comparison ignores punctuation and spacing; case counts unless
 `report.correction_errors.case_sensitive: false`.
+
+### Review app
+
+`python -m bench.review_app` (from `backend/`, options `--port 8765`, `--no-browser`, `--reload`)
+starts a local FastAPI server and opens a Vue.js page to browse the results:
+
+- **campaigns**: the campaign files of `configs/` (selector in the header), last run and cost;
+- **dashboard** of a campaign: lessons, models, generation and judge cost, runs, and per step the
+  table of the HTML report (mean ± spread per model × prompt, best values in green, grey
+  baseline row, calls without output);
+- **step**: the same table with the models to compare ticked, and a lesson × model matrix for a
+  chosen metric (or metric detail);
+- **lesson** (click a lesson): gold vs the outputs of the selected models (chips), previous / next
+  lesson, repeat selector. Correction: the segments with differences, colored by severity as in
+  the errors report, with counts; edition / summary: gold and outputs side by side (rendered or raw
+  markdown, optionally the input), the judge verdicts per idea (`Ideas`, quotes on hover), the
+  claims not supported (`Claims`); every step: all scores and their details (`Scores`).
+
+The app reads `results/bench.sqlite` read-only and plans the jobs like `bench.run` (same cache
+keys), so it shows what the campaign would use; it reloads a campaign when its file or the
+database changes. Vue and marked are served from `frontend/node_modules` when installed, else
+from a CDN. JSON API: `/api/campaigns`, `/api/campaigns/<campaign file>`,
+`.../steps/<step>`, `.../steps/<step>/lessons/<lesson>?candidates=<model>|<prompt>,...&repeat=0`
+(docs at `/api/docs`).
 
 Planned:
 - matrix model × step: mean score with confidence interval (bootstrap), cost per lesson, latency;
