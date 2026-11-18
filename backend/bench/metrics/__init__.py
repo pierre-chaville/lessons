@@ -19,6 +19,10 @@ and, for the report:
 - `PERCENT`: True for ratios, displayed as percentages
 - `PERCENT_DETAILS` (optional): detail keys displayed as percentages (default: all if PERCENT)
 - `DIGITS` (optional, default 3): decimals of the value when not a percentage
+
+Judge metrics (`JUDGE = True`, e.g. idea_coverage, faithfulness) are scored by bench/judge.py:
+they take the dataset item and the judge (`compute(..., item=, judge=)`), expose `VERSION`
+and `estimate_tokens(output, *, input_text, item, options)`.
 """
 
 from __future__ import annotations
@@ -31,6 +35,7 @@ from typing import Any, Callable, Optional
 IMPLEMENTED = (
     "wer", "wer_norm", "wer_fold", "cer", "edit_precision_recall", "overcorrection_rate",
     "length_ratio", "length_words", "hebrew_quotes_preserved", "hebrew_term_accuracy",
+    "idea_coverage", "faithfulness",
 )
 
 

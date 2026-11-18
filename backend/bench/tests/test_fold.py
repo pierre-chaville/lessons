@@ -14,6 +14,8 @@ class TestFold:
         assert fold("ma'hloqeth") == "mahloket"
         assert fold("galouth") == "galut"
         assert fold("Neqevah") == "nekeva"
+        assert fold("Neqevah") == "nekeva"
+        assert fold("Rabbeinou") == "rabenu"
 
 
     def test_fold_french(self):

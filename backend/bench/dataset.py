@@ -23,6 +23,20 @@ OPTIONAL_FILES = {
 }
 
 TASK_DATASET = {"correction": "extracts", "edition": "extracts", "summary": "full"}
+# Files a task needs (input and references), besides meta.yaml.
+TASK_FILES = {
+    "correction": ("initial.md", "corrected.md"),
+    "edition": ("corrected.md", "edited.md", "edited_ideas.yaml"),
+    "summary": ("corrected.md", "edited.md", "summary.md", "summary_keypoints.yaml"),
+}
+
+
+def required_files(kind: str, tasks: Optional[set[str]] = None) -> tuple[str, ...]:
+    """Files required in a `kind` lesson: all of REQUIRED_FILES, or only those of `tasks`."""
+    if tasks is None:
+        return REQUIRED_FILES[kind]
+    needed = {"meta.yaml"} | {f for t in tasks if TASK_DATASET.get(t) == kind for f in TASK_FILES[t]}
+    return tuple(f for f in (*REQUIRED_FILES[kind], *OPTIONAL_FILES[kind]) if f in needed)
 
 IMPORTANCE_WEIGHTS = {"high": 3, "medium": 2, "low": 1}
 AUDIO_QUALITIES = {"good", "medium", "poor"}
@@ -321,20 +335,21 @@ def _load_text(item: LessonItem, name: str) -> Optional[str]:
     return text
 
 
-def load_lesson(path: Path, kind: str) -> LessonItem:
+def load_lesson(path: Path, kind: str, tasks: Optional[set[str]] = None) -> LessonItem:
+    """`tasks`: only the files of these tasks are required (default: all the files of the dataset);
+    the other files are loaded and checked when present."""
     item = LessonItem(id=path.name, kind=kind, path=path)
     if not path.is_dir():
         item.error(f"folder not found: {path}")
         return item
 
     present = {p.name for p in path.iterdir() if p.is_file()}
-    required = REQUIRED_FILES[kind]
-    known = set(required) | set(OPTIONAL_FILES[kind])
-    for name in required:
+    known = set(REQUIRED_FILES[kind]) | set(OPTIONAL_FILES[kind])
+    for name in required_files(kind, tasks):
         if name not in present:
             item.error("missing file", name)
     for name in sorted(present - known):
-        item.warn(f"unexpected file (expected: {', '.join(required)})", name)
+        item.warn(f"unexpected file (expected: {', '.join(REQUIRED_FILES[kind])})", name)
 
     def has(name: str) -> bool:
         return name in present
@@ -363,8 +378,9 @@ def load_lesson(path: Path, kind: str) -> LessonItem:
 # --------------------------------------------------------------------------- #
 
 
-def load_dataset(config: dict) -> tuple[list[LessonItem], list[Issue]]:
-    """Load every lesson listed in `config['dataset']`. Paths are relative to bench/."""
+def load_dataset(config: dict, tasks: Optional[set[str]] = None) -> tuple[list[LessonItem], list[Issue]]:
+    """Load every lesson listed in `config['dataset']`. Paths are relative to bench/.
+    `tasks`: tasks of the steps to run (only their files are required, see load_lesson)."""
     issues: list[Issue] = []
     items: list[LessonItem] = []
     dataset = config.get("dataset")
@@ -392,7 +408,7 @@ def load_dataset(config: dict) -> tuple[list[LessonItem], list[Issue]]:
                 issues.append(Issue("error", f"lesson {path.name!r} listed twice (in {seen[path.name]} and {kind})"))
                 continue
             seen[path.name] = kind
-            items.append(load_lesson(path, kind))
+            items.append(load_lesson(path, kind, tasks))
     return items, issues
 
 

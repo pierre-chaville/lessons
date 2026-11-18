@@ -20,6 +20,7 @@ from rapidfuzz.distance import Levenshtein
 from bench.dataset import _format_seconds, format_transcript, parse_transcript
 from bench.db import BenchDB
 from bench.metrics import get_metric_module
+from bench.score import metric_specs
 from bench.metrics.text import WORD_LEVELS, strip_speaker_tag, tokenize
 
 # Severity of a difference, from the least to the most important: "minor" = counted by wer only
@@ -94,34 +95,44 @@ def _model_outputs(jobs: list[Any], db: BenchDB) -> tuple[list[str], dict[str, d
     return columns, outputs, raw
 
 
-def _wer_fold_table(lessons: dict[str, Any], columns: list[str], raw: dict[str, dict[str, str]]) -> str:
-    """WER fold per lesson and model (initial = input unchanged); `all` = total errors / total gold words.
+# Summary tables: (title, metric, (numerator key, denominator key) of the details, higher is better).
+# The `all` column is sum(numerator) / sum(denominator) over the lessons.
+METRIC_TABLES = (
+    ("WER fold", "wer_fold", ("errors", "ref_length"), False),
+    ("Hebrew term accuracy", "hebrew_term_accuracy", ("right", "terms"), True),
+)
+
+
+def _metric_table(title: str, metric: str, keys_ratio: tuple[str, str], higher_is_better: bool, options: dict,
+                  lessons: dict[str, Any], columns: list[str], raw: dict[str, dict[str, str]]) -> str:
+    """A metric per lesson and model (initial = input unchanged), with the options of the campaign.
     The best model of each column is in bold."""
-    wer_fold = get_metric_module("wer_fold")
-    stats: dict[str, dict[str, tuple[int, int]]] = defaultdict(dict)  # {row: {lesson: (errors, ref words)}}
+    module = get_metric_module(metric)
+    num_key, den_key = keys_ratio
+    stats: dict[str, dict[str, tuple[int, int]]] = defaultdict(dict)  # {row: {lesson: (numerator, denominator)}}
     for lesson_id, item in lessons.items():
         reference = format_transcript(item.corrected or [])
         texts = {"initial": format_transcript(item.initial or []), **raw.get(lesson_id, {})}
         for row, text in texts.items():
-            details = wer_fold.compute(text, reference=reference).details
-            stats[row][lesson_id] = (details["errors"], details["ref_length"])
+            details = module.compute(text, reference=reference, options=options).details
+            stats[row][lesson_id] = (details[num_key], details[den_key])
 
     def rate(row: str, lesson_id: Optional[str]) -> Optional[float]:
         if lesson_id is None:  # all lessons, only when the row has every lesson
             if len(stats.get(row, {})) < len(lessons):
                 return None
-            errors, words = map(sum, zip(*stats[row].values()))
+            numerator, denominator = map(sum, zip(*stats[row].values()))
         elif lesson_id in stats.get(row, {}):
-            errors, words = stats[row][lesson_id]
+            numerator, denominator = stats[row][lesson_id]
         else:
             return None
-        return errors / words if words else None
+        return numerator / denominator if denominator else None
 
     keys: list[Optional[str]] = [*lessons, None]
     best = {}
     for key in keys:
         values = [v for v in (rate(c, key) for c in columns) if v is not None]
-        best[key] = min(values) if values else None
+        best[key] = (max if higher_is_better else min)(values) if values else None
     rows = []
     for row in ["initial", *columns]:
         cells = []
@@ -135,7 +146,7 @@ def _wer_fold_table(lessons: dict[str, Any], columns: list[str], raw: dict[str, 
     head = "".join(f"<th><a href=\"#{html.escape(l)}\">{html.escape(l)}</a></th>" for l in lessons)
     return f"""
 <table class="summary">
-  <thead><tr><th>WER fold</th>{head}<th>all</th></tr></thead>
+  <thead><tr><th>{html.escape(title)} {'↑' if higher_is_better else '↓'}</th>{head}<th>all</th></tr></thead>
   <tbody>{''.join(rows)}</tbody>
 </table>"""
 
@@ -221,11 +232,16 @@ def write_correction_errors(path: Path, *, config: dict, step_name: str, jobs: l
         total = count_cell(totals_by_severity, strong=True) if available else "<td>–</td>"
         summary_rows.append(f"<tr><td class='label'>{html.escape(column)}</td>{cells}{total}</tr>")
     totals = "".join(f"<td>{len(item.corrected or [])}</td>" for item in lessons.values())
+    step_options = dict(metric_specs((config.get("steps") or {}).get(step_name) or {}))
+    metric_tables = "".join(
+        _metric_table(title, metric, keys, higher, step_options.get(metric, {}), lessons, columns, raw)
+        for title, metric, keys, higher in METRIC_TABLES
+    )
     summary = f"""
 <table class="summary">
   <thead><tr><th>segments different from corrected</th>{''.join(f'<th><a href="#{html.escape(l)}">{html.escape(l)}</a></th>' for l in lessons)}<th>total</th></tr></thead>
   <tbody>{''.join(summary_rows)}<tr class='muted'><td class='label'>segments</td>{totals}<td></td></tr></tbody>
-</table>{_wer_fold_table(lessons, columns, raw)}"""
+</table>{metric_tables}"""
 
     options = "".join(f"<option value='{html.escape(l)}'>{html.escape(l)}</option>" for l in lessons)
     picker = f"""

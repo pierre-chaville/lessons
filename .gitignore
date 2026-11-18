@@ -51,3 +51,4 @@ backend/bench/data/
 backend/bench/configs/
 backend/bench/prompts/
 backend/bench/results/
+backend/bench/reports/

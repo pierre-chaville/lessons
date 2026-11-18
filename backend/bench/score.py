@@ -1,7 +1,7 @@
 """Metrics computation on the generations of a campaign (see README "Metrics").
 
 Deterministic metrics are cheap: they are always re-computed, so a fixed metric applies to the
-existing outputs without any new LLM call. LLM-judge metrics are not implemented yet.
+existing outputs without any new LLM call. LLM-judge metrics are scored by bench/judge.py.
 """
 
 from __future__ import annotations
@@ -72,6 +72,8 @@ def score_jobs(config: dict, jobs: list[Any], db: BenchDB) -> ScoreSummary:
                 module = get_metric_module(name)
             except KeyError:
                 summary.not_implemented.add(name)
+                continue
+            if getattr(module, "JUDGE", False):
                 continue
             if reference is None and getattr(module, "NEEDS_REFERENCE", True):
                 summary.no_reference.add(f"{job.step}/{name}")

@@ -209,7 +209,9 @@ def fold(word: str) -> str:
     w = "".join(c for c in w if unicodedata.category(c) != "Mn")   # accents : Sinaï -> sinai
     w = re.sub(r"[''`\-]", "", w)                                     # 'Omer, ha-Lou'hoth
     for a, b in [("tz", "ts"), ("th", "t"), ("sh", "ch"), ("q", "k"), ("ou", "u"),
-                 ("ei", "e"), ("ph", "f"), ("ck", "k")]:
+                 ("ei", "e"), ("ph", "f"), ("ck", "k"), 
+                 ("ss", "s"), ("nn", "n"), ("yy", "y"), ("tt", "t"), ("rr", "r"), ("ll", "l"), ("mm", "m"), ("pp", "p"), ("kk", "k"),
+                 ("bb", "b"), ("dd", "d"), ("gg", "g"), ("cc", "c"), ("zz", "z")]:
         w = w.replace(a, b)
     for a, b in [("1", "un"), ("2", "deux"), ("3", "trois"), ("4", "quatre"), ("5", "cinq"), ("6", "six"), ("7", "sept"), ("8", "huit"), ("9", "neuf"), ("0", "zero"),
                  ("10", "dix"), ("20", "vingt"), ("30", "trente"), ("40", "quarante"), ("50", "cinquante"), 

@@ -26,6 +26,7 @@ expected (tokens_in, tokens_out) of one call; `estimate_tokens` is used when it 
 from __future__ import annotations
 
 import asyncio
+import functools
 import math
 from typing import Any, Optional
 
@@ -33,9 +34,9 @@ from bench.dataset import Segment, format_transcript, parse_transcript
 
 # Bump when the code of an adapter (or of the app function it calls) changes. See README "Cache".
 VERSIONS = {
-    "correction": 1,
-    "edition": 1,
-    "summary": 1,
+    "correction": 2,  # 2: glossary applied by default
+    "edition": 2,
+    "summary": 2,
 }
 
 PROVIDERS = {"openai": "OpenAI", "anthropic": "Anthropic", "openrouter": "OpenRouter"}
@@ -93,6 +94,60 @@ def estimate_tokens(text: str, prompt: str, params: dict) -> tuple[int, int]:
     """Default estimate: one call reading prompt + input and writing about as much as the input."""
     tokens_in = approx_tokens(prompt) + approx_tokens(text)
     return tokens_in, min(approx_tokens(text), int(params.get("max_tokens") or 10**9))
+
+
+async def _close_async_clients(llm) -> None:
+    """Close the async HTTP client of a LangChain chat model (ChatOpenAI: root_async_client,
+    ChatAnthropic: _async_client once created)."""
+    llm = getattr(llm, "_llm", llm)  # RecordingLLM
+    clients = [getattr(llm, "root_async_client", None), vars(llm).get("_async_client")]
+    for client in clients:
+        if client is not None and hasattr(client, "close"):
+            try:
+                await client.close()
+            except Exception:
+                pass
+
+
+def run_async(coro, llm):
+    """asyncio.run(coro), closing the model's HTTP connections before the event loop closes: otherwise
+    httpx closes them when the client is garbage collected, on a closed loop ("Event loop is closed")."""
+    async def main():
+        try:
+            return await coro
+        finally:
+            await _close_async_clients(llm)
+
+    return asyncio.run(main())
+
+
+def structured_call(schema, full_prompt: str, *, provider: str, model: str, params: dict,
+                    timeout: float) -> tuple[Any, dict]:
+    """One LLM call with a structured output (LangChain `with_structured_output`, pydantic `schema`).
+    Returns (parsed object, {"tokens_in", "tokens_out"}); raises StepError on failure.
+    Param `structured_output_method`: method of with_structured_output (default: the provider
+    default, i.e. function calling)."""
+    llm = _build_llm(provider, model, params, default_max_tokens=16000)
+    method = params.get("structured_output_method")
+    structured = llm.with_structured_output(schema, include_raw=True, **({"method": method} if method else {}))
+
+    async def call():
+        return await asyncio.wait_for(structured.ainvoke(full_prompt), timeout)
+
+    try:
+        response = run_async(call(), llm)
+    except asyncio.TimeoutError:
+        raise StepError(f"timeout after {timeout}s")
+    raw = response.get("raw")
+    usage = getattr(raw, "usage_metadata", None) or {}
+    tokens = {"tokens_in": int(usage.get("input_tokens") or 0), "tokens_out": int(usage.get("output_tokens") or 0)}
+    metadata = getattr(raw, "response_metadata", None) or {}
+    if metadata.get("finish_reason") == "length" or metadata.get("stop_reason") == "max_tokens":
+        raise StepError("output truncated (max_tokens reached)", retryable=False, **tokens)
+    parsed = response.get("parsed")
+    if parsed is None:
+        raise StepError(f"invalid structured output: {response.get('parsing_error')}", **tokens)
+    return parsed, tokens
 
 
 def _build_llm(provider: str, model: str, params: dict, default_max_tokens: int):
@@ -161,14 +216,21 @@ class RecordingLLM:
 _CORRECTION_PARAMS = {"segments_per_group", "max_concurrency", "glossary"}
 
 
-def _load_glossary_rules() -> list:
+@functools.lru_cache(maxsize=1)
+def _load_glossary_rules() -> tuple:
+    """Glossary of the app DB, read once per process (a run uses the same glossary for every call)."""
     from sqlmodel import Session
 
     from database import engine
     from services.glossary_apply import load_glossary_rules
 
     with Session(engine) as session:
-        return load_glossary_rules(session)
+        return tuple(load_glossary_rules(session))
+
+
+def _use_glossary(params: dict) -> bool:
+    """Step param `glossary` (default True: the app always applies the glossary)."""
+    return bool(params.get("glossary", True))
 
 
 async def _correct_segments(
@@ -227,7 +289,7 @@ def correction(text: str, *, item: Any, provider: str, model: str, prompt: str, 
     Step params:
     - segments_per_group (default 10, as the app worker)
     - max_concurrency (default 10)
-    - glossary (default False): apply the glossary of the app DB after the LLM, as the app does.
+    - glossary (default True): apply the glossary of the app DB after the LLM, as the app does.
       The glossary content is not part of the cache key: bump the step version when it changes.
     """
     _check_params(params, _CORRECTION_PARAMS)
@@ -235,14 +297,15 @@ def correction(text: str, *, item: Any, provider: str, model: str, prompt: str, 
 
     segments_per_group = int(params.get("segments_per_group", 10))
     llm = RecordingLLM(_build_llm(provider, model, params, default_max_tokens=16000), timeout)
-    corrected_texts = asyncio.run(
+    corrected_texts = run_async(
         _correct_segments(
             segments,
             llm,
             prompt,
             segments_per_group=segments_per_group,
             max_concurrency=int(params.get("max_concurrency", 10)),
-        )
+        ),
+        llm,
     )
     llm.raise_if_failed()
 
@@ -250,7 +313,7 @@ def correction(text: str, *, item: Any, provider: str, model: str, prompt: str, 
     changed = sum(1 for a, b in zip(segments, corrected) if a.text != b.text)
 
     glossary_report: list = []
-    if params.get("glossary"):
+    if _use_glossary(params):
         from services.glossary_apply import apply_glossary_to_segments_with_report
 
         data = [{"start": s.start, "end": s.end, "text": s.text} for s in corrected]
@@ -314,7 +377,7 @@ def edition(text: str, *, item: Any, provider: str, model: str, prompt: str, par
     Step params:
     - words_per_group (default 1000, as the app worker)
     - max_concurrency (default 10)
-    - glossary (default False): apply the glossary of the app DB to the output, as the app does.
+    - glossary (default True): apply the glossary of the app DB to the output, as the app does.
     The app paragraph post-processing (split of oversized paragraphs) is applied.
     """
     from services.edition import _split_oversized_markdown_paragraphs, edit_segment_group_with_retry
@@ -334,12 +397,12 @@ def edition(text: str, *, item: Any, provider: str, model: str, prompt: str, par
     async def run_all() -> list[str]:
         return await asyncio.gather(*(run_group(g) for g in groups))
 
-    parts = asyncio.run(run_all())
+    parts = run_async(run_all(), llm)
     llm.raise_if_failed()
 
     markdown = _split_oversized_markdown_paragraphs("\n\n".join(p.strip() for p in parts if p and p.strip()))
     glossary_report: list = []
-    if params.get("glossary"):
+    if _use_glossary(params):
         from services.glossary_apply import apply_glossary_to_text_with_report
 
         markdown, glossary_report = apply_glossary_to_text_with_report(markdown, _load_glossary_rules())
@@ -393,7 +456,7 @@ def summary(text: str, *, item: Any, provider: str, model: str, prompt: str, par
     the edition output in pipeline mode.
 
     Step params:
-    - glossary (default False): apply the glossary of the app DB to the input and the output, as
+    - glossary (default True): apply the glossary of the app DB to the input and the output, as
       the app does.
     max_tokens defaults to 1200, as the app.
     """
@@ -406,7 +469,7 @@ def summary(text: str, *, item: Any, provider: str, model: str, prompt: str, par
 
     glossary_report: list = []
     rules = None
-    if params.get("glossary"):
+    if _use_glossary(params):
         from services.glossary_apply import apply_glossary_to_text_with_report
 
         rules = _load_glossary_rules()
@@ -415,8 +478,8 @@ def summary(text: str, *, item: Any, provider: str, model: str, prompt: str, par
     llm = RecordingLLM(_build_llm(provider, model, params, default_max_tokens=1200), timeout)
     try:
         # The bench retries whole calls itself: no retry inside the app function.
-        output = asyncio.run(
-            generate_summary_with_retry(source, llm, prompt, input_label="Edited Text", max_retries=1)
+        output = run_async(
+            generate_summary_with_retry(source, llm, prompt, input_label="Edited Text", max_retries=1), llm
         )
     except Exception:
         llm.raise_if_failed()

@@ -18,7 +18,7 @@ import subprocess
 import sys
 import time
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -26,14 +26,16 @@ import yaml
 
 from bench.dataset import BENCH_DIR, TASK_DATASET, Issue, LessonItem, describe, format_transcript, load_dataset
 from bench.db import BenchDB
+from bench.judge import JudgeModel, is_judge_metric, plan_judge, print_judge_plan, run_judge
 from bench.metrics import get_metric_module
 from bench.report import write_report
 from bench.report_correction import write_correction_errors
-from bench.score import metric_specs, score_jobs
+from bench.score import metric_specs, reference_text, score_jobs
 from bench.steps import PROVIDERS
 
 INPUT_SOURCES = ("raw", "gold", "pipeline")
 PRICING_PATH = BENCH_DIR / "configs" / "pricing.yaml"
+REPORTS_DIR = BENCH_DIR / "reports"
 DEFAULTS = {"repeats": 1, "timeout_s": 180, "max_retries": 2, "input_source": "gold", "workers": 1}
 RETRY_DELAY_S = 2
 
@@ -77,16 +79,37 @@ def compute_cost(price: tuple[float, float], tokens_in: int, tokens_out: int) ->
 @dataclass
 class Pricing:
     """Prices of configs/pricing.yaml, shared by all campaigns: a list of
-    `{id, price: [input, output], provider (optional)}` in USD per million tokens."""
+    `{id, price: [input, output], provider (optional), flex (optional)}` in USD per million tokens;
+    `flex` = ratio of the flex price to the standard price (e.g. 0.5), when the model has a flex tier."""
 
     path: Path
     prices: dict[tuple[str, Optional[str]], tuple[float, float]]
     issues: list[Issue]
+    flex_ratios: dict[tuple[str, Optional[str]], float] = field(default_factory=dict)
 
-    def price(self, model_id: str, provider: Optional[str]) -> Optional[tuple[float, float]]:
+    def _key(self, table: dict, model_id: str, provider: Optional[str]) -> Optional[tuple]:
         """Entry with this id and provider, else the entry with this id and no provider."""
         key = (model_id, str(provider).lower() if provider else None)
-        return self.prices.get(key) or self.prices.get((model_id, None))
+        if key in table:
+            return key
+        return (model_id, None) if (model_id, None) in table else None
+
+    def flex_ratio(self, model_id: str, provider: Optional[str]) -> Optional[float]:
+        key = self._key(self.prices, model_id, provider)
+        return self.flex_ratios.get(key) if key else None
+
+    def flex_available(self, model_id: str, provider: Optional[str]) -> bool:
+        """Flex calls go through OpenRouter (service_tier "flex"), for models with a flex ratio."""
+        return str(provider or "").lower() == "openrouter" and self.flex_ratio(model_id, provider) is not None
+
+    def price(self, model_id: str, provider: Optional[str], flex: bool = False) -> Optional[tuple[float, float]]:
+        """Standard price, or flex price (standard x flex ratio) when `flex` and the model has one."""
+        key = self._key(self.prices, model_id, provider)
+        if key is None:
+            return None
+        price = self.prices[key]
+        ratio = self.flex_ratios.get(key) if flex else None
+        return (price[0] * ratio, price[1] * ratio) if ratio else price
 
 
 def load_pricing(path: Path = PRICING_PATH) -> Pricing:
@@ -114,6 +137,12 @@ def load_pricing(path: Path = PRICING_PATH) -> Pricing:
             pricing.issues.append(Issue("error", f"{name}: duplicate price for {model_id!r}"
                                                  f"{f' ({provider})' if provider else ''}"))
         pricing.prices[key] = price
+        flex = entry.get("flex")
+        if flex is not None:
+            if isinstance(flex, bool) or not isinstance(flex, (int, float)) or not 0 < flex <= 1:
+                pricing.issues.append(Issue("error", f"{name}: {model_id!r}: flex must be a ratio in ]0, 1], got {flex!r}"))
+            else:
+                pricing.flex_ratios[key] = float(flex)
     return pricing
 
 
@@ -284,6 +313,9 @@ def validate_config(config: dict, items: list[LessonItem], selected: Optional[li
             if rubric and not (BENCH_DIR / str(rubric)).is_file():
                 warn(f"{prefix}: metric {metric}: rubric file not found: {rubric}")
 
+    if (config.get("report") or {}).get("export"):
+        warn("report.export is ignored: the reports are written to reports/<campaign file name>.html")
+
     max_usd = (config.get("budget") or {}).get("max_usd")
     if max_usd is None:
         warn("budget.max_usd is not set: no cost limit")
@@ -291,7 +323,7 @@ def validate_config(config: dict, items: list[LessonItem], selected: Optional[li
         error(f"budget.max_usd must be a positive number, got {max_usd!r}")
     judge = config.get("judge") or {}
     uses_judge = any(
-        metric.startswith("judge_")
+        metric.startswith("judge_") or is_judge_metric(metric)
         for name, step in steps.items()
         if isinstance(step, dict) and (not selected or name in selected)
         for metric, _ in metric_specs(step)
@@ -344,6 +376,12 @@ class Job:
     est_tokens_in: int = 0
     est_tokens_out: int = 0
     cached_id: Optional[int] = None
+    flex: bool = False  # OpenRouter flex tier (--flex); not part of the cache key
+
+    @property
+    def call_params(self) -> dict:
+        """Params given to the adapter: the campaign params, plus use_flex in flex mode."""
+        return {**self.params, "use_flex": True} if self.flex else dict(self.params)
 
     @property
     def est_cost(self) -> float:
@@ -375,10 +413,11 @@ class Job:
 
 
 class Planner:
-    def __init__(self, config: dict, items: list[LessonItem], db: Optional[BenchDB]):
+    def __init__(self, config: dict, items: list[LessonItem], db: Optional[BenchDB], flex: bool = False):
         self.config = config
         self.items = items
         self.db = db
+        self.flex = flex
         self.pricing = load_pricing()
         self._prompts: dict[str, str] = {}
 
@@ -392,6 +431,7 @@ class Planner:
         model = self.config["models"][alias]
         spec = function_spec(step_name, step)
         func = resolve_function(spec)
+        flex = self.flex and self.pricing.flex_available(model["id"], model.get("provider"))
         return Job(
             step=step_name,
             task=step_task(step_name, step),
@@ -403,7 +443,8 @@ class Planner:
             provider=str(model["provider"]).lower(),
             model_id=model["id"],
             params={**(model.get("params") or {}), **(step.get("params") or {})},
-            price=self.pricing.price(model["id"], model.get("provider")),
+            price=self.pricing.price(model["id"], model.get("provider"), flex=flex),
+            flex=flex,
             prompt_path=str(prompt_path),
             prompt=self.prompt_text(str(prompt_path)),
             input_source=setting(self.config, step, "input_source"),
@@ -475,13 +516,29 @@ class Planner:
         return all_jobs, all_skipped
 
 
-def print_plan(jobs: list[Job], max_usd: Optional[float]) -> float:
+def print_flex(requested: bool, flex: dict[str, bool]) -> None:
+    """--flex summary: {model label: flex available}."""
+    if not requested:
+        return
+    on = sorted(m for m, available in flex.items() if available)
+    off = sorted(m for m, available in flex.items() if not available)
+    print(f"--flex: flex tier (price x ratio of configs/pricing.yaml) for {', '.join(on) or 'no model'}"
+          + (f"; standard tier for {', '.join(off)} (not OpenRouter or no flex ratio)" if off else ""))
+    if on:
+        print("Flex calls can be slower and may be refused when capacity is short (retried as errors).")
+
+
+def print_plan(jobs: list[Job], max_usd: Optional[float], flex: bool = False) -> float:
     """Table of the planned calls per step x model x prompt. Returns the estimated cost to run."""
     groups: dict[tuple, list[Job]] = {}
     for job in jobs:
-        groups.setdefault((job.step, job.model_alias, job.prompt_name), []).append(job)
+        groups.setdefault((job.step, job.model_alias + (" (flex)" if job.flex else ""), job.prompt_name), []).append(job)
 
-    header = f"{'step':12} {'model':14} {'prompt':16} {'calls':>5} {'cached':>6} {'to run':>6} {'est. tokens in/out':>20} {'est. USD':>9}"
+    w_step = max([len(k[0]) for k in groups] + [4])
+    w_model = max([len(k[1]) for k in groups] + [5])
+    w_prompt = max([len(k[2]) for k in groups] + [6])
+    header = (f"{'step':{w_step}} {'model':{w_model}} {'prompt':{w_prompt}} {'lessons':>7} {'repeats':>7} "
+              f"{'calls':>5} {'cached':>6} {'to run':>6} {'est. tokens in/out':>20} {'est. USD':>9}")
     print(header)
     print("-" * len(header))
     total = 0.0
@@ -491,10 +548,12 @@ def print_plan(jobs: list[Job], max_usd: Optional[float]) -> float:
         cost = sum(j.est_cost for j in todo)
         total += cost
         tokens = f"{sum(j.est_tokens_in for j in todo):,}/{sum(j.est_tokens_out for j in todo):,}"
+        n_lessons, n_repeats = len({j.item.id for j in group}), len({j.repeat for j in group})
         mark = ""
         if any(j.input_text is None for j in todo):
             mark, pending_pipeline = " *", True
-        print(f"{step:12} {alias:14} {prompt:16} {len(group):>5} {len(group) - len(todo):>6} {len(todo):>6} {tokens:>20} {cost:>9.4f}{mark}")
+        print(f"{step:{w_step}} {alias:{w_model}} {prompt:{w_prompt}} {n_lessons:>7} {n_repeats:>7} "
+              f"{len(group):>5} {len(group) - len(todo):>6} {len(todo):>6} {tokens:>20} {cost:>9.4f}{mark}")
     print("-" * len(header))
     n_todo = sum(1 for j in jobs if j.cached_id is None)
     budget = f" / budget ${max_usd:.2f}" if max_usd is not None else " (no budget limit)"
@@ -502,6 +561,7 @@ def print_plan(jobs: list[Job], max_usd: Optional[float]) -> float:
     if pending_pipeline:
         print("* pipeline input not generated yet: estimated from corrected.md")
     print("Estimates use ~3.5 characters/token and do not include reasoning tokens.")
+    print_flex(flex, {j.model_alias: j.flex for j in jobs})
     return total
 
 
@@ -533,7 +593,7 @@ def execute(job: Job) -> Outcome:
         try:
             result = job.func(
                 job.input_text, item=job.item, provider=job.provider, model=job.model_id, prompt=job.prompt,
-                params=dict(job.params), timeout=job.timeout,
+                params=job.call_params, timeout=job.timeout,
             )
             if not isinstance(result, dict) or "output" not in result:
                 raise TypeError(f"{job.function} must return a dict with 'output', got {type(result).__name__}")
@@ -573,7 +633,7 @@ def generation_record(job: Job, outcome: Outcome) -> dict:
         "model_alias": job.model_alias,
         "provider": job.provider,
         "model_id": job.model_id,
-        "params": job.params,
+        "params": job.call_params,
         "prompt_path": job.prompt_path,
         "prompt_sha": sha256(job.prompt),
         "input_source": job.input_source,
@@ -609,7 +669,11 @@ def confirm(question: str) -> bool:
     if not sys.stdin.isatty():
         print(f"{question} -> no interactive terminal: use --yes to proceed")
         return False
-    return input(f"{question} [y/N] ").strip().lower() in ("y", "yes")
+    try:
+        return input(f"{question} [y/N] ").strip().lower() in ("y", "yes")
+    except EOFError:
+        print()
+        return False
 
 
 class Runner:
@@ -687,13 +751,21 @@ def print_issues(title: str, issues: list[Issue]) -> None:
             print(f"    {issue.format()}")
 
 
+def step_tasks(config: dict, names: Optional[list[str]] = None) -> Optional[set[str]]:
+    """Tasks of the steps `names` (default: all the steps of the campaign); None if the steps are invalid."""
+    steps = config.get("steps")
+    if not isinstance(steps, dict) or not all(isinstance(s, dict) for s in steps.values()):
+        return None
+    return {step_task(n, steps[n]) for n in (names or steps) if n in steps}
+
+
 def check(config_path: Path) -> int:
     config = load_config(config_path)
     campaign = (config.get("campaign") or {}).get("name", config_path.stem)
     print(f"Campaign: {campaign}  (dataset {config.get('dataset_version', '?')})")
     print(f"Config:   {config_path}\n")
 
-    items, dataset_issues = load_dataset(config)
+    items, dataset_issues = load_dataset(config, step_tasks(config))
     width = max((len(i.id) for i in items), default=0)
     for item in items:
         if item.n_errors:
@@ -734,11 +806,12 @@ class Campaign:
     steps: list[str]  # selected steps, in campaign order
     models: Optional[list[str]]  # selected model aliases, None = all
     db_path: Path
+    judge_confirmed: bool = False  # judge cost already accepted with the generation
 
     @property
     def report_path(self) -> Path:
-        export = (self.config.get("report") or {}).get("export") or f"results/report_{self.name}.html"
-        return BENCH_DIR / export
+        """reports/<campaign file name>.html: one report per campaign file (campaign names may repeat)."""
+        return REPORTS_DIR / f"{self.path.stem}.html"
 
 
 def run_campaign(config_path: Path, args: argparse.Namespace) -> int:
@@ -749,7 +822,7 @@ def run_campaign(config_path: Path, args: argparse.Namespace) -> int:
     steps = _split(args.steps) or all_steps
     models = _split(args.models)
 
-    items, dataset_issues = load_dataset(config)
+    items, dataset_issues = load_dataset(config, step_tasks(config, steps))
     issues = dataset_issues + validate_config(config, items, steps)
     issues += [i for item in items for i in item.issues if i.level == "error"]
     for alias in models or []:
@@ -789,6 +862,7 @@ def run_campaign(config_path: Path, args: argparse.Namespace) -> int:
         print()
         if args.only in (None, "score"):
             score_jobs(config, jobs, db).print()
+            code = max(code, score_judge(campaign, args, jobs, db))
         if args.only in (None, "report"):
             report_options = config.get("report") or {}
             links = {}
@@ -807,6 +881,46 @@ def run_campaign(config_path: Path, args: argparse.Namespace) -> int:
     return code
 
 
+def uses_judge(config: dict, steps: list[str]) -> bool:
+    return any(is_judge_metric(metric) for step in steps for metric, _ in metric_specs(config["steps"][step]))
+
+
+def judge_model(config: dict, args: argparse.Namespace) -> JudgeModel:
+    defaults = {**DEFAULTS, **(config.get("defaults") or {})}
+    # Judge calls read a whole lesson (and may reason): at least 10 minutes unless judge.timeout_s.
+    return JudgeModel.from_config(config, load_pricing(), flex=args.flex, timeout=max(600.0, float(defaults["timeout_s"])),
+                                  max_retries=int(defaults["max_retries"]))
+
+
+def score_judge(campaign: Campaign, args: argparse.Namespace, jobs: list[Job], db: BenchDB) -> int:
+    """Judge metrics of the generated outputs: estimate, confirmation, calls. Returns an exit code."""
+    config = campaign.config
+    if not uses_judge(config, campaign.steps):
+        return 0
+    judge = judge_model(config, args)
+    tasks = plan_judge(config, jobs, db, judge, metric_specs, reference_text, gold_input)
+    if not tasks:
+        print("Judge: every judge score is cached.")
+        return 0
+    budget = config.get("budget") or {}
+    max_usd = budget.get("max_usd")
+    estimated = print_judge_plan(tasks, judge)
+    if max_usd is not None and estimated > max_usd:
+        print(f"\nEstimated judge cost ${estimated:.4f} exceeds budget.max_usd ${max_usd:.2f}.")
+        return 1
+    if args.dry_run:
+        return 0
+    if (budget.get("dry_run_estimate", True) and not args.yes and not campaign.judge_confirmed
+            and not confirm(f"\nRun {len(tasks)} judge scores?")):
+        print("Judge skipped.")
+        return 1
+    workers = args.workers or int((config.get("defaults") or {}).get("workers", DEFAULTS["workers"]))
+    print()
+    summary = run_judge(tasks, db, judge, reference_text, workers=workers, max_usd=max_usd)
+    summary.print()
+    return 1 if summary.failed or summary.errors else 0
+
+
 def generate(campaign: Campaign, args: argparse.Namespace) -> tuple[int, bool]:
     """Generation phase. Returns (exit code, whether scoring and report should follow)."""
     config, items, steps, models, db_path = (
@@ -816,14 +930,22 @@ def generate(campaign: Campaign, args: argparse.Namespace) -> tuple[int, bool]:
     max_usd = budget.get("max_usd")
 
     read_db = BenchDB.open_existing(db_path)
+    judge_tasks = []
     try:
-        jobs, skipped = Planner(config, items, read_db).plan(steps, args.limit, models)
+        jobs, skipped = Planner(config, items, read_db, flex=args.flex).plan(steps, args.limit, models)
+        if args.only is None and uses_judge(config, steps):
+            judge_tasks = plan_judge(config, jobs, read_db, judge_model(config, args), metric_specs,
+                                     reference_text, gold_input, include_pending=True)
     finally:
         if read_db:
             read_db.close()
     for message in skipped:
         print(f"SKIP  {message}")
-    estimated = print_plan(jobs, max_usd)
+    generation_cost = print_plan(jobs, max_usd, flex=args.flex)
+    judge_cost = print_judge_plan(judge_tasks, judge_model(config, args)) if judge_tasks else 0.0
+    estimated = generation_cost + judge_cost
+    if judge_tasks:
+        print(f"\nTotal estimated cost ${estimated:.4f} (generation ${generation_cost:.4f} + judge ${judge_cost:.4f})")
 
     todo = [j for j in jobs if j.cached_id is None]
     if max_usd is not None and estimated > max_usd:
@@ -835,12 +957,14 @@ def generate(campaign: Campaign, args: argparse.Namespace) -> tuple[int, bool]:
     if not todo:
         print("\nNothing to generate: every call is cached.")
         return 0, True
-    if budget.get("dry_run_estimate", True) and not args.yes and not confirm(f"\nRun {len(todo)} calls?"):
+    question = f"\nRun {len(todo)} calls" + (f" and {len(judge_tasks)} judge scores" if judge_tasks else "") + "?"
+    if budget.get("dry_run_estimate", True) and not args.yes and not confirm(question):
         print("Aborted.")
         return 1, False
+    campaign.judge_confirmed = True
 
     db = BenchDB(db_path)
-    planner = Planner(config, items, db)
+    planner = Planner(config, items, db, flex=args.flex)
     run_id = db.start_run(
         campaign=campaign.name,
         config_path=str(campaign.path),
@@ -888,6 +1012,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--only", choices=["generate", "score", "report"], help="run a single phase")
     parser.add_argument("--workers", type=int, help="parallel calls (default: defaults.workers or 1)")
     parser.add_argument("--yes", "-y", action="store_true", help="do not ask for confirmation")
+    parser.add_argument("--flex", action="store_true",
+                        help="OpenRouter flex tier for the models with a flex ratio in configs/pricing.yaml")
     parser.add_argument("--verbose", "-v", action="store_true", help="show the logs of the app code")
     args = parser.parse_args(argv)
 

@@ -142,7 +142,54 @@ def _step_table(step_name: str, step: dict, jobs: list[Any], db: BenchDB, link: 
   <th>USD / call</th><th>s / call</th><th>total USD</th></tr></thead>
   <tbody>{''.join(body)}</tbody>
 </table>
-{_failures(jobs, db)}"""
+{_failures(jobs, db)}{_judge_details(step, jobs, scores)}"""
+
+
+JUDGE_ISSUES = {
+    # metric: (title, details -> [(label, text, quote)])
+    "idea_coverage": ("Ideas not fully covered", lambda d: [
+        (f"{v['verdict']} ({v.get('importance')})", v.get("idea", f"idea {v['id']}"), v.get("quote", ""))
+        for v in d.get("verdicts", []) if v["verdict"] != "present"
+    ]),
+    "faithfulness": ("Claims not supported by the lesson", lambda d: [
+        (i["verdict"], i["claim"], i.get("quote", "")) for i in d.get("issues", [])
+    ]),
+}
+
+
+def _judge_details(step: dict, jobs: list[Any], scores: dict) -> str:
+    """Per judge metric: judge cost and, per generation, the problems found by the judge."""
+    sections = []
+    for metric, options in metric_specs(step):
+        if metric not in JUDGE_ISSUES:
+            continue
+        title, issues_of = JUDGE_ISSUES[metric]
+        blocks, cost, judged = [], 0.0, 0
+        for job in sorted(jobs, key=lambda j: (j.item.id, j.model_alias, j.prompt_name, j.repeat)):
+            key = (job.cached_id, metric, options_json(options))
+            if job.cached_id is None or key not in scores:
+                continue
+            value, details = scores[key]
+            judged += 1
+            cost += details.get("judge_cost_usd") or 0.0
+            issues = issues_of(details)
+            if not issues:
+                continue
+            rows = "".join(
+                f"<tr><td class='label'>{html.escape(label)}</td><td class='label wrap'>{html.escape(text)}</td>"
+                f"<td class='label wrap quote'>{html.escape(quote)}</td></tr>"
+                for label, text, quote in issues
+            )
+            score = "–" if value is None else f"{value * 100:.1f} %"
+            blocks.append(f"<h4>{html.escape(job.label())} – {score}</h4>"
+                          f"<table><thead><tr><th>verdict</th><th>text</th><th>quote</th></tr></thead>"
+                          f"<tbody>{rows}</tbody></table>")
+        if judged:
+            sections.append(
+                f"<details><summary>{html.escape(metric)}: {html.escape(title)} – {judged} judged, "
+                f"judge cost ${cost:.4f}</summary>{''.join(blocks) or '<p>None.</p>'}</details>"
+            )
+    return "".join(sections)
 
 
 def _baseline_row(jobs: list[Any], columns) -> Optional[tuple[str, list[tuple[Optional[float], Optional[float]]]]]:
@@ -167,6 +214,9 @@ def _baseline_row(jobs: list[Any], columns) -> Optional[tuple[str, list[tuple[Op
     results: dict[tuple[str, str], Any] = {}
     for metric, options, column in columns:
         by_lesson: dict[str, list[float]] = defaultdict(list)
+        if getattr(get_metric_module(metric), "JUDGE", False):  # judging the reference would cost calls
+            cells.append((None, None))
+            continue
         for lesson_id, job in lessons.items():
             reference = reference_text(job.task, job.item)
             text = job.input_text if task == "correction" else reference
@@ -234,6 +284,8 @@ def write_report(path: Path, *, config: dict, jobs: list[Any], db: BenchDB,
   tr.baseline td {{ opacity: .65; font-style: italic; background: rgba(128, 128, 128, .06); }}
   .spread {{ opacity: .6; font-size: .8rem; }}
   details {{ font-size: .85rem; margin-bottom: 1.5rem; }}
+  td.wrap {{ white-space: normal; max-width: 40rem; }}
+  td.quote {{ opacity: .7; font-style: italic; }}
   a {{ color: LinkText; }}
 </style></head><body>
 <h1>{html.escape(name)}</h1>
