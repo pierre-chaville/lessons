@@ -75,6 +75,15 @@ th { background: rgba(128, 128, 128, .1); font-weight: 600; white-space: nowrap;
 td.l, th.l { text-align: left; }
 td.best { font-weight: 700; background: var(--good); }
 tr.baseline td { font-style: italic; color: var(--muted); }
+table.summary td.l { white-space: nowrap; }
+table.summary th { min-width: 6.5rem; }
+table.summary tr.detail td.l { padding-left: 1.3rem; color: var(--muted); }
+table.summary tr.detail td { font-size: .82rem; }
+table.summary tr.metric-start td { border-top: 2px solid var(--border); }
+table.summary tr.cost td { color: var(--muted); font-size: .82rem; }
+table.summary .baseline-col { font-style: italic; color: var(--muted); background: rgba(128, 128, 128, .06); }
+table.summary th.baseline-col { white-space: normal; max-width: 9rem; }
+label.pick { cursor: pointer; display: inline-flex; gap: .3rem; align-items: center; }
 tr.clickable { cursor: pointer; }
 tr.clickable:hover td { background: var(--accent-soft); }
 .spread { color: var(--muted); font-size: .78rem; margin-left: .2rem; }

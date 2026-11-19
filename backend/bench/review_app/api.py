@@ -68,4 +68,13 @@ def index():
     return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-cache"})
 
 
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+class _RevalidatedStaticFiles(StaticFiles):
+    """app.js / style.css change often: the browser must revalidate them instead of reusing its cache."""
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
+app.mount("/static", _RevalidatedStaticFiles(directory=STATIC_DIR), name="static")

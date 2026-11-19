@@ -190,7 +190,7 @@ The steps evaluated are part of the app workflow:
 | Step | Dataset | Input (`gold` mode) | References | Metrics |
 |---|---|---|---|---|
 | `correction` | extracts | `initial.md` | `corrected.md` | wer, wer_norm, wer_fold, hebrew_term_accuracy, cer, edit_precision_recall, overcorrection_rate |
-| `edition` | extracts | `corrected.md` | `edited_ideas.yaml`, `edited.md` | idea_coverage, faithfulness, length_ratio, hebrew_quotes_preserved, judge_rubric, judge_pairwise |
+| `edition` | extracts | `corrected.md` | `edited_ideas.yaml`, `edited.md` | idea_coverage, faithfulness, length_ratio, hebrew_quotes_preserved, hebrew_expression_format, judge_rubric, judge_pairwise |
 | `summary` | full | `edited.md` | `summary_keypoints.yaml`, `summary.md` | keypoint_coverage, faithfulness, length_words, judge_pairwise |
 
 ### Calling the app code
@@ -363,6 +363,20 @@ Tests: `python -m pytest bench/tests` (hand-made examples with known results).
   apostrophes ignored, so `Beit ha-Miqdash` contains `HaMiqdash`). Options: `glossary` (default
   `true`: read the glossary from the app DB at scoring time), `terms` (extra terms), `threshold`.
   `None` when the input contains neither.
+- **hebrew_expression_format** (edition) – rule 2 of the edition prompt: share of the Hebrew
+  expressions of several words written at least once as Hebrew + transliteration + translation,
+  `וְאָהַבְתָּ לְרֵעֲךָ כָּמוֹךָ (*Ve'ahavta lere'akha kamokha*, "tu aimeras ton prochain comme toi-même")`.
+  Expressions, on the output only: runs of ≥ `min_words` (default 2) words not in the French
+  dictionary (pyspellchecker), italic transliterations whose words are mostly not French, and
+  Hebrew script; grouped by transliteration (case, accents, apostrophes, hyphens ignored). An
+  expression complies when one occurrence is in full form or is part of one (a word group of a
+  verse quoted in full). Non-italic runs of capitalized words (names) only count as occurrences of
+  an expression found elsewhere; patronymics (`ben`, `bar`) are skipped. A quoted translation just
+  after the parenthesis (`(*Lo tov…*), « Il n'est pas bien… »`) is accepted unless `strict: true`.
+  Details: `first_occurrence_rate` (full form at the first occurrence), problems `no_translation`,
+  `no_hebrew`, `no_transliteration`, `items`. Options: `min_words`, `ignore` (expressions to skip,
+  e.g. names), `require_first` (comply only with the full form at the first occurrence), `strict`.
+  The review app has a "Hebrew expressions" tab with the expressions highlighted in the output.
 - Words are counted on the text only: timestamps, speaker tags, markdown symbols and punctuation
   are not words. In the review app, length values have no "best" direction; the grey row
   "reference (edited.md / summary.md)" gives the scores of the hand-made reference.

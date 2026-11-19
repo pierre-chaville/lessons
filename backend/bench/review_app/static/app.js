@@ -78,35 +78,47 @@ function storeSelection(stem, step, keys) {
 // Components
 // --------------------------------------------------------------------------- //
 
+/** Metrics as rows, models (candidates) as columns: there are many more metrics than models. */
 const SummaryTable = {
   props: ["step", "selectable", "selected"],
   emits: ["toggle"],
   setup(props) {
     const best = computed(() => bestValues(props.step.columns, props.step.rows.map((r) => r.cells.map((c) => c.value))));
-    return { best, fmt, usd, arrow, title };
+    const severalPrompts = computed(() => new Set(props.step.rows.map((r) => r.prompt)).size > 1);
+    const costRows = [
+      { label: "calls ok", value: (r) => `${r.calls_ok}/${r.calls}` },
+      { label: "lessons", value: (r) => r.lessons },
+      { label: "USD / call", value: (r) => usd(r.cost_per_call) },
+      { label: "s / call", value: (r) => (r.latency === null ? "–" : r.latency.toFixed(1)) },
+      { label: "total USD", value: (r) => usd(r.cost) },
+      { label: "judge USD", value: (r) => (r.judge_cost ? usd(r.judge_cost) : "–") },
+    ];
+    return { best, severalPrompts, costRows, fmt, usd, arrow, title };
   },
   template: `
-  <div class="scroll"><table>
+  <div class="scroll"><table class="summary">
     <thead><tr>
-      <th v-if="selectable"></th><th class="l">model</th><th class="l">prompt</th>
-      <th v-for="c in step.columns" :title="title(c) + (c.judge ? ' – LLM judge' : '')">{{ c.label }}{{ c.percent ? ' %' : '' }}{{ arrow(c) }}</th>
-      <th>calls ok</th><th>lessons</th><th>USD / call</th><th>s / call</th><th>total USD</th><th>judge USD</th>
+      <th class="l">metric</th>
+      <th v-for="row in step.rows" :key="row.key">
+        <label v-if="selectable" class="pick"><input type="checkbox" :checked="selected.includes(row.key)" @change="$emit('toggle', row.key)"> {{ row.model }}</label>
+        <template v-else>{{ row.model }}</template>
+        <div v-if="severalPrompts" class="muted small">{{ row.prompt }}</div>
+      </th>
+      <th v-if="step.baseline" class="baseline-col">{{ step.baseline.label }}</th>
     </tr></thead>
     <tbody>
-      <tr v-for="row in step.rows" :key="row.key">
-        <td v-if="selectable"><input type="checkbox" :checked="selected.includes(row.key)" @change="$emit('toggle', row.key)"></td>
-        <td class="l">{{ row.model }}</td><td class="l">{{ row.prompt }}</td>
-        <td v-for="(cell, i) in row.cells" :class="{ best: cell.value !== null && cell.value === best[i] }">
-          {{ fmt(cell.value, step.columns[i]) }}<span v-if="cell.spread !== null" class="spread">± {{ fmt(cell.spread, step.columns[i]) }}</span>
+      <tr v-for="(c, i) in step.columns" :class="{ detail: c.detail, 'metric-start': !c.detail && i > 0 }">
+        <td class="l" :title="title(c) + (c.judge ? ' – LLM judge' : '')">
+          <template v-if="c.detail">› {{ c.label }}</template><b v-else>{{ c.metric }}</b>{{ c.percent ? ' %' : '' }}{{ arrow(c) }}</td>
+        <td v-for="row in step.rows" :key="row.key" :class="{ best: row.cells[i].value !== null && row.cells[i].value === best[i] }">
+          {{ fmt(row.cells[i].value, c) }}<span v-if="row.cells[i].spread !== null" class="spread">± {{ fmt(row.cells[i].spread, c) }}</span>
         </td>
-        <td>{{ row.calls_ok }}/{{ row.calls }}</td><td>{{ row.lessons }}</td>
-        <td>{{ usd(row.cost_per_call) }}</td><td>{{ row.latency === null ? '–' : row.latency.toFixed(1) }}</td>
-        <td>{{ usd(row.cost) }}</td><td>{{ row.judge_cost ? usd(row.judge_cost) : '–' }}</td>
+        <td v-if="step.baseline" class="baseline-col">{{ fmt(step.baseline.cells[i].value, c) }}</td>
       </tr>
-      <tr v-if="step.baseline" class="baseline">
-        <td v-if="selectable"></td><td class="l">{{ step.baseline.label }}</td><td></td>
-        <td v-for="(cell, i) in step.baseline.cells">{{ fmt(cell.value, step.columns[i]) }}</td>
-        <td colspan="6"></td>
+      <tr v-for="(r, k) in costRows" class="cost" :class="{ 'metric-start': k === 0 }">
+        <td class="l">{{ r.label }}</td>
+        <td v-for="row in step.rows" :key="row.key">{{ r.value(row) }}</td>
+        <td v-if="step.baseline" class="baseline-col"></td>
       </tr>
     </tbody>
   </table></div>
@@ -615,8 +627,78 @@ const IdeasView = {
   </div>`,
 };
 
+const HebrewExpressionsView = {
+  props: ["data"],
+  setup(props) {
+    const onlyProblems = ref(true);
+    const showText = ref(true);
+    const outputs = computed(() => props.data.outputs.filter((o) => o.output !== null));
+    const score = (o) => o.scores.find((s) => s.metric === "hebrew_expression_format");
+    const items = (o) => (score(o)?.details.items || []).map((item, index) => ({ ...item, index }))
+      .filter((item) => !onlyProblems.value || !item.compliant);
+    const prefix = (o) => `hebexpr-${o.key.replace(/[^\w-]/g, "_")}`;
+    const verdictOf = (item, form) => (form === "full" ? "present" : item.compliant ? "present" : form === "no_translation" ? "partial" : "absent");
+    const highlights = (o) => (score(o)?.details.items || [])
+      .flatMap((item, index) => (item.spans || []).map((s, k) => ({ ...s, item, index, k })))
+      .sort((a, b) => a.start - b.start)
+      .map((s) => ({ id: `${s.index}-${s.k}`, start: s.start, end: s.end, cls: `claim v-${verdictOf(s.item, s.form)}`,
+                     title: `${s.item.expression}: ${s.form === "full" ? "full form" : s.item.problem || "introduced in full form elsewhere"}` }));
+    const reveal = (o, item) => {
+      const mark = document.getElementById(`${prefix(o)}-${item.index}-0`);
+      if (!mark) return;
+      mark.scrollIntoView({ behavior: "smooth", block: "center" });
+      mark.classList.add("flash");
+      setTimeout(() => mark.classList.remove("flash"), 1200);
+    };
+    const pct = (x) => (x != null ? (x * 100).toFixed(0) + " %" : "?");
+    return { onlyProblems, showText, outputs, score, items, prefix, highlights, reveal, pct, highlightOutput };
+  },
+  template: `
+  <p class="small muted">Rule 2: a Hebrew expression of several words is written at least once (normally at its first occurrence) as Hebrew + transliteration + translation,
+    e.g. וְאָהַבְתָּ לְרֵעֲךָ כָּמוֹךָ (<em>Ve'ahavta lere'akha kamokha</em>, "tu aimeras ton prochain comme toi-même"), then transliteration only.
+    Expressions are runs of words not in the French dictionary, italic transliterations and Hebrew script. Highlights: green = full form or compliant expression, orange = no translation, red = other problems. Click an expression to show its first occurrence.</p>
+  <div class="toolbar">
+    <label><input type="checkbox" v-model="onlyProblems"> only non-compliant expressions</label>
+    <label><input type="checkbox" v-model="showText"> show the output with the expressions highlighted</label>
+  </div>
+  <div v-for="o in outputs" class="panel">
+    <h3 style="margin-top:0">{{ o.model }} <span class="muted small">{{ o.prompt }} · r{{ o.repeat }}</span>
+      <template v-if="score(o) && score(o).value != null"> – {{ (score(o).value * 100).toFixed(1) }} % ({{ score(o).details.compliant }} / {{ score(o).details.expressions }} expressions)</template></h3>
+    <div v-if="!score(o)" class="muted">Not scored.</div>
+    <div v-else-if="!score(o).details.expressions" class="muted">No Hebrew expression found.</div>
+    <template v-else>
+      <div style="margin-bottom:.5rem">
+        <span class="verdict v-present" style="margin-right:.3rem">compliant: {{ score(o).details.compliant }}</span>
+        <span class="verdict v-partial" style="margin-right:.3rem">no translation: {{ score(o).details.no_translation }}</span>
+        <span class="verdict v-absent" style="margin-right:.3rem">no Hebrew: {{ score(o).details.no_hebrew }}</span>
+        <span class="verdict v-absent" style="margin-right:.3rem">no transliteration: {{ score(o).details.no_transliteration }}</span>
+        <span class="small muted">full form at the first occurrence: {{ pct(score(o).details.first_occurrence_rate) }}<template v-if="score(o).details.translation_after">
+          · {{ score(o).details.translation_after }} translation(s) given just after the parenthesis</template></span>
+      </div>
+      <div :style="{ display: 'grid', gridTemplateColumns: showText ? 'minmax(0, 2fr) minmax(0, 3fr)' : '1fr', gap: '.75rem', alignItems: 'start' }">
+        <div class="tablewrap">
+          <table class="ideas claims">
+            <thead><tr><th class="l">expression (first occurrence)</th><th class="l">status</th><th>occurrences</th><th title="full form at the first occurrence">first</th></tr></thead>
+            <tbody>
+              <tr v-if="!items(o).length"><td colspan="4" class="muted">Every expression complies.</td></tr>
+              <tr v-for="item in items(o)" class="clickable" @click="reveal(o, item)">
+                <td class="idea"><em>{{ item.expression }}</em></td>
+                <td class="l"><span class="verdict" :class="item.compliant ? 'v-present' : item.problem === 'no translation' ? 'v-partial' : 'v-absent'">{{ item.compliant ? 'compliant' : item.problem }}</span></td>
+                <td>{{ item.occurrences }}</td>
+                <td>{{ item.first_occurrence ? '✓' : '✗' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-if="showText" class="textcol"><header><span class="name">output</span> <span class="muted small">expressions highlighted</span></header>
+          <div class="body raw" v-html="highlightOutput(o.output, highlights(o), prefix(o))"></div></div>
+      </div>
+    </template>
+  </div>`,
+};
+
 const LessonView = {
-  components: { CorrectionSegments, SideBySide, IdeasMatrix, IdeasView, ClaimsView, ScoresTable },
+  components: { CorrectionSegments, SideBySide, IdeasMatrix, IdeasView, ClaimsView, HebrewExpressionsView, ScoresTable },
   setup() {
     const state = reactive({ data: null, error: null, loading: false, tab: null });
     const selected = computed(() => (route.query.m ? route.query.m.split(",").filter(Boolean) : null));
@@ -645,6 +727,7 @@ const LessonView = {
         tabs.push({ id: "ideas", label: "Ideas (matrix)" }, { id: "idea_details", label: "Ideas (details)" });
       }
       if (has("faithfulness")) tabs.push({ id: "claims", label: "Claims" });
+      if (has("hebrew_expression_format")) tabs.push({ id: "hebrew", label: "Hebrew expressions" });
       tabs.push({ id: "scores", label: "Scores" });
       return tabs;
     };
@@ -697,6 +780,7 @@ const LessonView = {
     <IdeasMatrix v-else-if="state.tab === 'ideas'" :data="state.data" />
     <IdeasView v-else-if="state.tab === 'idea_details'" :data="state.data" />
     <ClaimsView v-else-if="state.tab === 'claims'" :data="state.data" />
+    <HebrewExpressionsView v-else-if="state.tab === 'hebrew'" :data="state.data" />
     <ScoresTable v-else-if="state.tab === 'scores'" :data="state.data" />
   </template>`,
 };
