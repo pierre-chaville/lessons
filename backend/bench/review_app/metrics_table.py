@@ -31,10 +31,11 @@ def columns(step: dict) -> list[tuple[str, dict, Column]]:
         except KeyError:
             continue
         percent = getattr(module, "PERCENT", False)
-        percent_details = getattr(module, "PERCENT_DETAILS", set(module.REPORT_DETAILS) if percent else set())
+        details = module.report_details(options) if hasattr(module, "report_details") else module.REPORT_DETAILS
+        percent_details = getattr(module, "PERCENT_DETAILS", set(details) if percent else set())
         digits = getattr(module, "DIGITS", 3)
         result.append((name, options, Column(name, module.HIGHER_IS_BETTER, lambda v, d: v, percent, digits)))
-        for key, higher in module.REPORT_DETAILS.items():
+        for key, higher in details.items():
             result.append((name, options, Column(
                 key, higher, lambda v, d, key=key: d.get(key), key in percent_details, digits
             )))

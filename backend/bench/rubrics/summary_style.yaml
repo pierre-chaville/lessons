@@ -1,0 +1,39 @@
+name: summary_style
+version: 1
+scale: [1, 5]
+criteria:
+  - id: structure
+    weight: 2
+    definition: "Le texte est organisé en parties et paragraphes qui suivent la progression du cours."
+    anchors:
+      1: "Bloc continu ou découpage arbitraire ; on ne voit pas le fil du raisonnement."
+      3: "Paragraphes cohérents, mais transitions absentes ou titres peu informatifs."
+      5: "Chaque partie correspond à une étape du cours, avec des titres clairs et des transitions."
+  - id: oral_cleanup
+    weight: 2
+    definition: "Les marques de l'oral sans contenu sont supprimées (hésitations, répétitions, « euh », « donc voilà »)."
+    anchors:
+      1: "Le texte reste une transcription à peine retouchée."
+      3: "Nettoyage partiel ; quelques répétitions ou tournures orales gênantes subsistent."
+      5: "Texte écrit fluide, sans aucune scorie de l'oral."
+  - id: speaker_voice
+    weight: 2
+    definition: "Le texte garde la manière d'enseigner du Rav : ses questions, ses images, sa progression."
+    anchors:
+      1: "Ton d'encyclopédie impersonnel ; les images et questions du Rav ont disparu."
+      3: "La voix est reconnaissable, mais aplatie par endroits."
+      5: "On entend le Rav enseigner, dans un français écrit soigné."
+  - id: readability
+    weight: 1
+    definition: "Phrases claires et de longueur raisonnable, compréhensibles par un lecteur qui n'a pas assisté au cours."
+    anchors:
+      1: "Phrases confuses ou très longues ; références implicites incompréhensibles."
+      3: "Lisible, avec quelques passages lourds."
+      5: "Clair de bout en bout."
+  - id: conventions
+    weight: 1
+    definition: "Translittération cohérente, hébreu correctement présenté, citations de versets mises en forme."
+    anchors:
+      1: "Conventions incohérentes ou absentes."
+      3: "Globalement respectées, avec des incohérences."
+      5: "Appliquées uniformément."

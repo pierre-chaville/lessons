@@ -697,8 +697,61 @@ const HebrewExpressionsView = {
   </div>`,
 };
 
+const RubricView = {
+  props: ["data"],
+  setup(props) {
+    const outputs = computed(() => props.data.outputs.filter((o) => o.output !== null));
+    const scoresOf = (o) => o.scores.filter((s) => s.metric === "judge_rubric");
+    const rubrics = computed(() => {
+      const byName = new Map();
+      for (const o of outputs.value) for (const s of scoresOf(o)) {
+        const name = s.details.rubric || "rubric";
+        if (!byName.has(name)) byName.set(name, { name, version: s.details.rubric_version, scale: s.details.scale, criteria: s.details.criteria || [] });
+      }
+      return [...byName.values()];
+    });
+    const score = (o, rubric) => scoresOf(o).find((s) => (s.details.rubric || "rubric") === rubric.name);
+    const cell = (o, rubric, cid) => score(o, rubric)?.details.criteria?.find((c) => c.criterion === cid) || null;
+    const best = (rubric, cid) => {
+      const values = outputs.value.map((o) => cell(o, rubric, cid)?.score).filter((v) => v != null);
+      return values.length >= 2 ? Math.max(...values) : null;
+    };
+    const num = (v, digits = 1) => (v == null ? "–" : Number.isInteger(v) ? String(v) : v.toFixed(digits));
+    return { outputs, rubrics, score, cell, best, num };
+  },
+  template: `
+  <p class="small muted">Style grades of the LLM judge. Anchored criteria: score given by the judge after its justification; checklist criteria: score computed from the yes/no checks passed.
+    The judge is warned against generous grades and against preferring longer texts: compare with <b>length ratio</b> (words of the output / words of the input).</p>
+  <div v-for="rubric in rubrics" class="panel">
+    <h3 style="margin-top:0">{{ rubric.name }} <span class="muted small">v{{ rubric.version }} · scale {{ rubric.scale?.join('–') }}</span></h3>
+    <div class="tablewrap"><table class="ideas rubric">
+      <thead><tr><th class="l">criterion</th>
+        <th v-for="o in outputs" class="l">{{ o.model }}<div class="muted small">{{ o.prompt }} · r{{ o.repeat }}</div></th></tr></thead>
+      <tbody>
+        <tr class="total"><td class="l"><b>weighted grade</b></td>
+          <td v-for="o in outputs"><b>{{ num(score(o, rubric)?.value, 2) }}</b>
+            <span class="muted small"> · length ratio {{ num(score(o, rubric)?.details.length_ratio, 2) }} · {{ score(o, rubric)?.details.words ?? '–' }} words</span></td></tr>
+        <tr v-for="c in rubric.criteria">
+          <td class="idea"><b>{{ c.criterion }}</b> <span class="muted small">× {{ c.weight }} · {{ c.source === 'checks' ? 'checklist' : 'anchors' }}</span>
+            <div class="small muted">{{ c.definition }}</div></td>
+          <td v-for="o in outputs" class="cellv" :class="{ best: cell(o, rubric, c.criterion)?.score != null && cell(o, rubric, c.criterion)?.score === best(rubric, c.criterion) }">
+            <template v-if="cell(o, rubric, c.criterion)">
+              <span class="grade">{{ num(cell(o, rubric, c.criterion).score) }}</span>
+              <div v-if="cell(o, rubric, c.criterion).justification" class="small">{{ cell(o, rubric, c.criterion).justification }}</div>
+              <div v-for="k in cell(o, rubric, c.criterion).checks || []" class="small" :title="k.evidence || ''">
+                <span :class="k.passed ? 'e-present' : 'e-missing'">{{ k.passed === null ? '?' : k.passed ? '✓' : '✗' }}</span> {{ k.question }}
+                <em v-if="k.evidence && !k.passed" class="muted">« {{ k.evidence }} »</em></div>
+            </template>
+            <span v-else class="muted">not judged</span>
+          </td>
+        </tr>
+      </tbody>
+    </table></div>
+  </div>`,
+};
+
 const LessonView = {
-  components: { CorrectionSegments, SideBySide, IdeasMatrix, IdeasView, ClaimsView, HebrewExpressionsView, ScoresTable },
+  components: { CorrectionSegments, SideBySide, IdeasMatrix, IdeasView, ClaimsView, HebrewExpressionsView, RubricView, ScoresTable },
   setup() {
     const state = reactive({ data: null, error: null, loading: false, tab: null });
     const selected = computed(() => (route.query.m ? route.query.m.split(",").filter(Boolean) : null));
@@ -728,6 +781,7 @@ const LessonView = {
       }
       if (has("faithfulness")) tabs.push({ id: "claims", label: "Claims" });
       if (has("hebrew_expression_format")) tabs.push({ id: "hebrew", label: "Hebrew expressions" });
+      if (has("judge_rubric")) tabs.push({ id: "rubric", label: "Style" });
       tabs.push({ id: "scores", label: "Scores" });
       return tabs;
     };
@@ -781,6 +835,7 @@ const LessonView = {
     <IdeasView v-else-if="state.tab === 'idea_details'" :data="state.data" />
     <ClaimsView v-else-if="state.tab === 'claims'" :data="state.data" />
     <HebrewExpressionsView v-else-if="state.tab === 'hebrew'" :data="state.data" />
+    <RubricView v-else-if="state.tab === 'rubric'" :data="state.data" />
     <ScoresTable v-else-if="state.tab === 'scores'" :data="state.data" />
   </template>`,
 };

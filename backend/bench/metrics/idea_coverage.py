@@ -97,7 +97,7 @@ def check_options(options: dict) -> list[str]:
     return []
 
 
-def judge_inputs(item) -> list:
+def judge_inputs(item, options: Optional[dict] = None) -> list:
     """The judgment depends on the ideas (text and elements): edited_ideas.yaml changes -> new judgment."""
     return [[i.get("id"), i.get("text"), i.get("elements")] for i in (item.ideas or [])] if item else []
 

@@ -257,7 +257,7 @@ def plan_judge(config: dict, jobs: list[Any], db: Optional[BenchDB], judge: Judg
             if not is_judge_metric(name):
                 continue
             module = get_metric_module(name)
-            inputs = module.judge_inputs(job.item) if hasattr(module, "judge_inputs") else None
+            inputs = module.judge_inputs(job.item, options) if hasattr(module, "judge_inputs") else None
             signature = judge.signature(name, getattr(module, "VERSION", 1), judge_options(module, options), inputs)
             output = db.generation(job.cached_id)["output"] if job.cached_id is not None and db is not None else None
             task = JudgeTask(job, name, options, module, signature, output)

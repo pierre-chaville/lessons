@@ -29,6 +29,8 @@ from bench.score import REFERENCE_FILES, metric_specs, reference_text
 CONFIG_DIR = BENCH_DIR / "configs"
 INPUT_FILES = {"correction": "initial.md", "edition": "corrected.md", "summary": "edited.md"}
 SATURATION_RATE = 0.95  # idea_coverage: share of present ideas above which the metric no longer discriminates
+CLUSTER_SHARE, CLUSTER_MIN_SCORES = 0.7, 8  # judge_rubric: share of identical judge scores flagged
+LENGTH_BIAS_RHO, LENGTH_BIAS_MIN_OUTPUTS = 0.7, 5  # judge_rubric: rank correlation grade / length_ratio flagged
 
 
 class NotFound(LookupError):
@@ -219,6 +221,50 @@ def campaigns_list() -> list[dict]:
     return result
 
 
+def _ranks(values: list[float]) -> list[float]:
+    order = sorted(range(len(values)), key=lambda i: values[i])
+    ranks = [0.0] * len(values)
+    i = 0
+    while i < len(order):
+        j = i
+        while j + 1 < len(order) and values[order[j + 1]] == values[order[i]]:
+            j += 1
+        for k in range(i, j + 1):
+            ranks[order[k]] = (i + j) / 2
+        i = j + 1
+    return ranks
+
+
+def spearman(xs: list[float], ys: list[float]) -> Optional[float]:
+    if len(xs) < 3:
+        return None
+    rx, ry = _ranks(xs), _ranks(ys)
+    mx, my = mean(rx), mean(ry)
+    cov = sum((a - mx) * (b - my) for a, b in zip(rx, ry))
+    var = (sum((a - mx) ** 2 for a in rx) * sum((b - my) ** 2 for b in ry)) ** 0.5
+    return cov / var if var else None
+
+
+def _rubric_warnings(scores: list[tuple[Optional[float], dict]]) -> list[str]:
+    """Biases of LLM judges: grades clustered on one value, grades following the length."""
+    warnings = []
+    judge_scores = [c["judge_score"] for _, d in scores for c in d.get("criteria", [])
+                    if c.get("source") == "judge" and c.get("judge_score") is not None]
+    if len(judge_scores) >= CLUSTER_MIN_SCORES:
+        mode = max(set(judge_scores), key=judge_scores.count)
+        share = judge_scores.count(mode) / len(judge_scores)
+        if share >= CLUSTER_SHARE:
+            warnings.append(f"judge_rubric: {share:.0%} of the judge scores are {mode} ({len(judge_scores)} scores): "
+                            "the grades cluster and hardly discriminate. Make the anchors more concrete or turn "
+                            "criteria into yes/no checks.")
+    pairs = [(v, d["length_ratio"]) for v, d in scores if v is not None and d.get("length_ratio") is not None]
+    rho = spearman([p[0] for p in pairs], [p[1] for p in pairs]) if len(pairs) >= LENGTH_BIAS_MIN_OUTPUTS else None
+    if rho is not None and rho >= LENGTH_BIAS_RHO:
+        warnings.append(f"judge_rubric follows the length of the outputs (Spearman ρ = {rho:.2f} with length_ratio "
+                        f"over {len(pairs)} outputs): possible length bias of the judge.")
+    return warnings
+
+
 def step_summary(campaign: Campaign, step_name: str, db: Optional[BenchDB]) -> dict:
     """The table of the HTML report as data: one row per model x prompt, mean ± spread per column."""
     step = campaign.step(step_name)
@@ -263,6 +309,9 @@ def step_summary(campaign: Campaign, step_name: str, db: Optional[BenchDB]) -> d
             if len(rates) >= 2 and min(rates) >= SATURATION_RATE:
                 warnings.append(f"idea_coverage looks saturated: every model has ≥ {SATURATION_RATE:.0%} of the "
                                 "ideas present. Tighten the definition of the ideas or rely more on pairwise comparisons.")
+        if metric == "judge_rubric" and column.label == metric:
+            step_ids = set(ids)
+            warnings += _rubric_warnings([s for (gid, m, _), s in scores.items() if m == metric and gid in step_ids])
     return {
         "name": step_name,
         "task": task,

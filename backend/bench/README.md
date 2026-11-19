@@ -408,9 +408,21 @@ output, a model from a different family than the candidates when possible.
      `misattribution` (e.g. Rashi instead of Ramban), `contradicted`.
 
   The judge reports findings, the campaign decides what is penalized (see below).
-- **judge_rubric** – the judge grades the output from 1 to 5 on each criterion of a rubric file
-  (`rubrics/*.yaml`: clarity, structure, register, respect of the speaker's voice...), with a short
-  justification per criterion.
+- **judge_rubric** – style grade on the criteria of a rubric file (`judge_rubric: { rubric:
+  rubrics/edition_style.yaml }`). Rubric: `scale` (at most 1 to 5), `criteria` with `id`,
+  `weight`, `definition` and either `anchors` (concrete descriptions of 1, 3 and 5: the judge writes
+  a justification citing the output, then the score) or `checks` (yes/no questions with
+  `expected: yes|no`, more reliable for what can be checked, e.g. remaining hesitations of the
+  spoken language; score = share of checks passed, 1 to 5). Judge output:
+  `[{"criterion": "structure", "justification": "…", "score": 4}, …]` plus the check answers with
+  an evidence excerpt. The prompt counters the usual biases: grades clustered on 4 (use the whole
+  scale, the top score only when its anchor fully describes the text) and the length bias (a longer
+  text does not deserve a better score). The transcript is given to recognize the speaker's voice
+  (`with_source: false` to omit it). Value = weighted mean of the criteria; details: one score per
+  criterion (one column each in the app), `failed_checks`, `length_ratio`. The app warns when ≥ 70 %
+  of the judge scores share one value, and when the grade follows the length (Spearman ρ ≥ 0.7
+  between grade and `length_ratio` over ≥ 5 outputs). Editing the rubric file invalidates the
+  stored judgments. Lesson page: "Style" tab (criteria × models, justifications, checks).
 - **judge_pairwise** – the judge compares two outputs of the same lesson (candidate vs `baseline`
   model, and optionally vs the reference `edited.md` / `summary.md`) and returns A, B or tie. Each
   pair is judged in both orders (`swap_order`) to cancel the position bias. Results are aggregated

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from bench.review_app import data
@@ -65,7 +65,12 @@ def vendor(name: str):
 
 @app.get("/")
 def index():
-    return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-cache"})
+    """index.html with versioned asset URLs: a browser never keeps an outdated app.js / style.css."""
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    for name in ("app.js", "style.css"):
+        version = int((STATIC_DIR / name).stat().st_mtime)
+        html = html.replace(f"/static/{name}", f"/static/{name}?v={version}")
+    return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
 
 
 class _RevalidatedStaticFiles(StaticFiles):

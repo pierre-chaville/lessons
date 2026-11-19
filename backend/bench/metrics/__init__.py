@@ -35,7 +35,7 @@ from typing import Any, Callable, Optional
 IMPLEMENTED = (
     "wer", "wer_norm", "wer_fold", "cer", "edit_precision_recall", "overcorrection_rate",
     "length_ratio", "length_words", "hebrew_quotes_preserved", "hebrew_term_accuracy",
-    "hebrew_expression_format", "idea_coverage", "faithfulness",
+    "hebrew_expression_format", "idea_coverage", "faithfulness", "judge_rubric",
 )
 
 

@@ -146,6 +146,8 @@ tr.expanded td { background: rgba(128, 128, 128, .06); vertical-align: top; }
 .quote { margin-top: .25rem; cursor: pointer; }
 .quote:hover em { text-decoration: underline; }
 .warning { color: #fb8c00; margin: .4rem 0; }
+table.rubric .grade { font-size: 1.1rem; font-weight: 700; margin-right: .3rem; }
+table.rubric tr.total td { background: rgba(128, 128, 128, .07); }
 table.ideas td.idea { max-width: 34rem; }
 details summary { cursor: pointer; }
 pre.json { white-space: pre-wrap; max-height: 24rem; overflow: auto; background: rgba(128, 128, 128, .08); padding: .5rem; border-radius: 6px; }

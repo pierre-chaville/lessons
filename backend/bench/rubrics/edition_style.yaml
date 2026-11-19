@@ -1,0 +1,61 @@
+name: edition_style
+version: 3
+scale: [1, 5]
+# Each criterion has either `anchors` (concrete descriptions of 1, 3 and 5, scored by the judge)
+# or `checks` (yes/no questions, more reliable; score = share of checks passed, 1 to 5).
+criteria:
+  - id: structure
+    weight: 2
+    definition: "Le texte est organisé en paragraphes de quelques phrases chacun."
+    checks:
+      - question: "Y a-t-il des paragraphes d'une seule phrase (hors titres et citations isolées) ?"
+        expected: "no"
+      - question: "Y a-t-il un paragraphe de plus de 8 phrases environ ?"
+        expected: "no"
+      - question: "Un paragraphe mélange-t-il deux idées ou étapes du raisonnement qui auraient dû être séparées ?"
+        expected: "no"
+      - question: "Une même idée ou étape est-elle coupée en plusieurs paragraphes sans raison ?"
+        expected: "no"
+  - id: oral_cleanup
+    weight: 2
+    definition: "Les marques de l'oral sans contenu sont supprimées (hésitations, répétitions, « euh », « donc voilà »)."
+    checks:
+      - question: "Reste-t-il des hésitations ou des mots de remplissage de l'oral (« euh », « bon », « hein », « voilà », « donc voilà », « disons ») ?"
+        expected: "no"
+      - question: "Reste-t-il des répétitions de mots ou de bouts de phrase propres à l'oral ?"
+        expected: "no"
+      - question: "Reste-t-il des phrases inachevées, des reprises ou des corrections en cours de phrase (« il faut… enfin, on doit ») ?"
+        expected: "no"
+      - question: "Reste-t-il des adresses à l'auditoire sans valeur à l'écrit (« vous voyez ? », « d'accord ? », « on va dire ») ?"
+        expected: "no"
+  - id: speaker_voice
+    weight: 2
+    definition: "Le texte garde la manière d'enseigner du Rav : ses questions, ses images, sa progression."
+    anchors:
+      1: "Ton d'encyclopédie impersonnel ; les images et questions du Rav ont disparu."
+      3: "La voix est reconnaissable, mais aplatie par endroits."
+      5: "On entend le Rav enseigner, dans un français écrit soigné."
+  - id: readability
+    weight: 1
+    definition: "Phrases claires et de longueur raisonnable, compréhensibles par un lecteur qui n'a pas assisté au cours."
+    checks:
+      - question: "Y a-t-il une phrase confuse, dont le sens ne se comprend pas à la première lecture ?"
+        expected: "no"
+      - question: "Y a-t-il une phrase de plus de 40 mots environ ?"
+        expected: "no"
+      - question: "Y a-t-il une référence implicite au cours (« comme on l'a vu », « ce passage », un pronom sans antécédent) incompréhensible pour un lecteur qui n'y a pas assisté ?"
+        expected: "no"
+      - question: "Y a-t-il un enchaînement entre deux phrases ou deux paragraphes dont le lien logique manque ?"
+        expected: "no"
+  - id: conventions
+    weight: 1
+    definition: "Translittération cohérente, hébreu correctement présenté, citations de versets mises en forme."
+    checks:
+      - question: "Un même terme hébreu apparaît-il avec des graphies différentes (ex. « ha-Qadosh baroukh Hou » / « HaQadosh Baroukh Hou ») ?"
+        expected: "no"
+      - question: "Y a-t-il un mot hébreu translittéré qui n'est pas en italique ?"
+        expected: "no"
+      - question: "Toutes les citations de versets ou de sources sont-elles entre guillemets « » avec leur référence ?"
+        expected: "yes"
+      - question: "Y a-t-il de l'hébreu en caractères hébreux laissé sans translittération ni traduction ?"
+        expected: "no"
