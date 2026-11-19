@@ -29,15 +29,15 @@ backend/bench/
   db.py                    # SQLite storage (results/bench.sqlite)
   gold.py                  # LLM drafts of the gold files of a lesson
   steps.py                 # adapters between the bench and the app code
-  run.py                   # validation, generation with cache, budget (+ scoring + report)
+  run.py                   # validation, generation with cache, budget (+ scoring)
   score.py                 # metrics computation
-  report.py                # HTML report
-  review_app/              # local FastAPI + Vue.js UI
-  results/                 # SQLite database (git-ignored)
-  reports/                 # HTML reports, one set per campaign file (git-ignored)
+  judge.py                 # LLM-judge metrics: planning, cost, calls, cached judgments
+  sefaria.py               # Sefaria texts (reference checks of faithfulness)
+  review_app/              # local FastAPI + Vue.js UI to browse the results
+  results/                 # SQLite database, Sefaria cache (git-ignored)
 ```
 
-`data/`, `prompts/`, `rubrics/` and `configs/` are versioned in git; `results/` and `reports/` are not.
+`data/`, `prompts/`, `rubrics/` and `configs/` are versioned in git; `results/` is not.
 
 ## Datasets
 
@@ -83,6 +83,9 @@ notes: "many Hebrew quotations"
 ```yaml
 - id: 1
   text: "The Name of Hashem does not appear in the Megila: Providence acts in a hidden way"
+  elements:                 # optional (edited_ideas): essential elements, used by idea_coverage
+    - "the Name of Hashem is absent from the Megila"
+    - "Providence acts in a hidden way"
   importance: high          # high | medium | low  (weights 3 / 2 / 1)
   timestamp: 4m 04s         # optional: start of the segment where the idea is taught
 - id: 2
@@ -102,7 +105,10 @@ the range exists.
   errors (words, names, Hebrew terms, punctuation), never rephrase. Plain text, no markdown
   formatting (bold, titles), otherwise WER counts it as errors.
 - **edited_ideas.yaml**: one atomic, self-contained, checkable idea per entry, coming from the speaker
-  (not from general knowledge). Typically 10 to 25 ideas per extract.
+  (not from general knowledge). Typically 10 to 25 ideas per extract. `elements` (2 to 4 per idea,
+  drafted by `gold.py`) are what must be explicitly said for the idea to count as present: fixing
+  them in the gold makes `idea_coverage` more stable and easier to check than letting the judge
+  break each idea down at every call.
 - **summary_keypoints.yaml**: only what a good summary must contain: 8 to 12 points high + medium
   and 6 to 10 points low per lesson (see `prompts/summary_keypoints`).
 - To save time, ideas and key points can be drafted by an LLM and then reviewed by hand. Use a model
@@ -358,7 +364,7 @@ Tests: `python -m pytest bench/tests` (hand-made examples with known results).
   `true`: read the glossary from the app DB at scoring time), `terms` (extra terms), `threshold`.
   `None` when the input contains neither.
 - Words are counted on the text only: timestamps, speaker tags, markdown symbols and punctuation
-  are not words. In the report, length values have no "best" direction; the grey row
+  are not words. In the review app, length values have no "best" direction; the grey row
   "reference (edited.md / summary.md)" gives the scores of the hand-made reference.
 - Metric options are checked by `--check` (e.g. `length_words` without `target`).
 - **format_valid** – the output respects the expected format (segments/timestamps for correction).
@@ -368,10 +374,17 @@ Tests: `python -m pytest bench/tests` (hand-made examples with known results).
 The judge is an LLM, configured in the campaign (`judge`). Rules: temperature 0, structured JSON
 output, a model from a different family than the candidates when possible.
 
-- **idea_coverage** (edition) – for each idea of `edited_ideas.yaml`, the judge answers
-  `present` / `partial` / `absent` and must quote the passage of the output that contains it.
-  Score = Σ(weight × value) / Σ(weight), with present = 1, partial = 0.5, absent = 0 and weights
-  high = 3, medium = 2, low = 1. Missed high-importance ideas are also reported.
+- **idea_coverage** (edition) – for each idea of `edited_ideas.yaml`, the judge gives the status of
+  each essential element (`present` / `implicit` / `distorted` / `missing`; the `elements` of the
+  gold when given, else its own breakdown), the verdict, `missing` (one sentence on what is
+  missing, implied or distorted, for partial / absent) and `quotes` (one or several exact passages
+  of the output). Rule: present = all essential elements explicitly stated; partial = at least one
+  essential element missing, only implied or distorted; absent = the idea is no longer
+  recognizable. Score = Σ(weight × value) / Σ(weight), with present = 1, partial = 0.5, absent = 0
+  and weights high = 3, medium = 2, low = 1. The distribution present / partial / absent
+  (`present_rate`, `partial_rate`, `absent_rate`) is shown per model: when every model has ≥ 95 %
+  present, the metric is saturated (the app warns). For calibration, review first the
+  present-vs-partial cases (Ideas tab, "only ideas not present for some model").
 - **keypoint_coverage** (summary) – same principle with `summary_keypoints.yaml`.
 - **faithfulness** (edition, summary) – checks that what is written comes from the lesson:
   1. the judge splits the output into atomic claims (always the same judge model, so that all
@@ -380,8 +393,7 @@ output, a model from a different family than the candidates when possible.
      `supported`, `external_addition` (possibly true but not said in the lesson), `extrapolation`,
      `misattribution` (e.g. Rashi instead of Ramban), `contradicted`.
 
-  Score = supported claims / total claims. The numbers of `contradicted` and `misattribution` are
-  reported separately, as they are the most serious errors.
+  The judge reports findings, the campaign decides what is penalized (see below).
 - **judge_rubric** – the judge grades the output from 1 to 5 on each criterion of a rubric file
   (`rubrics/*.yaml`: clarity, structure, register, respect of the speaker's voice...), with a short
   justification per criterion.
@@ -400,17 +412,68 @@ Implemented: `idea_coverage` and `faithfulness` (`bench/judge.py`, `metrics/idea
   structured output uses `response_format` (`structured_output_method: json_schema`, overridable
   in `params`), as OpenAI reasoning models refuse function tools; some reasoning models (e.g.
   gpt-6-luna) only accept `temperature: 1`;
-- idea_coverage: one call per output; a `present` / `partial` idea whose quote is not found in the
-  output counts as `absent` (`rejected_evidence`), an idea without verdict too (`missing_verdicts`);
-- faithfulness: one call to split the output into claims, then one call per `claims_per_call`
-  claims (default 30) with the plain text of the input (timestamps removed); a `supported` claim
-  whose quote is not found in the input becomes `unverified` (not counted as supported);
-- options of both: `evidence_threshold` (fuzzy match score 0–100, default 85; accents, case,
-  quotes and markdown are ignored);
-- judge scores are **cached**: a score is re-computed only if the output, the metric (`VERSION`),
-  its options or the judge (model, provider, params) change. The judge tokens and cost are stored
-  in the score details; the report lists, per generation, the ideas not fully covered and the
-  claims not supported, with the judge quotes;
+- idea_coverage: one call per output; the rule is applied again by code: a `present` / `partial`
+  idea none of whose quotes is found in the output counts as `absent` (`rejected_evidence`), an idea
+  without verdict too (`missing_verdicts`), a `present` idea with an element that is not present
+  counts as `partial` (`downgraded`); a change of the ideas (text or elements) invalidates the
+  stored judgment;
+- faithfulness, details below;
+- options of both: `evidence_threshold` (fuzzy match score 0–100,   default 85; accents, case,
+  quotes, markdown and Hebrew vowel points / cantillation / maqaf are ignored on both sides; quotes
+  shortened with "..." are matched piece by piece);
+- **judgments are cached, scores are not**: the raw findings of the judge (`judgment` in the score
+  details) are reused while the output, the metric `VERSION`, the options that change the judgment
+  (`claims_per_call`, `verify_references`) and the judge (model, provider, params) are the same.
+  At every scoring phase the stored judgments are scored again with the current options (no call),
+  so changing the scoring options (`penalize`, `report_only`, `evidence_threshold`) costs nothing.
+  The judge tokens and cost are stored in the score details; the review app shows, per generation,
+  the ideas not fully covered and the claims not supported, with the judge quotes;
+
+**faithfulness** in detail:
+
+1. split (1 call): atomic claims, each with `output_quote`, the exact excerpt of the output;
+2. check (1 call per `claims_per_call` claims, default 30), against the plain text of the input
+   (timestamps removed). For each claim: `verdict`, `subtype`, `source_quote` (closest passage of
+   the transcript, **also for negative verdicts**; null = the judge found nothing related),
+   `explanation` (one sentence in French on what differs), `severity` (minor / major), `believes`
+   (when an attribution differs: is the Rav or the output right, in the judge's opinion) and
+   `reference` (precise reference cited by the claim, Sefaria format);
+3. references (`verify_references`, default true): for the added references / quotes and the
+   misattributions, the reference is fetched from Sefaria (`bench/sefaria.py`, cached in
+   `results/sefaria_cache.json`) and 1 call checks that its text matches what the output says.
+
+Code then locates `output_quote` in the output (highlighted in the review app) and `source_quote`
+in the transcript (`source_time` = timestamps of the segments), and classifies each claim:
+
+| Category | Verdict / subtype | Example |
+|---|---|---|
+| `supported` | supported, source quote found | |
+| `unverified` | supported, but the source quote is not in the transcript | |
+| `reference_added` | external_addition | the Rav alludes to a verse, the output adds "(Tehilim 66, 12)" |
+| `quote_added` | external_addition | the output adds the text of a verse the Rav only alludes to |
+| `content_added` | external_addition | an idea, explanation or commentator not in the lesson |
+| `speaker_corrected` | misattribution | the output corrects the Rav's attribution (verified on Sefaria when a reference is cited) |
+| `model_error` | misattribution | the output wrongly attributes what the Rav attributed correctly |
+| `wrong_reference` | any, reference checked | the cited reference does not exist on Sefaria or does not contain what the output says (always major) |
+| `extrapolation`, `contradicted` | same | |
+| `missing` | no verdict from the judge | |
+
+The judge's opinion on who is right (`believes`) is not trusted alone: when the reference is
+verified on Sefaria, the misattribution is `speaker_corrected`, when it fails, `wrong_reference`.
+An accurate added reference is an improvement, a wrong one one of the most serious errors.
+
+Value = 1 − penalized claims / claims. The policy is in the campaign:
+
+```yaml
+- faithfulness:
+    penalize: [content_added, model_error, wrong_reference, contradicted, extrapolation]
+    report_only: [reference_added, quote_added, speaker_corrected]
+```
+
+Categories not in `penalize` are reported only (`report_only` is checked but optional; default
+`penalize`: content_added, model_error, wrong_reference, contradicted, extrapolation, unverified).
+Details: `claims`, `penalized`, `reported`, `major`, a count per category, the `issues` (all fields
+above, penalized and most serious first) and the `highlights` of the output.
 - the judge estimate is shown with the generation plan (outputs not generated yet are estimated
   from the reference) and accepted with the same confirmation; `--only score` shows its own
   estimate and asks for confirmation. Judge metrics are not computed on the grey reference row.
@@ -472,17 +535,17 @@ pip install -r bench/requirements.txt                                      # ben
 python -m bench.run bench/configs/campaign-2026-11_models.yaml --check     # validate config + dataset
 python -m bench.run bench/configs/campaign-2026-11_models.yaml --dry-run   # number of calls + estimated cost
 python -m bench.run bench/configs/campaign-2026-11_models.yaml --limit 1   # quick test on 1 lesson
-python -m bench.run bench/configs/campaign-2026-11_models.yaml             # generation + scoring + report
+python -m bench.run bench/configs/campaign-2026-11_models.yaml             # generation + scoring
 python -m bench.run bench/configs/... --only score                         # re-compute metrics only
 python -m bench.run bench/configs/... --steps edition --models gpt-5.4     # subset
-python -m bench.review_app                                                 # local UI
+python -m bench.review_app                                                 # browse the results
 ```
 
-A launch runs **generate → score → report**. Scoring computes the metrics of each step on the
+A launch runs **generate → score**; the results are browsed with the [review app](#review-app). Scoring computes the metrics of each step on the
 successful generations of the campaign (cached ones included) and stores them in `scores`;
 deterministic metrics are always re-computed (cheap), judge metrics only when not cached (see
 [LLM-based metrics](#llm-based-metrics)), metrics not implemented yet are skipped.
-`--only generate|score|report` runs a single phase.
+`--only generate|score` runs a single phase.
 
 Other options: `--workers N` (parallel calls, default `defaults.workers` or 1), `--yes` (no
 confirmation), `--flex` (OpenRouter flex tier, see [Budget](#budget)), `--verbose` (show the logs of the app code). Each call is retried
@@ -529,40 +592,32 @@ not include the reasoning tokens of thinking models: compare with the actual cos
 too: for edition and summary they cost about as much as the generation itself (the judge reads the
 whole input for faithfulness).
 
-## Reports
+## Review app
 
-At the end of a run, an HTML report is generated in `reports/`, named after the campaign file
-(`configs/campaign-2026-11_correction.yaml` → `reports/campaign-2026-11_correction.html`), so each
-campaign keeps its own reports. Currently implemented (minimal version): one table per step,
-one row per model × prompt, with for each metric the mean over lessons of the mean over repeats
-± the spread between repeats, the best value per column highlighted, calls OK / planned, cost and
-latency per call, the list of calls without output, and a grey row scoring a non-model text:
-"input, unchanged" for correction (scores of the raw transcript, i.e. the level to beat),
-"reference (edited.md / summary.md)" for edition and summary (the level of the hand-made reference).
-
-For correction steps, a second report `reports/<campaign file>_<step>_errors.html` (linked from the main one)
-lists, per lesson (chosen in a dropdown), the segments where the initial transcript or a model differs from
-`corrected.md`: timestamps, initial, corrected, then one column per model (first successful
-repeat), empty when the model matches the gold, red with the differing words highlighted
-otherwise. Comparison ignores punctuation and spacing; case counts unless
-`report.correction_errors.case_sensitive: false`.
-
-### Review app
-
+The results are browsed with a local app (there is no HTML report):
 `python -m bench.review_app` (from `backend/`, options `--port 8765`, `--no-browser`, `--reload`)
-starts a local FastAPI server and opens a Vue.js page to browse the results:
+starts a FastAPI server and opens a Vue.js page:
 
 - **campaigns**: the campaign files of `configs/` (selector in the header), last run and cost;
-- **dashboard** of a campaign: lessons, models, generation and judge cost, runs, and per step the
-  table of the HTML report (mean ± spread per model × prompt, best values in green, grey
-  baseline row, calls without output);
+- **dashboard** of a campaign: lessons, models, generation and judge cost, runs, and per step a
+  table with one row per model × prompt: for each metric (and metric detail) the mean over lessons
+  of the mean over repeats ± the spread between repeats, the best value per column in green, calls
+  OK / planned, cost and latency per call, the calls without output, and a grey row scoring a
+  non-model text: "input, unchanged" for correction (the raw transcript, i.e. the level to beat),
+  "reference (edited.md / summary.md)" for edition and summary (the level of the hand-made
+  reference; judge metrics are not computed on it);
 - **step**: the same table with the models to compare ticked, and a lesson × model matrix for a
   chosen metric (or metric detail);
 - **lesson** (click a lesson): gold vs the outputs of the selected models (chips), previous / next
-  lesson, repeat selector. Correction: the segments with differences, colored by severity as in
-  the errors report, with counts; edition / summary: gold and outputs side by side (rendered or raw
+  lesson, repeat selector. Correction: the segments where the initial transcript or a model
+  differs from `corrected.md`, the differing words highlighted by severity (red: still counted by
+  wer_fold; orange: transliteration variant, counted by wer_norm only; yellow: case, accents,
+  apostrophes or hyphens; ‸ = missing words), with counts per model; punctuation and spacing are
+  ignored, case counts unless `report.correction_errors.case_sensitive: false`; edition / summary: gold and outputs side by side (rendered or raw
   markdown, optionally the input), the judge verdicts per idea (`Ideas`, quotes on hover), the
-  claims not supported (`Claims`); every step: all scores and their details (`Scores`).
+  claims not supported (`Claims`: category, severity, explanation, output and source quotes with
+  their timestamps, Sefaria link and check of the reference; click a claim to show its passage in
+  the output, highlighted by category); every step: all scores and their details (`Scores`).
 
 The app reads `results/bench.sqlite` read-only and plans the jobs like `bench.run` (same cache
 keys), so it shows what the campaign would use; it reloads a campaign when its file or the

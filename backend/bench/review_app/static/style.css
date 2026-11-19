@@ -119,7 +119,24 @@ mark.gap { font-weight: bold; padding: 0 2px; user-select: none; }
 .v-present, .v-supported { background: var(--good); }
 .v-partial, .v-extrapolation, .v-unverified, .v-external_addition { background: var(--norm); }
 .v-absent, .v-contradicted, .v-misattribution, .v-missing { background: var(--fold); }
+.c-supported, .c-speaker_corrected { background: var(--good); }
+.c-reference_added, .c-quote_added, .c-missing { background: rgba(59, 110, 245, .2); }
+.c-extrapolation, .c-unverified { background: var(--norm); }
+.c-content_added, .c-model_error, .c-contradicted, .c-wrong_reference, .c-misattribution, .c-external_addition { background: var(--fold); }
+mark.claim { color: inherit; padding: 0; border-bottom: 2px solid transparent; }
+mark.claim.penalized { border-bottom-color: #e53935; }
+mark.claim.flash { outline: 3px solid var(--accent); }
+table.claims td { max-width: 18rem; }
 table.ideas td { text-align: left; }
+table.ideas td.cellv { min-width: 9rem; max-width: 16rem; }
+tr.expanded td { background: rgba(128, 128, 128, .06); vertical-align: top; }
+.elements { margin-left: .3rem; letter-spacing: .1rem; }
+.e-present { color: #43a047; } .e-implicit { color: #fb8c00; } .e-distorted { color: #e53935; } .e-missing { color: #e53935; }
+.distribution { display: flex; height: 6px; width: 8rem; border-radius: 3px; overflow: hidden; margin: .2rem 0; background: rgba(128, 128, 128, .2); }
+.distribution span { display: block; height: 100%; }
+.quote { margin-top: .25rem; cursor: pointer; }
+.quote:hover em { text-decoration: underline; }
+.warning { color: #fb8c00; margin: .4rem 0; }
 table.ideas td.idea { max-width: 34rem; }
 details summary { cursor: pointer; }
 pre.json { white-space: pre-wrap; max-height: 24rem; overflow: auto; background: rgba(128, 128, 128, .08); padding: .5rem; border-radius: 6px; }

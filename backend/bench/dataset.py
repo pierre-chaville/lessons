@@ -304,6 +304,10 @@ def _load_points(item: LessonItem, name: str, recommended: tuple[int, int],
         importance = entry.get("importance")
         if importance not in IMPORTANCE_WEIGHTS:
             item.error(f"{where}: importance must be one of {list(IMPORTANCE_WEIGHTS)}, got {importance!r}", name)
+        elements = entry.get("elements")
+        if elements is not None and not (isinstance(elements, list) and elements
+                                         and all(isinstance(e, str) and e.strip() for e in elements)):
+            item.error(f"{where}: 'elements' must be a non-empty list of texts (essential elements)", name)
         timestamp = entry.get("timestamp")
         if timestamp is not None and parse_duration(str(timestamp)) is None:
             item.error(f"{where}: invalid timestamp {timestamp!r} (expected e.g. '4m 04s')", name)

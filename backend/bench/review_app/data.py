@@ -20,13 +20,15 @@ import yaml
 from bench.dataset import BENCH_DIR, _format_seconds, format_transcript, load_dataset
 from bench.db import BenchDB, options_json
 from bench.metrics import get_metric_module
-from bench.report import _aggregate, _baseline_row, _columns
-from bench.report_correction import Comparator
+from bench.review_app.correction_diff import Comparator
+from bench.review_app.metrics_table import aggregate, baseline_row
+from bench.review_app.metrics_table import columns as metric_columns
 from bench.run import Planner, gold_input, load_config, step_tasks
 from bench.score import REFERENCE_FILES, metric_specs, reference_text
 
 CONFIG_DIR = BENCH_DIR / "configs"
 INPUT_FILES = {"correction": "initial.md", "edition": "corrected.md", "summary": "edited.md"}
+SATURATION_RATE = 0.95  # idea_coverage: share of present ideas above which the metric no longer discriminates
 
 
 class NotFound(LookupError):
@@ -141,7 +143,7 @@ def _candidates(jobs: list[Any]) -> list[dict]:
 
 def _column_meta(step: dict) -> list[dict]:
     meta = []
-    for metric, options, column in _columns(step):
+    for metric, options, column in metric_columns(step):
         module = get_metric_module(metric)
         meta.append({
             "metric": metric, "options": options_json(options), "label": column.label,
@@ -221,7 +223,7 @@ def step_summary(campaign: Campaign, step_name: str, db: Optional[BenchDB]) -> d
     """The table of the HTML report as data: one row per model x prompt, mean ± spread per column."""
     step = campaign.step(step_name)
     jobs = campaign.step_jobs(step_name)
-    columns = _columns(step)
+    columns = metric_columns(step)
     ids = [j.cached_id for j in jobs if j.cached_id is not None]
     scores = _scores(db, ids)
     generations = {gid: db.generation(gid) for gid in ids} if db else {}
@@ -240,7 +242,7 @@ def step_summary(campaign: Campaign, step_name: str, db: Optional[BenchDB]) -> d
                 number = column.extract(*score)
                 if number is not None:
                     by_lesson[job.item.id].append(number)
-            value, spread = _aggregate(by_lesson)
+            value, spread = aggregate(by_lesson)
             cells.append({"value": value, "spread": spread})
         ok = [generations[j.cached_id] for j in group if j.cached_id is not None]
         group_scores = {k: v for k, v in scores.items() if k[0] in {j.cached_id for j in group}}
@@ -252,8 +254,15 @@ def step_summary(campaign: Campaign, step_name: str, db: Optional[BenchDB]) -> d
             "cost": sum(g["cost_usd"] or 0 for g in ok),
             "judge_cost": _judge_cost(group_scores),
         })
-    baseline = _baseline_row(jobs, columns)
+    baseline = baseline_row(jobs, columns)
     task = jobs[0].task if jobs else step.get("task", step_name)
+    warnings = []
+    for index, (metric, _, column) in enumerate(columns):
+        if metric == "idea_coverage" and column.label == "present_rate":
+            rates = [r["cells"][index]["value"] for r in rows if r["cells"][index]["value"] is not None]
+            if len(rates) >= 2 and min(rates) >= SATURATION_RATE:
+                warnings.append(f"idea_coverage looks saturated: every model has ≥ {SATURATION_RATE:.0%} of the "
+                                "ideas present. Tighten the definition of the ideas or rely more on pairwise comparisons.")
     return {
         "name": step_name,
         "task": task,
@@ -261,6 +270,7 @@ def step_summary(campaign: Campaign, step_name: str, db: Optional[BenchDB]) -> d
         "rows": rows,
         "baseline": {"label": baseline[0], "cells": [{"value": v, "spread": s} for v, s in baseline[1]]}
         if baseline else None,
+        "warnings": warnings,
         "failures": [
             {"label": j.label(), "error": (db.last_failure(j.cache_key)["error"]
                                            if db and j.input_text is not None and db.last_failure(j.cache_key)
@@ -306,7 +316,7 @@ def step_detail(stem: str, step_name: str) -> dict:
     try:
         summary = step_summary(campaign, step_name, db)
         jobs = campaign.step_jobs(step_name)
-        columns = _columns(campaign.step(step_name))
+        columns = metric_columns(campaign.step(step_name))
         scores = _scores(db, [j.cached_id for j in jobs if j.cached_id is not None])
     finally:
         if db:

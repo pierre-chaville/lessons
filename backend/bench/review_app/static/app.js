@@ -110,6 +110,7 @@ const SummaryTable = {
       </tr>
     </tbody>
   </table></div>
+  <p v-for="w in step.warnings || []" class="warning small">⚠ {{ w }}</p>
   <details v-if="step.failures.length" class="small" style="margin-top:.5rem">
     <summary>{{ step.failures.length }} call(s) without output</summary>
     <ul><li v-for="f in step.failures"><code>{{ f.label }}</code>: <span class="muted">{{ f.error }}</span></li></ul>
@@ -379,61 +380,243 @@ const SideBySide = {
   </div>`,
 };
 
+const ELEMENT_MARKS = { present: "●", implicit: "◐", distorted: "◇", missing: "○" };
+
 const IdeasMatrix = {
   props: ["data"],
   setup(props) {
+    const open = ref(new Set());
+    const onlyNotPresent = ref(false);
     const outputs = computed(() => props.data.outputs.filter((o) => o.output !== null));
-    const verdict = (o, id) => {
-      const score = o.scores.find((s) => s.metric === "idea_coverage");
-      return score?.details?.verdicts?.find((v) => v.id === id) || null;
+    const score = (o) => o.scores.find((s) => s.metric === "idea_coverage");
+    const verdict = (o, id) => score(o)?.details?.verdicts?.find((v) => v.id === id) || null;
+    const ideas = computed(() => (props.data.ideas || []).filter((idea) =>
+      !onlyNotPresent.value || outputs.value.some((o) => verdict(o, idea.id) && verdict(o, idea.id).verdict !== "present")));
+    const toggle = (id) => {
+      const next = new Set(open.value);
+      next.has(id) ? next.delete(id) : next.add(id);
+      open.value = next;
     };
-    const coverage = (o) => o.scores.find((s) => s.metric === "idea_coverage")?.value;
-    return { outputs, verdict, coverage };
+    const note = (v) => (v.judge_verdict && v.judge_verdict !== v.verdict
+      ? (v.verdict === "absent" ? "judge: " + v.judge_verdict + ", no quote found in the output" : "judge: present, but not every element is")
+      : "");
+    const pct = (d, key) => (d && d[key] != null ? Math.round(d[key] * 100) : 0);
+    return { open, onlyNotPresent, outputs, score, verdict, ideas, toggle, note, pct, ELEMENT_MARKS };
   },
   template: `
-  <p class="small muted">Verdicts of the judge (hover a verdict for the quote of the output). A present / partial verdict whose quote is not found in the output is counted as absent.</p>
+  <p class="small muted">Rule given to the judge: <b>present</b> = all essential elements explicitly stated; <b>partial</b> = at least one essential element missing, only implied or distorted;
+    <b>absent</b> = the idea is no longer recognizable. Applied again by code: a present verdict with an element that is not present counts as partial (↓), a verdict without any quote found in the output counts as absent (✗).
+    Elements: ● present ◐ implicit ◇ distorted ○ missing. Click an idea for the elements and the quotes.</p>
+  <div class="toolbar"><label><input type="checkbox" v-model="onlyNotPresent"> only ideas not present for some model</label></div>
   <div class="tablewrap"><table class="ideas">
     <thead><tr><th>#</th><th class="l">idea</th><th class="l">importance</th>
-      <th v-for="o in outputs">{{ o.model }}<div class="muted small">{{ coverage(o) != null ? (coverage(o) * 100).toFixed(1) + ' %' : 'not judged' }}</div></th></tr></thead>
+      <th v-for="o in outputs" class="l">{{ o.model }}
+        <div v-if="score(o)" class="small muted">{{ (score(o).value * 100).toFixed(1) }} %</div>
+        <div v-if="score(o) && score(o).details.present_rate != null" class="distribution" :title="score(o).details.present + ' present, ' + score(o).details.partial + ' partial, ' + score(o).details.absent + ' absent'">
+          <span class="v-present" :style="{ width: pct(score(o).details, 'present_rate') + '%' }"></span><span class="v-partial" :style="{ width: pct(score(o).details, 'partial_rate') + '%' }"></span><span class="v-absent" :style="{ width: pct(score(o).details, 'absent_rate') + '%' }"></span>
+        </div>
+        <div v-if="score(o) && score(o).details.present_rate != null" class="small muted">{{ score(o).details.present }} / {{ score(o).details.partial }} / {{ score(o).details.absent }}</div>
+        <div v-else-if="!score(o)" class="small muted">not judged</div></th></tr></thead>
     <tbody>
-      <tr v-for="idea in data.ideas">
-        <td>{{ idea.id }}</td><td class="idea">{{ idea.text }}</td><td class="l">{{ idea.importance }}</td>
-        <td v-for="o in outputs">
-          <span v-if="verdict(o, idea.id)" class="verdict" :class="'v-' + verdict(o, idea.id).verdict" :title="verdict(o, idea.id).quote">{{ verdict(o, idea.id).verdict }}</span>
-          <span v-else class="muted">–</span>
-        </td>
-      </tr>
+      <template v-for="idea in ideas" :key="idea.id">
+        <tr class="clickable" @click="toggle(idea.id)">
+          <td>{{ idea.id }}</td><td class="idea">{{ idea.text }}</td><td class="l">{{ idea.importance }}</td>
+          <td v-for="o in outputs" class="cellv">
+            <template v-if="verdict(o, idea.id)">
+              <span class="verdict" :class="'v-' + verdict(o, idea.id).verdict" :title="note(verdict(o, idea.id))">{{ verdict(o, idea.id).verdict }}<template v-if="note(verdict(o, idea.id))"> {{ verdict(o, idea.id).verdict === 'absent' ? '✗' : '↓' }}</template></span>
+              <span class="elements" :title="(verdict(o, idea.id).elements || []).map(e => e.status + ': ' + e.element).join('\\n')"><span v-for="e in verdict(o, idea.id).elements || []" :class="'e-' + e.status">{{ ELEMENT_MARKS[e.status] }}</span></span>
+              <div v-if="verdict(o, idea.id).missing" class="small muted">{{ verdict(o, idea.id).missing }}</div>
+            </template>
+            <span v-else class="muted">–</span>
+          </td>
+        </tr>
+        <tr v-if="open.has(idea.id)" class="expanded">
+          <td></td><td colspan="2" class="small muted">elements: {{ verdict(outputs[0], idea.id)?.elements_source === 'dataset' ? 'from edited_ideas.yaml' : 'broken down by the judge' }}</td>
+          <td v-for="o in outputs" class="small">
+            <template v-if="verdict(o, idea.id)">
+              <div v-for="e in verdict(o, idea.id).elements || []"><span :class="'e-' + e.status">{{ ELEMENT_MARKS[e.status] }}</span> {{ e.element }} <span class="muted">({{ e.status }})</span></div>
+              <div v-for="q in verdict(o, idea.id).quotes || []" class="quote"><em>« {{ q.text }} »</em> <span :title="q.found ? 'found in the output' : 'not found in the output'">{{ q.found ? '✓' : '✗' }}</span></div>
+            </template>
+          </td>
+        </tr>
+      </template>
     </tbody>
   </table></div>`,
 };
 
+const CATEGORIES = ["wrong_reference", "contradicted", "model_error", "content_added", "extrapolation", "unverified",
+  "speaker_corrected", "quote_added", "reference_added", "missing"];
+
+function escapeHtml(text) {
+  return text.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+/** Output text with quotes highlighted, sorted by start (overlapping quotes: the first one wins).
+ * A highlight is a claim ({id, category, penalized}) or carries its own {id, cls, title}. */
+function highlightOutput(text, highlights, prefix) {
+  let html = "", position = 0;
+  for (const h of highlights || []) {
+    if (h.start < position) continue;
+    const cls = h.cls || `claim c-${h.category}${h.penalized ? " penalized" : ""}`;
+    const title = h.title || `#${h.id} ${h.category}`;
+    html += escapeHtml(text.slice(position, h.start));
+    html += `<mark id="${prefix}-${h.id}" class="${cls}" title="${escapeHtml(title)}">${escapeHtml(text.slice(h.start, h.end))}</mark>`;
+    position = h.end;
+  }
+  return html + escapeHtml(text.slice(position));
+}
+
 const ClaimsView = {
   props: ["data"],
   setup(props) {
+    const onlyPenalized = ref(false);
+    const showText = ref(true);
     const outputs = computed(() => props.data.outputs.filter((o) => o.output !== null));
     const score = (o) => o.scores.find((s) => s.metric === "faithfulness");
-    const KINDS = ["supported", "contradicted", "misattribution", "extrapolation", "external_addition", "unverified", "missing"];
-    return { outputs, score, KINDS };
+    const issues = (o) => (score(o)?.details.issues || []).filter((i) => !onlyPenalized.value || i.penalized);
+    const prefix = (o) => `claim-${o.key.replace(/[^\w-]/g, "_")}`;
+    const reveal = (o, issue) => {
+      const mark = document.getElementById(`${prefix(o)}-${issue.id}`);
+      if (!mark) return;
+      mark.scrollIntoView({ behavior: "smooth", block: "center" });
+      mark.classList.add("flash");
+      setTimeout(() => mark.classList.remove("flash"), 1200);
+    };
+    const sefariaUrl = (r) => (r?.slug ? `https://www.sefaria.org/${encodeURIComponent(r.slug)}` : null);
+    const refStatus = (r) => (!r ? "" : !r.found ? "not found on Sefaria" : r.match ? r.match : "not checked");
+    return { onlyPenalized, showText, outputs, score, issues, prefix, reveal, sefariaUrl, refStatus, highlightOutput, CATEGORIES };
   },
   template: `
-  <p class="small muted">Claims of each output checked against the lesson ({{ data.input_file }}). Only the claims that are not supported are listed; "unverified" = said supported, but the quote is not in the source.</p>
+  <p class="small muted">Claims of each output checked against the lesson ({{ data.input_file }}); supported claims are not listed.
+    <b>Penalized</b> categories (campaign <code>penalize</code>) lower the score, the others are only reported.
+    Click a claim to show its passage in the output. Source quote ✗ = not found in the transcript (the judge may have invented it).</p>
+  <div class="toolbar">
+    <label><input type="checkbox" v-model="onlyPenalized"> only penalized claims</label>
+    <label><input type="checkbox" v-model="showText"> show the output with the claims highlighted</label>
+  </div>
   <div v-for="o in outputs" class="panel">
     <h3 style="margin-top:0">{{ o.model }} <span class="muted small">{{ o.prompt }} · r{{ o.repeat }}</span>
-      <template v-if="score(o)"> – {{ (score(o).value * 100).toFixed(1) }} % supported ({{ score(o).details.claims }} claims)</template></h3>
+      <template v-if="score(o)"> – {{ (score(o).value * 100).toFixed(1) }} % ({{ score(o).details.claims }} claims,
+        {{ score(o).details.penalized ?? '?' }} penalized, {{ score(o).details.reported ?? '?' }} reported, {{ score(o).details.major ?? '?' }} major)</template></h3>
     <div v-if="!score(o)" class="muted">Not judged.</div>
     <template v-else>
-      <div><span v-for="k in KINDS" v-show="score(o).details[k]" class="verdict" :class="'v-' + k" style="margin-right:.3rem">{{ k }}: {{ score(o).details[k] }}</span></div>
-      <table class="ideas" style="margin-top:.6rem" v-if="score(o).details.issues?.length">
-        <thead><tr><th class="l">verdict</th><th class="l">claim</th><th class="l">quote of the source</th></tr></thead>
-        <tbody><tr v-for="i in score(o).details.issues"><td class="l"><span class="verdict" :class="'v-' + i.verdict">{{ i.verdict }}</span></td>
-          <td class="idea">{{ i.claim }}</td><td class="idea muted"><em>{{ i.quote }}</em></td></tr></tbody>
-      </table>
+      <div style="margin-bottom:.5rem"><span v-for="k in CATEGORIES" v-show="score(o).details[k]" class="verdict" :class="'c-' + k" style="margin-right:.3rem">{{ k }}: {{ score(o).details[k] }}</span></div>
+      <div :style="{ display: 'grid', gridTemplateColumns: showText ? 'minmax(0, 3fr) minmax(0, 2fr)' : '1fr', gap: '.75rem', alignItems: 'start' }">
+        <div class="tablewrap">
+          <table class="ideas claims">
+            <thead><tr><th>#</th><th class="l">category</th><th class="l">claim / explanation</th><th class="l">output</th><th class="l">source</th><th class="l">reference</th></tr></thead>
+            <tbody>
+              <tr v-for="i in issues(o)" class="clickable" @click="reveal(o, i)">
+                <td>{{ i.id }}</td>
+                <td class="l"><span class="verdict" :class="'c-' + (i.category || i.verdict)">{{ i.category || i.verdict }}</span>
+                  <div class="small muted">{{ i.severity }}{{ i.penalized ? ' · penalized' : '' }}</div>
+                  <div v-if="i.believes" class="small muted" title="who the judge believes is right">believes: {{ i.believes }}</div></td>
+                <td class="idea">{{ i.claim }}<div v-if="i.explanation" class="small" style="margin-top:.25rem">{{ i.explanation }}</div></td>
+                <td class="idea small"><em>{{ i.output_quote }}</em> <span :title="i.output_found ? 'found in the output' : 'not found in the output'">{{ i.output_found ? '✓' : '✗' }}</span></td>
+                <td class="idea small">
+                  <template v-if="i.source_quote"><span v-if="i.source_time" class="tag">{{ i.source_time }}</span>
+                    <em>{{ i.source_quote }}</em> <span :title="i.source_found ? 'found in the transcript' : 'not found in the transcript'">{{ i.source_found ? '✓' : '✗' }}</span></template>
+                  <span v-else-if="i.quote !== undefined"><em>{{ i.quote }}</em></span>
+                  <span v-else class="muted">nothing related in the lesson</span></td>
+                <td class="idea small"><template v-if="i.reference">
+                  <a v-if="sefariaUrl(i.reference)" :href="sefariaUrl(i.reference)" target="_blank" @click.stop>{{ i.reference.sefaria_ref || i.reference.reference }}</a>
+                  <span v-else>{{ i.reference.reference }}</span>
+                  <div><span class="verdict" :class="i.reference.found && i.reference.match !== 'differs' ? 'c-speaker_corrected' : 'c-wrong_reference'">{{ refStatus(i.reference) }}</span></div>
+                  <div v-if="i.reference.explanation" class="muted">{{ i.reference.explanation }}</div></template></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-if="showText" class="textcol"><header><span class="name">output</span> <span class="muted small">quotes highlighted by category</span></header>
+          <div class="body raw" v-html="highlightOutput(o.output, score(o).details.highlights, prefix(o))"></div></div>
+      </div>
+    </template>
+  </div>`,
+};
+
+const IdeasView = {
+  props: ["data"],
+  setup(props) {
+    const onlyNotPresent = ref(true);
+    const showText = ref(true);
+    const outputs = computed(() => props.data.outputs.filter((o) => o.output !== null));
+    const score = (o) => o.scores.find((s) => s.metric === "idea_coverage");
+    const verdicts = (o) => (score(o)?.details.verdicts || []).filter((v) => !onlyNotPresent.value || v.verdict !== "present");
+    const prefix = (o) => `idea-${o.key.replace(/[^\w-]/g, "_")}`;
+    const highlights = (o) => (score(o)?.details.verdicts || [])
+      .flatMap((v) => (v.quotes || []).map((q, k) => ({ ...q, v, k })))
+      .filter((q) => q.found && q.start != null)
+      .sort((a, b) => a.start - b.start)
+      .map((q) => ({ id: `${q.v.id}-${q.k}`, start: q.start, end: q.end, cls: `claim v-${q.v.verdict}`,
+                     title: `idea ${q.v.id} (${q.v.verdict}): ${q.v.idea}` }));
+    const reveal = (o, v, k) => {
+      const index = k ?? (v.quotes || []).findIndex((q) => q.found);
+      const mark = index >= 0 && document.getElementById(`${prefix(o)}-${v.id}-${index}`);
+      if (!mark) return;
+      mark.scrollIntoView({ behavior: "smooth", block: "center" });
+      mark.classList.add("flash");
+      setTimeout(() => mark.classList.remove("flash"), 1200);
+    };
+    const note = (v) => (!v.judge_verdict ? "no verdict from the judge"
+      : v.judge_verdict === v.verdict ? ""
+      : v.verdict === "absent" ? `judge: ${v.judge_verdict}, but no quote found in the output`
+      : "judge: present, but not every element is present");
+    const pct = (x) => (x != null ? (x * 100).toFixed(0) + " %" : "?");
+    return { onlyNotPresent, showText, outputs, score, verdicts, prefix, highlights, reveal, note, pct, highlightOutput, ELEMENT_MARKS };
+  },
+  template: `
+  <p class="small muted">Verdicts of the judge per output. <b>present</b> = all essential elements explicitly stated; <b>partial</b> = at least one essential element missing, only implied or distorted;
+    <b>absent</b> = the idea is no longer recognizable. Click an idea (or a quote) to show its passage in the output. Quote ✗ = not found in the output (the judge may have invented it).</p>
+  <div class="toolbar">
+    <label><input type="checkbox" v-model="onlyNotPresent"> only ideas not present</label>
+    <label><input type="checkbox" v-model="showText"> show the output with the quotes highlighted</label>
+  </div>
+  <div v-for="o in outputs" class="panel">
+    <h3 style="margin-top:0">{{ o.model }} <span class="muted small">{{ o.prompt }} · r{{ o.repeat }}</span>
+      <template v-if="score(o)"> – {{ (score(o).value * 100).toFixed(1) }} % ({{ score(o).details.ideas }} ideas)</template></h3>
+    <div v-if="!score(o)" class="muted">Not judged.</div>
+    <template v-else>
+      <div style="margin-bottom:.5rem">
+        <span class="verdict v-present" style="margin-right:.3rem">present: {{ score(o).details.present }} ({{ pct(score(o).details.present_rate) }})</span>
+        <span class="verdict v-partial" style="margin-right:.3rem">partial: {{ score(o).details.partial }} ({{ pct(score(o).details.partial_rate) }})</span>
+        <span class="verdict v-absent" style="margin-right:.3rem">absent: {{ score(o).details.absent }} ({{ pct(score(o).details.absent_rate) }})</span>
+        <span v-if="score(o).details.elements" class="small muted">elements:
+          <template v-for="(n, s) in score(o).details.elements"><span :class="'e-' + s">{{ ELEMENT_MARKS[s] }}</span> {{ s }} {{ n }}&nbsp; </template></span>
+        <span v-if="score(o).details.missed_high" class="verdict v-absent">{{ score(o).details.missed_high }} high-importance idea(s) missed</span>
+      </div>
+      <div :style="{ display: 'grid', gridTemplateColumns: showText ? 'minmax(0, 3fr) minmax(0, 2fr)' : '1fr', gap: '.75rem', alignItems: 'start' }">
+        <div class="tablewrap">
+          <table class="ideas claims">
+            <thead><tr><th>#</th><th class="l">verdict</th><th class="l">idea / what is missing</th><th class="l">essential elements</th><th class="l">quotes of the output</th></tr></thead>
+            <tbody>
+              <tr v-if="!verdicts(o).length"><td colspan="5" class="muted">Every idea is present.</td></tr>
+              <tr v-for="v in verdicts(o)" class="clickable" @click="reveal(o, v)">
+                <td>{{ v.id }}</td>
+                <td class="l"><span class="verdict" :class="'v-' + v.verdict">{{ v.verdict }}</span>
+                  <div class="small muted">{{ v.importance }}</div>
+                  <div v-if="note(v)" class="small warning" style="margin:0">{{ note(v) }}</div></td>
+                <td class="idea">{{ v.idea }}<div v-if="v.missing" class="small" style="margin-top:.25rem">{{ v.missing }}</div></td>
+                <td class="idea small">
+                  <div v-for="e in v.elements || []"><span :class="'e-' + e.status">{{ ELEMENT_MARKS[e.status] }}</span> {{ e.element }}
+                    <span v-if="e.status !== 'present'" class="muted">({{ e.status }})</span></div>
+                  <div class="muted" style="margin-top:.2rem">{{ v.elements_source === 'dataset' ? 'from edited_ideas.yaml' : 'broken down by the judge' }}</div></td>
+                <td class="idea small">
+                  <div v-for="(q, k) in v.quotes || []" class="quote" @click.stop="reveal(o, v, k)"><em>« {{ q.text }} »</em>
+                    <span :title="q.found ? 'found in the output' : 'not found in the output'">{{ q.found ? '✓' : '✗' }}</span></div>
+                  <span v-if="!(v.quotes || []).length" class="muted">no quote</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-if="showText" class="textcol"><header><span class="name">output</span> <span class="muted small">quotes highlighted by verdict</span></header>
+          <div class="body raw" v-html="highlightOutput(o.output, highlights(o), prefix(o))"></div></div>
+      </div>
     </template>
   </div>`,
 };
 
 const LessonView = {
-  components: { CorrectionSegments, SideBySide, IdeasMatrix, ClaimsView, ScoresTable },
+  components: { CorrectionSegments, SideBySide, IdeasMatrix, IdeasView, ClaimsView, ScoresTable },
   setup() {
     const state = reactive({ data: null, error: null, loading: false, tab: null });
     const selected = computed(() => (route.query.m ? route.query.m.split(",").filter(Boolean) : null));
@@ -458,7 +641,9 @@ const LessonView = {
       const has = (metric) => d.outputs.some((o) => o.scores.some((s) => s.metric === metric)) || d.columns.some((c) => c.metric === metric);
       if (d.task === "correction") return [{ id: "segments", label: "Segments" }, { id: "texts", label: "Full texts" }, { id: "scores", label: "Scores" }];
       const tabs = [{ id: "texts", label: "Gold vs outputs" }];
-      if (d.ideas?.length && has("idea_coverage")) tabs.push({ id: "ideas", label: "Ideas" });
+      if (d.ideas?.length && has("idea_coverage")) {
+        tabs.push({ id: "ideas", label: "Ideas (matrix)" }, { id: "idea_details", label: "Ideas (details)" });
+      }
       if (has("faithfulness")) tabs.push({ id: "claims", label: "Claims" });
       tabs.push({ id: "scores", label: "Scores" });
       return tabs;
@@ -510,6 +695,7 @@ const LessonView = {
     <CorrectionSegments v-if="state.tab === 'segments'" :data="state.data" />
     <SideBySide v-else-if="state.tab === 'texts'" :data="state.data" />
     <IdeasMatrix v-else-if="state.tab === 'ideas'" :data="state.data" />
+    <IdeasView v-else-if="state.tab === 'idea_details'" :data="state.data" />
     <ClaimsView v-else-if="state.tab === 'claims'" :data="state.data" />
     <ScoresTable v-else-if="state.tab === 'scores'" :data="state.data" />
   </template>`,

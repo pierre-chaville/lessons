@@ -1,10 +1,11 @@
-"""Bench runner: validation, generation (with cache, cost estimate and budget), scoring, report.
+"""Bench runner: validation, generation (with cache, cost estimate and budget), scoring.
+Results are browsed with the review app (python -m bench.review_app).
 
 Usage (from backend/):
     python -m bench.run bench/configs/<campaign>.yaml --check       # validate config + dataset
     python -m bench.run bench/configs/<campaign>.yaml --dry-run     # calls to run + estimated cost
     python -m bench.run bench/configs/<campaign>.yaml [--limit N] [--steps ...] [--models ...]
-    python -m bench.run bench/configs/<campaign>.yaml --only score  # or: --only generate / report
+    python -m bench.run bench/configs/<campaign>.yaml --only score  # or: --only generate
 """
 
 from __future__ import annotations
@@ -26,16 +27,14 @@ import yaml
 
 from bench.dataset import BENCH_DIR, TASK_DATASET, Issue, LessonItem, describe, format_transcript, load_dataset
 from bench.db import BenchDB
-from bench.judge import JudgeModel, is_judge_metric, plan_judge, print_judge_plan, run_judge
+from bench.judge import (JudgeModel, JudgeSummary, calls_needed, is_judge_metric, plan_judge, print_judge_plan,
+                         rescore_judged, run_judge)
 from bench.metrics import get_metric_module
-from bench.report import write_report
-from bench.report_correction import write_correction_errors
 from bench.score import metric_specs, reference_text, score_jobs
 from bench.steps import PROVIDERS
 
 INPUT_SOURCES = ("raw", "gold", "pipeline")
 PRICING_PATH = BENCH_DIR / "configs" / "pricing.yaml"
-REPORTS_DIR = BENCH_DIR / "reports"
 DEFAULTS = {"repeats": 1, "timeout_s": 180, "max_retries": 2, "input_source": "gold", "workers": 1}
 RETRY_DELAY_S = 2
 
@@ -312,9 +311,6 @@ def validate_config(config: dict, items: list[LessonItem], selected: Optional[li
             rubric = options.get("rubric")
             if rubric and not (BENCH_DIR / str(rubric)).is_file():
                 warn(f"{prefix}: metric {metric}: rubric file not found: {rubric}")
-
-    if (config.get("report") or {}).get("export"):
-        warn("report.export is ignored: the reports are written to reports/<campaign file name>.html")
 
     max_usd = (config.get("budget") or {}).get("max_usd")
     if max_usd is None:
@@ -808,14 +804,9 @@ class Campaign:
     db_path: Path
     judge_confirmed: bool = False  # judge cost already accepted with the generation
 
-    @property
-    def report_path(self) -> Path:
-        """reports/<campaign file name>.html: one report per campaign file (campaign names may repeat)."""
-        return REPORTS_DIR / f"{self.path.stem}.html"
-
 
 def run_campaign(config_path: Path, args: argparse.Namespace) -> int:
-    """generate -> score -> report (or a single phase with --only)."""
+    """generate -> score (or a single phase with --only); results in the review app."""
     config = load_config(config_path)
     name = (config.get("campaign") or {}).get("name", config_path.stem)
     all_steps = list(config.get("steps") or {})
@@ -853,31 +844,18 @@ def run_campaign(config_path: Path, args: argparse.Namespace) -> int:
         if not proceed or args.only == "generate":
             return code
     if not campaign.db_path.is_file():
-        print("No generation yet: nothing to score or report.")
+        print("No generation yet: nothing to score.")
         return 1
 
     db = BenchDB(campaign.db_path)
     try:
         jobs, _ = Planner(config, items, db).plan(campaign.steps, args.limit, models)
         print()
-        if args.only in (None, "score"):
-            score_jobs(config, jobs, db).print()
-            code = max(code, score_judge(campaign, args, jobs, db))
-        if args.only in (None, "report"):
-            report_options = config.get("report") or {}
-            links = {}
-            for step in campaign.steps:
-                step_jobs = [j for j in jobs if j.step == step]
-                if step_jobs and step_jobs[0].task == "correction":
-                    path = campaign.report_path.with_name(f"{campaign.report_path.stem}_{step}_errors.html")
-                    links[step] = write_correction_errors(
-                        path, config=config, step_name=step, jobs=step_jobs, db=db,
-                        case_sensitive=bool((report_options.get("correction_errors") or {}).get("case_sensitive", True)),
-                    )
-                    print(f"Report: {links[step]}")
-            print(f"Report: {write_report(campaign.report_path, config=config, jobs=jobs, db=db, links=links)}")
+        score_jobs(config, jobs, db).print()
+        code = max(code, score_judge(campaign, args, jobs, db))
     finally:
         db.close()
+    print(f"\nResults: python -m bench.review_app  (campaign {campaign.path.stem})")
     return code
 
 
@@ -899,9 +877,13 @@ def score_judge(campaign: Campaign, args: argparse.Namespace, jobs: list[Job], d
         return 0
     judge = judge_model(config, args)
     tasks = plan_judge(config, jobs, db, judge, metric_specs, reference_text, gold_input)
+    summary = JudgeSummary()
+    rescore_judged(tasks, db, judge, summary)
+    tasks = calls_needed(tasks)
     if not tasks:
-        print("Judge: every judge score is cached.")
-        return 0
+        summary.print()
+        print("Judge: every judgment is cached.")
+        return 1 if summary.errors else 0
     budget = config.get("budget") or {}
     max_usd = budget.get("max_usd")
     estimated = print_judge_plan(tasks, judge)
@@ -916,13 +898,13 @@ def score_judge(campaign: Campaign, args: argparse.Namespace, jobs: list[Job], d
         return 1
     workers = args.workers or int((config.get("defaults") or {}).get("workers", DEFAULTS["workers"]))
     print()
-    summary = run_judge(tasks, db, judge, reference_text, workers=workers, max_usd=max_usd)
+    run_judge(tasks, db, judge, workers=workers, max_usd=max_usd, summary=summary)
     summary.print()
     return 1 if summary.failed or summary.errors else 0
 
 
 def generate(campaign: Campaign, args: argparse.Namespace) -> tuple[int, bool]:
-    """Generation phase. Returns (exit code, whether scoring and report should follow)."""
+    """Generation phase. Returns (exit code, whether scoring should follow)."""
     config, items, steps, models, db_path = (
         campaign.config, campaign.items, campaign.steps, campaign.models, campaign.db_path
     )
@@ -934,8 +916,8 @@ def generate(campaign: Campaign, args: argparse.Namespace) -> tuple[int, bool]:
     try:
         jobs, skipped = Planner(config, items, read_db, flex=args.flex).plan(steps, args.limit, models)
         if args.only is None and uses_judge(config, steps):
-            judge_tasks = plan_judge(config, jobs, read_db, judge_model(config, args), metric_specs,
-                                     reference_text, gold_input, include_pending=True)
+            judge_tasks = calls_needed(plan_judge(config, jobs, read_db, judge_model(config, args), metric_specs,
+                                                  reference_text, gold_input, include_pending=True))
     finally:
         if read_db:
             read_db.close()
@@ -1009,7 +991,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--limit", type=int, help="number of lessons per dataset (quick test)")
     parser.add_argument("--steps", nargs="+", help="subset of steps")
     parser.add_argument("--models", nargs="+", help="subset of model aliases")
-    parser.add_argument("--only", choices=["generate", "score", "report"], help="run a single phase")
+    parser.add_argument("--only", choices=["generate", "score"], help="run a single phase")
     parser.add_argument("--workers", type=int, help="parallel calls (default: defaults.workers or 1)")
     parser.add_argument("--yes", "-y", action="store_true", help="do not ask for confirmation")
     parser.add_argument("--flex", action="store_true",

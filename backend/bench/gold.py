@@ -59,14 +59,17 @@ from bench.run import RETRY_DELAY_S, Pricing, compute_cost, confirm, load_pricin
 # --------------------------------------------------------------------------- #
 
 IDEAS_OUTPUT_INSTRUCTIONS = (
-    "Pour chaque idée, donne : `text` (l'idée en une phrase), `importance` (high, medium ou low) "
-    "et `timestamp` (le début du segment de la transcription où l'idée est enseignée, recopié tel "
-    "quel, par exemple `4m 04s`). Liste les idées dans l'ordre du cours."
+    "Pour chaque idée, donne : `text` (l'idée en une phrase), `elements` (les 2 à 4 éléments "
+    "essentiels de l'idée, chacun en quelques mots : ce qui doit être dit pour que l'idée soit "
+    "présente dans une version éditée), `importance` (high, medium ou low) et `timestamp` (le début "
+    "du segment de la transcription où l'idée est enseignée, recopié tel quel, par exemple `4m 04s`). "
+    "Liste les idées dans l'ordre du cours."
 )
 
 
 class Idea(BaseModel):
     text: str = Field(description="L'idée, en une phrase autonome.")
+    elements: list[str] = Field(description="Les 2 à 4 éléments essentiels de l'idée, chacun en quelques mots.")
     importance: Literal["high", "medium", "low"] = Field(description="high, medium ou low.")
     timestamp: str = Field(description="Début du segment où l'idée est enseignée, ex. `4m 04s`.")
 
@@ -132,7 +135,9 @@ def edited_ideas(text: str, *, item: Any, provider: str, model: str, prompt: str
         timestamp, valid = _snap_timestamp(idea.timestamp, segments)
         if not valid:
             invalid.append(f"id {index}: {idea.timestamp!r}")
-        points.append({"id": index, "text": idea.text.strip(), "importance": idea.importance, "timestamp": timestamp})
+        elements = [e.strip() for e in idea.elements if e.strip()]
+        points.append({"id": index, "text": idea.text.strip(), **({"elements": elements} if elements else {}),
+                       "importance": idea.importance, "timestamp": timestamp})
     return {
         "output": points_yaml(points),
         **tokens,
