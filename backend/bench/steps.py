@@ -126,16 +126,27 @@ def structured_call(schema, full_prompt: str, *, provider: str, model: str, para
     """One LLM call with a structured output (LangChain `with_structured_output`, pydantic `schema`).
     Returns (parsed object, {"tokens_in", "tokens_out"}); raises StepError on failure.
     Param `structured_output_method`: method of with_structured_output (default: the provider
-    default, i.e. function calling)."""
-    llm = _build_llm(provider, model, params, default_max_tokens=16000)
+    default, i.e. a forced function call; when the model refuses forced tool calls, e.g. Claude
+    with thinking or OpenAI reasoning models, the call is redone with `json_schema`)."""
     method = params.get("structured_output_method")
-    structured = llm.with_structured_output(schema, include_raw=True, **({"method": method} if method else {}))
 
-    async def call():
-        return await asyncio.wait_for(structured.ainvoke(full_prompt), timeout)
+    def invoke(method: Optional[str]):
+        # run_async closes the model's HTTP client: each call needs its own model
+        llm = _build_llm(provider, model, params, default_max_tokens=16000)
+        structured = llm.with_structured_output(schema, include_raw=True, **({"method": method} if method else {}))
+
+        async def call():
+            return await asyncio.wait_for(structured.ainvoke(full_prompt), timeout)
+
+        return run_async(call(), llm)
 
     try:
-        response = run_async(call(), llm)
+        try:
+            response = invoke(method)
+        except Exception as error:
+            if method or not _refuses_forced_tools(error):
+                raise
+            response = invoke("json_schema")
     except asyncio.TimeoutError:
         raise StepError(f"timeout after {timeout}s")
     raw = response.get("raw")
@@ -148,6 +159,15 @@ def structured_call(schema, full_prompt: str, *, provider: str, model: str, para
     if parsed is None:
         raise StepError(f"invalid structured output: {response.get('parsing_error')}", **tokens)
     return parsed, tokens
+
+
+_FORCED_TOOL_ERRORS = ("tool_choice", "function tools with reasoning_effort")
+
+
+def _refuses_forced_tools(error: Exception) -> bool:
+    """400 of a model that cannot be forced to call the structured-output tool."""
+    text = str(error).lower()
+    return "400" in text and any(marker in text for marker in _FORCED_TOOL_ERRORS)
 
 
 def _build_llm(provider: str, model: str, params: dict, default_max_tokens: int):

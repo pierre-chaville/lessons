@@ -173,11 +173,12 @@ steps:                         # per step: prompt, model (id, provider, params),
   tier and flex prices, see [Budget](#budget)), `--timeout` (per LLM call,
   default 600 s), `--retries` (default 2), `--verbose`.
 - `edited_ideas` calls the model in structured output mode (LangChain `with_structured_output`:
-  list of ideas with `text`, `importance`, `timestamp`), then numbers the ideas and writes them in
-  the YAML format of the dataset. A timestamp that is not the start of a segment is replaced by
-  the start of the segment containing it; timestamps not found in the transcript are reported.
-  Step param `structured_output_method` (`function_calling` by default, or `json_schema`,
-  `json_mode`) if a model does not support the default.
+  list of ideas with `text`, `elements`, `importance`, `timestamp`), then numbers the ideas and
+  writes them in the YAML format of the dataset. A timestamp that is not the start of a segment is
+  replaced by the start of the segment containing it; timestamps not found in the transcript are
+  reported. Step param `structured_output_method` (`function_calling` by default, or `json_schema`,
+  `json_mode`); when the model refuses the forced tool call of the default (Claude with thinking,
+  OpenAI reasoning models), the call is redone automatically with `json_schema`.
 - `summary_keypoints` works the same way on `edited.md`, sent as numbered paragraphs
   (`<id> | <text>`, empty paragraphs removed): each key point has `text`, `importance`,
   `paragraph_start` and `paragraph_end` (paragraphs where it is developed, to check where it comes
