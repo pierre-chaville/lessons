@@ -16,6 +16,11 @@ from config import load_config
 from .llm_utils import get_llm_model
 from models.versioning import ContentType, VersionSource
 from services.versioning import hebrew_mode_from_prompt, update_content
+import crud
+from hashid_utils import encode_id
+from hebrew_text import extract_hebrew_expressions, merge_hebrew_segments
+from schemas.common import HebrewMode
+from schemas.glossary import GlossarySource, GlossaryStatus
 from services.glossary_apply import (
     apply_glossary_to_segments_with_report,
     load_glossary_rules,
@@ -241,6 +246,49 @@ async def correct_segment_group(
         return result
 
 
+def _process_native_hebrew(
+    session: Session, lesson_id: int, segments: list[dict]
+) -> tuple[list[dict], dict]:
+    """Post-correction steps for native-Hebrew transcripts.
+
+    1. Merge consecutive segments joined by Hebrew words, so a Hebrew passage
+       spread over several segments becomes one segment.
+    2. Add every Hebrew word/expression whose normalized form is not yet in
+       the glossary, as an ``auto`` entry with only its context filled in
+       (the remaining fields are completed later).
+    """
+    merged = merge_hebrew_segments(segments)
+    lesson_hashid = encode_id(lesson_id)
+    candidates = [
+        {
+            "hebrew": expression,
+            "context_lesson": lesson_hashid,
+            "context_paragraph": segment["text"],
+        }
+        for segment in merged
+        for expression in extract_hebrew_expressions(segment["text"])
+    ]
+    created = crud.add_missing_glossary_entries(
+        session,
+        candidates,
+        status=GlossaryStatus.AUTO.value,
+        source=GlossarySource.LLM.value,
+    )
+    logger.info(
+        "Lesson %s native Hebrew: %s -> %s segments, %s new glossary entries",
+        lesson_id,
+        len(segments),
+        len(merged),
+        len(created),
+    )
+    report = {
+        "segments_before_merge": len(segments),
+        "segments_after_merge": len(merged),
+        "new_glossary_entries": len(created),
+    }
+    return merged, report
+
+
 async def correct_transcript_async(
     lesson_id: int,
     segments_per_group: int = 100,
@@ -408,7 +456,14 @@ async def correct_transcript_async(
         corrected_data, glossary_report = apply_glossary_to_segments_with_report(
             corrected_data, glossary_rules
         )
-        
+
+        hebrew_mode = hebrew_mode_from_prompt(selected_prompt)
+        hebrew_report = None
+        if hebrew_mode == HebrewMode.NATIVE:
+            corrected_data, hebrew_report = _process_native_hebrew(
+                session, lesson_id, corrected_data
+            )
+
         # Save correction metadata
         correction_provider = (
             correction_model_preset.provider
@@ -434,7 +489,9 @@ async def correct_transcript_async(
         if lesson.correction_metadata is None:
             lesson.correction_metadata = {}
         lesson.correction_metadata["glossary_replacements"] = glossary_report
-        
+        if hebrew_report is not None:
+            lesson.correction_metadata["native_hebrew"] = hebrew_report
+
         # Commit metadata and versioned content in the same job.
         session.add(lesson)
         session.commit()
@@ -446,7 +503,7 @@ async def correct_transcript_async(
             actor=None,
             source=VersionSource.PIPELINE,
             change_summary="Pipeline correction rerun",
-            hebrew_mode=hebrew_mode_from_prompt(selected_prompt),
+            hebrew_mode=hebrew_mode,
         )
         session.commit()
         

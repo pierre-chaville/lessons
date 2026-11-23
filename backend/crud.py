@@ -2,6 +2,7 @@
 
 from enum import Enum
 from sqlalchemy import String, cast, delete, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import load_only, selectinload
 from sqlmodel import Session, select, func
 from typing import Any, Dict, List, Optional
@@ -432,6 +433,54 @@ def delete_glossary_entry(session: Session, entry_id: int) -> bool:
     session.delete(entry)
     session.commit()
     return True
+
+
+def add_missing_glossary_entries(
+    session: Session,
+    candidates: List[Dict[str, Any]],
+    status: str,
+    source: str,
+) -> List[GlossaryEntry]:
+    """Insert candidates whose hebrew_norm is not yet in the glossary.
+
+    Each candidate is a dict of editable glossary fields with at least
+    ``hebrew``; the first candidate wins for a given key. Existing entries are
+    never modified. Inserts run in savepoints so a concurrent insert of the
+    same key is skipped instead of failing the batch. Commits.
+    """
+    by_norm: Dict[str, Dict[str, Any]] = {}
+    for candidate in candidates:
+        hebrew_norm = normalize_hebrew(candidate.get("hebrew") or "")
+        if hebrew_norm and hebrew_norm not in by_norm:
+            by_norm[hebrew_norm] = candidate
+    if not by_norm:
+        return []
+
+    existing: set[str] = set()
+    norms = list(by_norm)
+    for offset in range(0, len(norms), 500):
+        chunk = norms[offset:offset + 500]
+        existing.update(
+            session.exec(
+                select(GlossaryEntry.hebrew_norm).where(GlossaryEntry.hebrew_norm.in_(chunk))
+            ).all()
+        )
+
+    created: List[GlossaryEntry] = []
+    for hebrew_norm, candidate in by_norm.items():
+        if hebrew_norm in existing:
+            continue
+        entry = GlossaryEntry(hebrew="", hebrew_norm="", hebrew_cons="")
+        _apply_glossary_fields(entry, {**candidate, "status": status, "source": source})
+        try:
+            with session.begin_nested():
+                session.add(entry)
+        except IntegrityError:
+            # Inserted concurrently by another task: keep the existing entry.
+            continue
+        created.append(entry)
+    session.commit()
+    return created
 
 
 def get_all_legacy_glossary_entries(session: Session) -> List[LegacyGlossaryEntry]:
