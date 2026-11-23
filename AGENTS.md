@@ -1,8 +1,27 @@
-# Access Control Rules
+# AGENTS.md — Torah Lessons Transcription Platform
 
-This document defines the role-based access control (RBAC) model for the entire application. It is the single source of truth — both frontend and backend must enforce these rules consistently.
+Invitation-only platform that transcribes Torah lessons (MP3), produces edited long-form versions, extracts Sefaria sources and generates summaries.
+- **Backend**: FastAPI + SQLModel + PostgreSQL, Clerk auth, Cloudflare R2, LLM calls via LangChain, DB-backed task queue.
+- **Frontend**: Vue 3 (`<script setup lang="ts">`) + Vite + Tailwind + Headless UI + Vue I18n (fr/en), Clerk.
 
-## Roles (ordered by privilege)
+## Detailed rules by area — read before editing
+
+These files contain the detailed conventions. They are mandatory:
+
+- **Before creating or modifying any file under `backend/`** → read `.claude/rules/backend.md` (applies to everything under `backend/`).
+- **Before creating or modifying any file under `frontend/`** → read `.claude/rules/frontend.md` (applies to everything under `frontend/`).
+
+(Claude Code loads these automatically based on the files touched; other agents must open them explicitly.)
+
+The access-control rules below apply to **all** code, frontend and backend, and are the single source of truth.
+
+---
+
+## Access Control
+
+This section defines the role-based access control (RBAC) model for the entire application. It is the single source of truth — both frontend and backend must enforce these rules consistently.
+
+### Roles (ordered by privilege)
 
 1. **reader** — default role for invited users
 2. **editor** — can modify lesson content
@@ -11,7 +30,7 @@ This document defines the role-based access control (RBAC) model for the entire 
 
 Roles are managed in Clerk and transmitted via JWT claims. A user has exactly one role.
 
-## Resources and Permissions
+### Resources and Permissions
 
 | Resource       | Action | reader | editor | publisher | admin |
 |---------------|--------|--------|--------|-----------|-------|
@@ -31,15 +50,17 @@ Roles are managed in Clerk and transmitted via JWT claims. A user has exactly on
 |                | create | ❌     | ❌     | ✅        | ✅    |
 |                | update | ❌     | ❌     | ✅        | ✅    |
 |                | delete | ❌     | ❌     | ✅        | ✅    |
-| **Tasks**      | read   | ❌     | ❌     | ✅        | ✅    |
-|                | create | ❌     | ❌     | ✅        | ✅    |
+| **Tasks**      | read   | ❌     | ✅*    | ✅        | ✅    |
+|                | create | ❌     | ✅*    | ✅        | ✅    |
 |                | cancel | ❌     | ❌     | ❌        | ✅    |
 | **Configuration** | read | ❌   | ❌     | ✅        | ✅    |
 |                | update | ❌     | ❌     | ❌        | ✅    |
 | **Users**      | read   | ❌     | ❌     | ❌        | ✅    |
 |                | manage | ❌     | ❌     | ❌        | ✅    |
 
-## Backend Enforcement
+\* **Editors can read and create tasks only on lessons they are assigned to as editor.** This is a resource-level check that comes *in addition to* the role check: the role alone is not enough.
+
+### Backend Enforcement
 
 Every endpoint must check permissions. Use the `require_role()` dependency:
 
@@ -54,13 +75,16 @@ async def create_lesson(
 
 For actions where the permission depends on the action type (e.g. editor can update but not create lessons), use explicit per-endpoint role lists — do not implement hierarchical role inheritance in code, keep it flat and readable.
 
+**Resource-level checks.** When a permission depends on the user's relationship to a specific resource (e.g. an editor reading or creating a task on a lesson), the role check is not sufficient. Load the resource, then verify the relationship in a dedicated helper (e.g. `ensure_lesson_editor(user, lesson, session)` in `dependencies/auth.py`) before doing anything. `publisher` and `admin` bypass the assignment check.
+For list endpoints (e.g. `GET /tasks`), editors get results **filtered in the query** to their assigned lessons — never fetch everything and filter in Python.
+
 If a user lacks permission, return `403 Forbidden` with `{"detail": "Insufficient permissions"}`.
 
-## Frontend Enforcement
+### Frontend Enforcement
 
 Frontend permission checks are for **UX only** (hiding buttons, disabling actions, redirecting). They do not replace backend checks. The backend is always the authority.
 
-### Permission helper
+#### Permission helper
 
 ```javascript
 // composables/usePermissions.js
@@ -69,7 +93,7 @@ const PERMISSIONS = {
   courses:       { read: ['reader','editor','publisher','admin'], create: ['publisher','admin'], update: ['publisher','admin'], delete: ['publisher','admin'] },
   themes:        { read: ['reader','editor','publisher','admin'], create: ['publisher','admin'], update: ['publisher','admin'], delete: ['publisher','admin'] },
   sources:       { read: ['reader','editor','publisher','admin'], create: ['publisher','admin'], update: ['publisher','admin'], delete: ['publisher','admin'] },
-  tasks:         { read: ['publisher','admin'], create: ['publisher','admin'], cancel: ['admin'] },
+  tasks:         { read: ['editor','publisher','admin'], create: ['editor','publisher','admin'], cancel: ['admin'] }, // editor: only on assigned lessons, see below
   configuration: { read: ['publisher','admin'], update: ['admin'] },
   users:         { read: ['admin'], manage: ['admin'] },
 }
@@ -80,16 +104,18 @@ export function usePermissions(userRole) {
 }
 ```
 
-### UI behavior
+#### UI behavior
 
 - **Hide** elements the user cannot interact with (don't show a disabled "Delete" button to a reader — hide it entirely).
 - **Redirect** unauthorized users to the appropriate fallback view if they navigate to a restricted page.
-- **Never** display tasks or configuration UI to readers or editors.
+- **Never** display tasks UI to readers. **Never** display configuration UI to readers or editors.
+- Editors can open the tasks view; it shows only tasks on their assigned lessons (the backend filters the list).
+- Task launch actions and task status on a lesson (transcribe, edit, summarize, extract sources) are shown to editors **only if they are assigned to that lesson as editor**. `can('tasks', ...)` checks the role only; combine it with the lesson-assignment check in the component.
 
-## Rules for AI Assistants (Cursor / Claude Code)
+### Rules for AI Assistants (Claude Code / Codex)
 
 - When creating a new endpoint, always include the appropriate `require_role()` dependency based on this table.
 - When creating a new frontend view or component with actions, check this table and conditionally render based on `can(resource, action)`.
-- When adding a new resource, update this document first with its permission matrix before writing code.
+- When adding a new resource, update this section first with its permission matrix before writing code.
 - Never hardcode role names as raw strings scattered across the codebase — reference the centralized permission definitions.
 - If a permission is ambiguous or not listed here, ask — do not guess.

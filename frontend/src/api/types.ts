@@ -618,11 +618,24 @@ export interface SummaryConfig {
   prompts: SummaryPromptConfig[]
 }
 
+/**
+ * How a text (transcription, edition, summary) represents Hebrew terms.
+ * - translit: transliterated (e.g. "techouva")
+ * - native: Hebrew alphabet (e.g. "תְּשׁוּבָה")
+ * - partial: legacy translit text partially converted to native
+ */
+export type HebrewMode = 'translit' | 'native' | 'partial'
+
+export const HEBREW_MODES: readonly HebrewMode[] = ['translit', 'native', 'partial']
+
+export const DEFAULT_HEBREW_MODE: HebrewMode = 'translit'
+
 export interface EditionPromptConfig {
   name: string
   text: string
   model_preset_id: number | null
   max_tokens: number
+  hebrew_mode: HebrewMode
 }
 
 export interface EditionConfig {
@@ -634,6 +647,7 @@ export interface CorrectionPromptConfig {
   text: string
   model_preset_id: number | null
   max_tokens: number
+  hebrew_mode: HebrewMode
 }
 
 export interface CorrectionConfig {
@@ -673,6 +687,7 @@ export interface SummaryPromptConfig {
   text: string
   model_preset_id: number | null
   max_tokens: number
+  hebrew_mode: HebrewMode
 }
 
 export interface TranscribeConfig {

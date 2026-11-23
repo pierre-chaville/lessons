@@ -1,4 +1,9 @@
-# Frontend Cursor Rules — Torah Lessons Transcription Platform
+---
+paths:
+  - "frontend/**/*"
+---
+
+# Frontend Rules — Torah Lessons Transcription Platform
 
 ## Project Overview
 
@@ -57,7 +62,7 @@ src/
 │       ├── fr.json              # French translations (primary)
 │       └── en.json              # English translations
 ├── composables/                 # Reusable Composition API logic
-│   ├── usePermissions.ts        # Role-based permission checks (see access.md)
+│   ├── usePermissions.ts        # Role-based permission checks (see AGENTS.md › Access Control)
 │   ├── useAuth.ts               # Clerk auth state wrapper
 │   ├── usePagination.ts
 │   ├── useTask.ts               # Task polling / status tracking
@@ -74,7 +79,7 @@ src/
 │   ├── LessonDetailView.vue
 │   ├── LessonEditView.vue
 │   ├── CoursesListView.vue
-│   ├── TasksView.vue            # Publisher/admin only
+│   ├── TasksView.vue            # Editor (assigned lessons only) / publisher / admin
 │   ├── ConfigurationView.vue    # Publisher (read) / admin (write)
 │   └── NotFoundView.vue
 ├── stores/                      # Pinia stores (if needed for shared state)
@@ -305,11 +310,11 @@ export function useAuth() {
 
 ### Permissions
 
-Permissions are defined in `.cursor/rules/access.md` — that file is the single source of truth. The frontend `usePermissions` composable implements the matrix from that document.
+Permissions are defined in the **Access Control** section of `AGENTS.md` (repo root) — that section is the single source of truth. The frontend `usePermissions` composable implements the matrix from that section.
 
 ```typescript
 // composables/usePermissions.ts
-// See access.md for the full PERMISSIONS map and implementation
+// See AGENTS.md › Access Control for the full PERMISSIONS map and implementation
 import { useAuth } from './useAuth'
 
 export function usePermissions() {
@@ -318,6 +323,8 @@ export function usePermissions() {
   return { can, role }
 }
 ```
+
+`can()` checks the **role only**. For resource-level permissions (editors can see and launch tasks only on lessons they are assigned to), combine it with the lesson-assignment check — e.g. `v-if="can('tasks', 'create') && canEditLesson(lesson)"`.
 
 Use `can()` in templates:
 
@@ -659,7 +666,7 @@ const routes = [
 - Do not hardcode API base URLs — use `import.meta.env.VITE_API_URL`.
 - Do not use `any` in TypeScript — type everything. Use `unknown` if the type is genuinely unknown.
 - Do not create god-components with 300+ lines — split into smaller composable pieces.
-- Do not duplicate the permission matrix — always reference `usePermissions()` which implements `access.md`.
+- Do not duplicate the permission matrix — always reference `usePermissions()` which implements the matrix in `AGENTS.md`.
 
 ## Environment Variables
 

@@ -884,6 +884,13 @@
     "temperature": "Temperature",
     "maxTokens": "Max tokens",
     "maxTokensDesc": "Maximum tokens for the model response",
+    "hebrewMode": "Hebrew mode",
+    "hebrewModeDesc": "How Hebrew terms are written in the text produced by this prompt",
+    "hebrewModes": {
+      "translit": "Transliterated (e.g. techouva)",
+      "native": "Hebrew alphabet (e.g. תְּשׁוּבָה)",
+      "partial": "Partial (legacy transliteration partially converted)"
+    },
     "precise": "Precise",
     "creative": "Creative",
     "prompt": "Prompt",

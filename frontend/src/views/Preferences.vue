@@ -15,7 +15,8 @@ import {
 import { configApi } from '@/api/config'
 import { modelPresetsApi } from '@/api/modelPresets'
 import { usePermissions } from '@/composables/usePermissions'
-import type { AppConfig, ModelPreset } from '@/api/types'
+import { DEFAULT_HEBREW_MODE, HEBREW_MODES } from '@/api/types'
+import type { AppConfig, HebrewMode, ModelPreset } from '@/api/types'
 import MilkdownEditor from '@/components/MilkdownEditor.vue'
 import PreferenceVersionHistoryPanel from '@/components/PreferenceVersionHistoryPanel.vue'
 import { marked } from 'marked'
@@ -38,10 +39,10 @@ Lesson excerpts:
 
 const config = ref<AppConfig>({
   correction: {
-    prompts: [{ name: 'Default', text: '', model_preset_id: null, max_tokens: 16000 }],
+    prompts: [{ name: 'Default', text: '', model_preset_id: null, max_tokens: 16000, hebrew_mode: DEFAULT_HEBREW_MODE }],
   },
   edition: {
-    prompts: [{ name: 'Default', text: '', model_preset_id: null, max_tokens: 16000 }],
+    prompts: [{ name: 'Default', text: '', model_preset_id: null, max_tokens: 16000, hebrew_mode: DEFAULT_HEBREW_MODE }],
   },
   extraction: {
     prompts: [{ name: 'Default', text: '', model_preset_id: null, max_tokens: 4000 }],
@@ -51,7 +52,7 @@ const config = ref<AppConfig>({
   },
   source_types: {},
   summary: {
-    prompts: [{ name: 'Default', text: '', model_preset_id: null, max_tokens: 1200 }],
+    prompts: [{ name: 'Default', text: '', model_preset_id: null, max_tokens: 1200, hebrew_mode: DEFAULT_HEBREW_MODE }],
   },
   brief: { model_preset_id: null, max_tokens: 1000, prompt: '' },
   transcribe: {
@@ -130,6 +131,9 @@ const togglePromptPreview = (group: PromptGroupKey | 'brief' | 'rag', index?: nu
   const key = promptPreviewKey(group, index)
   expandedPromptPreviews.value[key] = !expandedPromptPreviews.value[key]
 }
+
+const normalizeHebrewMode = (value: unknown): HebrewMode =>
+  HEBREW_MODES.includes(value as HebrewMode) ? (value as HebrewMode) : DEFAULT_HEBREW_MODE
 
 const normalizeConfigShape = () => {
   if (!config.value.transcribe) {
@@ -239,10 +243,11 @@ const normalizeConfigShape = () => {
         ? (config.value.summary as { max_length: number }).max_length * 4
         : 1200
   if (!config.value.summary.prompts || config.value.summary.prompts.length === 0) {
-    config.value.summary.prompts = [{ name: 'Default', text: '', model_preset_id: null, max_tokens: legacySummaryMaxTokens }]
+    config.value.summary.prompts = [{ name: 'Default', text: '', model_preset_id: null, max_tokens: legacySummaryMaxTokens, hebrew_mode: DEFAULT_HEBREW_MODE }]
   } else {
     config.value.summary.prompts = config.value.summary.prompts.map((prompt) => ({
       ...prompt,
+      hebrew_mode: normalizeHebrewMode(prompt.hebrew_mode),
       model_preset_id:
         typeof prompt.model_preset_id === 'number' ? prompt.model_preset_id : null,
       max_tokens:
@@ -341,10 +346,11 @@ const normalizeConfigShape = () => {
       ? (config.value.edition as { max_tokens: number }).max_tokens
       : 16000
   if (!config.value.edition.prompts || config.value.edition.prompts.length === 0) {
-    config.value.edition.prompts = [{ name: 'Default', text: '', model_preset_id: null, max_tokens: legacyEditionMaxTokens }]
+    config.value.edition.prompts = [{ name: 'Default', text: '', model_preset_id: null, max_tokens: legacyEditionMaxTokens, hebrew_mode: DEFAULT_HEBREW_MODE }]
   } else {
     config.value.edition.prompts = config.value.edition.prompts.map((prompt) => ({
       ...prompt,
+      hebrew_mode: normalizeHebrewMode(prompt.hebrew_mode),
       model_preset_id:
         typeof prompt.model_preset_id === 'number' ? prompt.model_preset_id : null,
       max_tokens:
@@ -369,10 +375,11 @@ const normalizeConfigShape = () => {
       ? (config.value.correction as { max_tokens: number }).max_tokens
       : 16000
   if (!config.value.correction.prompts || config.value.correction.prompts.length === 0) {
-    config.value.correction.prompts = [{ name: 'Default', text: '', model_preset_id: null, max_tokens: legacyCorrectionMaxTokens }]
+    config.value.correction.prompts = [{ name: 'Default', text: '', model_preset_id: null, max_tokens: legacyCorrectionMaxTokens, hebrew_mode: DEFAULT_HEBREW_MODE }]
   } else {
     config.value.correction.prompts = config.value.correction.prompts.map((prompt) => ({
       ...prompt,
+      hebrew_mode: normalizeHebrewMode(prompt.hebrew_mode),
       model_preset_id:
         typeof prompt.model_preset_id === 'number' ? prompt.model_preset_id : null,
       max_tokens:
@@ -563,7 +570,7 @@ const removeSourcesPrompt = (index: number) => {
 }
 
 const addCorrectionPrompt = () => {
-  config.value.correction.prompts.push({ name: '', text: '', model_preset_id: null, max_tokens: 16000 })
+  config.value.correction.prompts.push({ name: '', text: '', model_preset_id: null, max_tokens: 16000, hebrew_mode: DEFAULT_HEBREW_MODE })
 }
 
 const removeCorrectionPrompt = (index: number) => {
@@ -573,7 +580,7 @@ const removeCorrectionPrompt = (index: number) => {
 }
 
 const addSummaryPrompt = () => {
-  config.value.summary.prompts.push({ name: '', text: '', model_preset_id: null, max_tokens: 1200 })
+  config.value.summary.prompts.push({ name: '', text: '', model_preset_id: null, max_tokens: 1200, hebrew_mode: DEFAULT_HEBREW_MODE })
 }
 
 const removeSummaryPrompt = (index: number) => {
@@ -583,7 +590,7 @@ const removeSummaryPrompt = (index: number) => {
 }
 
 const addEditionPrompt = () => {
-  config.value.edition.prompts.push({ name: '', text: '', model_preset_id: null, max_tokens: 16000 })
+  config.value.edition.prompts.push({ name: '', text: '', model_preset_id: null, max_tokens: 16000, hebrew_mode: DEFAULT_HEBREW_MODE })
 }
 
 const removeEditionPrompt = (index: number) => {
@@ -1043,6 +1050,22 @@ watch(
                       </div>
                       <div class="mt-3">
                         <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                          {{ t('preferences.hebrewMode') }}
+                        </label>
+                        <select
+                          v-model="prompt.hebrew_mode"
+                          class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 text-sm"
+                        >
+                          <option v-for="mode in HEBREW_MODES" :key="mode" :value="mode">
+                            {{ t(`preferences.hebrewModes.${mode}`) }}
+                          </option>
+                        </select>
+                        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                          {{ t('preferences.hebrewModeDesc') }}
+                        </p>
+                      </div>
+                      <div class="mt-3">
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                           {{ t('preferences.maxTokens') }}
                         </label>
                         <input
@@ -1181,6 +1204,22 @@ watch(
                             {{ isPromptPreviewExpanded('edition', index) ? t('preferences.showLess') : t('preferences.showMore') }}
                           </button>
                         </div>
+                      </div>
+                      <div class="mt-3">
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                          {{ t('preferences.hebrewMode') }}
+                        </label>
+                        <select
+                          v-model="prompt.hebrew_mode"
+                          class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 text-sm"
+                        >
+                          <option v-for="mode in HEBREW_MODES" :key="mode" :value="mode">
+                            {{ t(`preferences.hebrewModes.${mode}`) }}
+                          </option>
+                        </select>
+                        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                          {{ t('preferences.hebrewModeDesc') }}
+                        </p>
                       </div>
                       <div class="mt-3">
                         <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -1665,6 +1704,22 @@ watch(
                             {{ isPromptPreviewExpanded('summary', index) ? t('preferences.showLess') : t('preferences.showMore') }}
                           </button>
                         </div>
+                      </div>
+                      <div class="mt-3">
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                          {{ t('preferences.hebrewMode') }}
+                        </label>
+                        <select
+                          v-model="prompt.hebrew_mode"
+                          class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 text-sm"
+                        >
+                          <option v-for="mode in HEBREW_MODES" :key="mode" :value="mode">
+                            {{ t(`preferences.hebrewModes.${mode}`) }}
+                          </option>
+                        </select>
+                        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                          {{ t('preferences.hebrewModeDesc') }}
+                        </p>
                       </div>
                       <div class="mt-3">
                         <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">

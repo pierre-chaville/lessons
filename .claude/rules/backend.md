@@ -1,4 +1,9 @@
-# Backend Cursor Rules — Torah Lessons Transcription Platform
+---
+paths:
+  - "backend/**/*"
+---
+
+# Backend Rules — Torah Lessons Transcription Platform
 
 ## Project Overview
 
@@ -171,7 +176,7 @@ async def get_current_user(
 
 ### Roles
 
-Roles and per-resource permissions are defined in `.cursor/rules/access.md` — that file is the single source of truth for both frontend and backend. Always consult it when adding or modifying endpoints.
+Roles and per-resource permissions are defined in the **Access Control** section of `AGENTS.md` (repo root) — that section is the single source of truth for both frontend and backend. Always consult it when adding or modifying endpoints.
 
 Implement a `require_role(*allowed_roles)` dependency factory:
 
@@ -184,7 +189,9 @@ def require_role(*roles: str):
     return checker
 ```
 
-Every endpoint must include the appropriate `require_role()` call matching the permission matrix in `access.md`.
+Every endpoint must include the appropriate `require_role()` call matching the permission matrix in `AGENTS.md` › Access Control.
+
+Some permissions also depend on the user's relationship to the resource (e.g. editors can read and create tasks only on lessons they are assigned to; task lists are filtered in the query for editors). For those, add a resource-level check after loading the resource — `require_role()` alone is not enough.
 
 ## External API Integrations
 
@@ -310,10 +317,12 @@ Services receive dependencies as parameters — they are not classes with inject
 @router.post("/lessons/{lesson_id}/transcribe", status_code=201)
 async def request_transcription(
     lesson_id: UUID,
-    user: ClerkUser = Depends(require_role("editor", "admin")),
+    user: ClerkUser = Depends(require_role("editor", "publisher", "admin")),
     session: AsyncSession = Depends(get_session),
 ) -> TaskRead:
     lesson = await get_lesson_or_404(lesson_id, session)
+    # Editors may only launch tasks on lessons they are assigned to (see AGENTS.md › Access Control)
+    await ensure_lesson_editor(user, lesson, session)
     task = Task(lesson_id=lesson.id, type="transcription", status="pending")
     session.add(task)
     await session.commit()
