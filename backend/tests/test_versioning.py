@@ -10,9 +10,15 @@ from sqlmodel import Session, SQLModel, create_engine, select
 from crud import delete_lesson, restore_lesson
 from models.audit import AuditLog
 from models.lesson import Lesson
-from models.versioning import ContentType, ContentVersion, VersionSource
+from models.versioning import ContentType, ContentVersion, HebrewMode, VersionSource
 from services.lessons import change_status
-from services.versioning import compute_diff, seal_current_version, update_content, restore_version
+from services.versioning import (
+    compute_diff,
+    hebrew_mode_from_prompt,
+    restore_version,
+    seal_current_version,
+    update_content,
+)
 
 
 def _session() -> Session:
@@ -329,3 +335,88 @@ def test_delete_lesson_soft_deletes_and_preserves_content_versions() -> None:
         assert restored is not None
         assert restored.deleted_at is None
         assert restored.deleted_by is None
+
+
+def test_hebrew_mode_defaults_to_translit() -> None:
+    with _session() as session:
+        lesson = _lesson(session)
+        row = update_content(session, lesson.id, ContentType.SUMMARY, "a", {"sub": "u1", "role": "editor"})
+        session.commit()
+        session.refresh(lesson)
+        assert row.hebrew_mode == HebrewMode.TRANSLIT.value
+        assert lesson.summary_hebrew_mode == HebrewMode.TRANSLIT.value
+
+
+def test_pipeline_sets_hebrew_mode_and_mirrors_to_lesson() -> None:
+    with _session() as session:
+        lesson = _lesson(session)
+        row = update_content(
+            session,
+            lesson.id,
+            ContentType.EDITED_TRANSCRIPT,
+            {"markdown": "תְּשׁוּבָה", "transcript": [], "sources": []},
+            actor=None,
+            source=VersionSource.PIPELINE,
+            hebrew_mode=HebrewMode.NATIVE,
+        )
+        session.commit()
+        session.refresh(lesson)
+        assert row.hebrew_mode == HebrewMode.NATIVE.value
+        assert lesson.edited_transcript_hebrew_mode == HebrewMode.NATIVE.value
+        assert lesson.summary_hebrew_mode == HebrewMode.TRANSLIT.value
+
+
+def test_human_edit_inherits_hebrew_mode() -> None:
+    with _session() as session:
+        lesson = _lesson(session)
+        update_content(
+            session, lesson.id, ContentType.SUMMARY, "a", actor=None,
+            source=VersionSource.PIPELINE, hebrew_mode=HebrewMode.NATIVE,
+        )
+        session.commit()
+        edited = update_content(session, lesson.id, ContentType.SUMMARY, "b", {"sub": "u1", "role": "editor"})
+        session.commit()
+        assert edited.version_number == 2
+        assert edited.hebrew_mode == HebrewMode.NATIVE.value
+
+
+def test_same_content_with_new_hebrew_mode_creates_version() -> None:
+    with _session() as session:
+        lesson = _lesson(session)
+        first = update_content(
+            session, lesson.id, ContentType.SUMMARY, "a", actor=None, source=VersionSource.PIPELINE,
+        )
+        session.commit()
+        second = update_content(
+            session, lesson.id, ContentType.SUMMARY, "a", actor=None,
+            source=VersionSource.PIPELINE, hebrew_mode=HebrewMode.PARTIAL,
+        )
+        session.commit()
+        assert second.id != first.id
+        assert second.hebrew_mode == HebrewMode.PARTIAL.value
+
+
+def test_restore_keeps_hebrew_mode_of_target() -> None:
+    with _session() as session:
+        lesson = _lesson(session)
+        v1 = update_content(
+            session, lesson.id, ContentType.SUMMARY, "translit text", actor=None, source=VersionSource.PIPELINE,
+        )
+        session.commit()
+        update_content(
+            session, lesson.id, ContentType.SUMMARY, "native text", actor=None,
+            source=VersionSource.PIPELINE, hebrew_mode=HebrewMode.NATIVE,
+        )
+        session.commit()
+        restored = restore_version(session, v1.id, {"sub": "u1", "role": "editor"})
+        session.commit()
+        session.refresh(lesson)
+        assert restored.hebrew_mode == HebrewMode.TRANSLIT.value
+        assert lesson.summary_hebrew_mode == HebrewMode.TRANSLIT.value
+
+
+def test_hebrew_mode_from_prompt() -> None:
+    assert hebrew_mode_from_prompt({"hebrew_mode": "native"}) == HebrewMode.NATIVE
+    assert hebrew_mode_from_prompt({"hebrew_mode": "bogus"}) == HebrewMode.TRANSLIT
+    assert hebrew_mode_from_prompt({}) == HebrewMode.TRANSLIT
+    assert hebrew_mode_from_prompt(None) == HebrewMode.TRANSLIT

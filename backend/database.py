@@ -76,7 +76,8 @@ def _create_versioning_tables() -> None:
                 change_summary VARCHAR NULL,
                 parent_version_id UUID NULL REFERENCES content_version(id),
                 restored_from_id UUID NULL REFERENCES content_version(id),
-                is_current BOOLEAN NOT NULL DEFAULT false
+                is_current BOOLEAN NOT NULL DEFAULT false,
+                hebrew_mode VARCHAR NOT NULL DEFAULT 'translit'
             )
         """))
         conn.execute(text("""
@@ -203,6 +204,18 @@ def _create_lesson_chunk_table() -> None:
             CREATE INDEX IF NOT EXISTS ix_lesson_chunk_content_tsv
             ON lesson_chunk USING GIN (content_tsv)
         """))
+
+
+def _ensure_content_version_hebrew_mode() -> None:
+    """Add content_version.hebrew_mode on existing databases (defaults to translit)."""
+    columns = {col["name"] for col in inspect(engine).get_columns("content_version")}
+    if "hebrew_mode" in columns:
+        return
+    with engine.begin() as conn:
+        conn.execute(text(
+            "ALTER TABLE content_version ADD COLUMN hebrew_mode VARCHAR NOT NULL DEFAULT 'translit'"
+        ))
+    logger.info("Migration: added 'hebrew_mode' column to content_version table")
 
 
 def _ensure_content_version_lesson_fk_cascade() -> None:
@@ -349,6 +362,16 @@ def _run_migrations():
                         f"ALTER TABLE lesson ADD COLUMN {column_name} {column_type}"
                     ))
                     logger.info("Migration: added '%s' column to lesson table", column_name)
+            for column_name in (
+                "corrected_transcript_hebrew_mode",
+                "edited_transcript_hebrew_mode",
+                "summary_hebrew_mode",
+            ):
+                if column_name not in columns:
+                    conn.execute(text(
+                        f"ALTER TABLE lesson ADD COLUMN {column_name} VARCHAR NOT NULL DEFAULT 'translit'"
+                    ))
+                    logger.info("Migration: added '%s' column to lesson table", column_name)
         try:
             backfilled_years = _backfill_lesson_hebrew_years()
             if backfilled_years > 0:
@@ -405,6 +428,7 @@ def _run_migrations():
             had_content_version = "content_version" in tables
             had_audit_log = "audit_log" in tables
             _create_versioning_tables()
+            _ensure_content_version_hebrew_mode()
             _ensure_content_version_lesson_fk_cascade()
             backfilled_count = _backfill_content_versions()
             if (not had_content_version) or (not had_audit_log) or backfilled_count > 0:

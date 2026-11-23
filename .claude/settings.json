@@ -1,7 +1,13 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python -)"
+      "Bash(python -)",
+      "PowerShell(Get-ChildItem -Force -Directory | Where-Object { $_.Name -match 'venv' } | Select-Object -ExpandProperty Name; Get-ChildItem -Force -Directory .. | Where-Object { $_.Name -match 'venv' } | Select-Object -ExpandProperty FullName)",
+      "PowerShell(.\\\\.venv\\\\Scripts\\\\python.exe -m pytest tests/test_versioning.py -q 2>&1)",
+      "PowerShell(.\\\\.venv\\\\Scripts\\\\python.exe -m pytest -q -p no:warnings 2>&1)",
+      "PowerShell(git stash push --quiet -- .)",
+      "PowerShell(.\\\\.venv\\\\Scripts\\\\python.exe -m pytest -q -p no:warnings tests/test_lessons_bulk_csv.py tests/test_lessons_list_steps.py 2>&1)",
+      "PowerShell(git stash pop --quiet)"
     ]
   }
 }

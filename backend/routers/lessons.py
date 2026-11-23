@@ -37,7 +37,7 @@ from services.versioning import (
     restore_version,
     seal_current_version,
 )
-from models.versioning import ContentVersion
+from models.versioning import ContentVersion, parse_hebrew_mode
 from hashid_utils import decode_id
 
 router = APIRouter(prefix="/lessons", tags=["Lessons"])
@@ -92,6 +92,7 @@ def _build_version_response(
         restored_from_id=version.restored_from_id,
         restored_from_version_number=restored_from_version_number,
         is_current=version.is_current,
+        hebrew_mode=parse_hebrew_mode(version.hebrew_mode),
         content=version.content,
     )
 

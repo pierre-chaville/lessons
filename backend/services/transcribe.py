@@ -16,7 +16,7 @@ from schemas import TranscriptMetadata
 from database import engine
 from memory_usage import format_memory_mb, get_rss_memory_mb
 from storage import download_audio_bytes, get_audio_object_key, s3_enabled
-from models.versioning import ContentType, VersionSource
+from models.versioning import ContentType, HebrewMode, VersionSource
 from services.versioning import update_content
 from services.glossary_apply import (
     apply_glossary_to_segments_with_report,
@@ -277,6 +277,8 @@ def transcribe_lesson(
             actor=None,
             source=VersionSource.PIPELINE,
             change_summary="Deepgram transcription refresh",
+            # Speech-to-text output always spells Hebrew in Latin letters.
+            hebrew_mode=HebrewMode.TRANSLIT,
         )
         session.commit()
         mem_after_commit = get_rss_memory_mb()

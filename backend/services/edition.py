@@ -17,7 +17,7 @@ from schemas import Segment, Metadata
 from config import load_config
 from .llm_utils import get_llm_model
 from models.versioning import ContentType, VersionSource
-from services.versioning import update_content
+from services.versioning import hebrew_mode_from_prompt, update_content
 from services.edited_transcript import (
     build_edited_transcript_payload,
     markdown_to_paragraphs,
@@ -492,6 +492,7 @@ async def edit_transcript_async(
             actor=None,
             source=VersionSource.PIPELINE,
             change_summary="Pipeline edition rerun",
+            hebrew_mode=hebrew_mode_from_prompt(selected_prompt),
         )
         session.commit()
 

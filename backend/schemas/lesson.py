@@ -7,6 +7,7 @@ from typing import List, Optional, Dict, Any, Literal
 from uuid import UUID
 from datetime import datetime
 
+from schemas.common import DEFAULT_HEBREW_MODE, HebrewMode
 from schemas.source import Source, LessonSourceResponse
 from schemas.theme import ThemeResponse
 from schemas.course import CourseResponse
@@ -179,6 +180,7 @@ class VersionResponse(BaseModel):
     restored_from_id: Optional[UUID]
     restored_from_version_number: Optional[int] = None
     is_current: bool
+    hebrew_mode: HebrewMode = DEFAULT_HEBREW_MODE
     content: Optional[Any] = None
 
     class Config:
@@ -255,6 +257,9 @@ class LessonResponse(BaseModel):
     edited_transcript: Optional[EditedTranscript]
     brief: Optional[str]
     summary: Optional[str]
+    corrected_transcript_hebrew_mode: HebrewMode = DEFAULT_HEBREW_MODE
+    edited_transcript_hebrew_mode: HebrewMode = DEFAULT_HEBREW_MODE
+    summary_hebrew_mode: HebrewMode = DEFAULT_HEBREW_MODE
     status: str = "draft"
     process_status: Optional[str] = None
     step_statuses: Dict[str, str] = Field(default_factory=dict)

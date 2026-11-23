@@ -15,7 +15,7 @@ from schemas import Segment, Metadata
 from config import load_config
 from .llm_utils import get_llm_model
 from models.versioning import ContentType, VersionSource
-from services.versioning import update_content
+from services.versioning import hebrew_mode_from_prompt, update_content
 from services.glossary_apply import (
     apply_glossary_to_segments_with_report,
     load_glossary_rules,
@@ -446,6 +446,7 @@ async def correct_transcript_async(
             actor=None,
             source=VersionSource.PIPELINE,
             change_summary="Pipeline correction rerun",
+            hebrew_mode=hebrew_mode_from_prompt(selected_prompt),
         )
         session.commit()
         

@@ -30,7 +30,7 @@ from schemas.theme import ThemeResponse
 from storage import rename_audio_object, s3_enabled
 from config import load_config
 from hashid_utils import encode_id
-from models.versioning import ContentType, VersionSource
+from models.versioning import ContentType, VersionSource, parse_hebrew_mode
 from services.audit import log_event
 from services.edited_transcript import (
     build_edited_transcript_payload,
@@ -218,6 +218,9 @@ def build_lesson_response(lesson: Lesson, session: Session) -> LessonResponse:
         edited_transcript=edited_payload,
         brief=lesson.brief,
         summary=lesson.summary,
+        corrected_transcript_hebrew_mode=parse_hebrew_mode(lesson.corrected_transcript_hebrew_mode),
+        edited_transcript_hebrew_mode=parse_hebrew_mode(lesson.edited_transcript_hebrew_mode),
+        summary_hebrew_mode=parse_hebrew_mode(lesson.summary_hebrew_mode),
         status=lesson.status or "draft",
         process_status=lesson.process_status,
         step_statuses=normalize_step_statuses(lesson.step_statuses),

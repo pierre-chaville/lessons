@@ -14,7 +14,14 @@ from sqlalchemy.orm import load_only
 from sqlmodel import Session, select
 
 from models.lesson import Lesson
-from models.versioning import ContentType, ContentVersion, VersionSource
+from models.versioning import (
+    DEFAULT_HEBREW_MODE,
+    ContentType,
+    ContentVersion,
+    HebrewMode,
+    VersionSource,
+    parse_hebrew_mode,
+)
 from schemas.lesson import Segment
 from services.edited_transcript import normalize_edited_transcript_payload
 from services.audit import log_event
@@ -111,6 +118,24 @@ def _cache_to_lesson(lesson: Lesson, content_type: ContentType, value: Any) -> N
         lesson.brief = value
     elif content_type == ContentType.SUMMARY:
         lesson.summary = value
+
+
+def _cache_hebrew_mode_to_lesson(
+    lesson: Lesson, content_type: ContentType, hebrew_mode: HebrewMode
+) -> None:
+    if content_type == ContentType.CORRECTED_TRANSCRIPT:
+        lesson.corrected_transcript_hebrew_mode = hebrew_mode.value
+    elif content_type == ContentType.EDITED_TRANSCRIPT:
+        lesson.edited_transcript_hebrew_mode = hebrew_mode.value
+    elif content_type == ContentType.SUMMARY:
+        lesson.summary_hebrew_mode = hebrew_mode.value
+
+
+def hebrew_mode_from_prompt(prompt: Any) -> HebrewMode:
+    """Read the hebrew_mode of a configured prompt (defaults to translit)."""
+    if isinstance(prompt, dict):
+        return parse_hebrew_mode(prompt.get("hebrew_mode"))
+    return DEFAULT_HEBREW_MODE
 
 
 def _same_content(content_type: ContentType, old: Any, new: Any) -> bool:
@@ -223,8 +248,14 @@ def update_content(
     change_summary: str | None = None,
     coalesce_window_minutes: int = 10,
     emit_created_audit: bool = True,
+    hebrew_mode: HebrewMode | None = None,
 ) -> ContentVersion:
-    """Create/coalesce content versions and mirror to lesson cache column."""
+    """Create/coalesce content versions and mirror to lesson cache column.
+
+    ``hebrew_mode`` is set by pipeline tasks from the prompt used. When None
+    (human edits, refreshes), the mode of the current version is inherited,
+    falling back to translit when there is no current version.
+    """
     normalized = _normalize_content(content_type, new_content)
     actor_id = _actor_id(actor)
     now = datetime.utcnow()
@@ -245,7 +276,18 @@ def update_content(
             .with_for_update()
         ).first()
 
-        if current and _same_content(content_type, current.content, normalized):
+        if hebrew_mode is not None:
+            effective_hebrew_mode = parse_hebrew_mode(hebrew_mode)
+        elif current is not None:
+            effective_hebrew_mode = parse_hebrew_mode(current.hebrew_mode)
+        else:
+            effective_hebrew_mode = DEFAULT_HEBREW_MODE
+
+        if (
+            current
+            and parse_hebrew_mode(current.hebrew_mode) == effective_hebrew_mode
+            and _same_content(content_type, current.content, normalized)
+        ):
             return current
 
         if source == VersionSource.HUMAN and current is not None:
@@ -260,6 +302,7 @@ def update_content(
                 and within_window
             ):
                 current.content = normalized
+                current.hebrew_mode = effective_hebrew_mode.value
                 current.last_edited_at = now
                 current.edit_count += 1
                 if change_summary:
@@ -268,6 +311,7 @@ def update_content(
                     else:
                         current.change_summary = change_summary
                 _cache_to_lesson(lesson, content_type, normalized)
+                _cache_hebrew_mode_to_lesson(lesson, content_type, effective_hebrew_mode)
                 update_lesson_current_rag_hash_for_content(
                     lesson,
                     content_type.value,
@@ -334,9 +378,11 @@ def update_content(
             change_summary=change_summary,
             parent_version_id=previous_current.id if previous_current else None,
             is_current=True,
+            hebrew_mode=effective_hebrew_mode.value,
         )
         session.add(new_version)
         _cache_to_lesson(lesson, content_type, normalized)
+        _cache_hebrew_mode_to_lesson(lesson, content_type, effective_hebrew_mode)
         update_lesson_current_rag_hash_for_content(
             lesson,
             content_type.value,
@@ -360,6 +406,7 @@ def update_content(
                     "version_source": source.value,
                     "created_by_id": actor_id if source in (VersionSource.HUMAN, VersionSource.RESTORE) else None,
                     "change_summary": change_summary,
+                    "hebrew_mode": effective_hebrew_mode.value,
                 },
             )
         return new_version
@@ -384,6 +431,7 @@ def restore_version(
         source=VersionSource.RESTORE,
         change_summary=reason,
         emit_created_audit=False,
+        hebrew_mode=parse_hebrew_mode(target.hebrew_mode),
     )
     tx_ctx = nullcontext() if session.in_transaction() else session.begin()
     with tx_ctx:

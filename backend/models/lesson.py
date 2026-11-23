@@ -1,12 +1,13 @@
 """SQLModel table model for lessons."""
 
 from sqlmodel import SQLModel, Field, Relationship, Column
-from sqlalchemy import JSON
+from sqlalchemy import JSON, String, text
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 import json
 
 from models.course import Course
+from schemas.common import DEFAULT_HEBREW_MODE
 from schemas.common import Metadata, TranscriptMetadata
 from schemas.lesson import Segment
 
@@ -34,6 +35,20 @@ class Lesson(SQLModel, table=True):
     )  # Mirrored from current ContentVersion. Do not write directly. Use services.versioning.update_content.
     brief: Optional[str] = None  # Mirrored from current ContentVersion. Do not write directly. Use services.versioning.update_content.
     summary: Optional[str] = None  # Mirrored from current ContentVersion. Do not write directly. Use services.versioning.update_content.
+    # Hebrew writing mode of each text (translit / native / partial), mirrored
+    # from the current ContentVersion. Do not write directly.
+    corrected_transcript_hebrew_mode: str = Field(
+        default=DEFAULT_HEBREW_MODE.value,
+        sa_column=Column(String, nullable=False, server_default=text("'translit'")),
+    )
+    edited_transcript_hebrew_mode: str = Field(
+        default=DEFAULT_HEBREW_MODE.value,
+        sa_column=Column(String, nullable=False, server_default=text("'translit'")),
+    )
+    summary_hebrew_mode: str = Field(
+        default=DEFAULT_HEBREW_MODE.value,
+        sa_column=Column(String, nullable=False, server_default=text("'translit'")),
+    )
     status: str = Field(default="draft")  # Workflow status: draft, in_progress, review_requested, revision_requested, validated
     process_status: Optional[str] = None  # Current processing step: transcript, edition, sources_extraction, sources_checking, summary
     step_statuses: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))

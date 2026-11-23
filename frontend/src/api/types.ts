@@ -219,6 +219,9 @@ export interface LessonDetail {
   edited_transcript: EditedTranscript | null
   brief: string | null
   summary: string | null
+  corrected_transcript_hebrew_mode: HebrewMode
+  edited_transcript_hebrew_mode: HebrewMode
+  summary_hebrew_mode: HebrewMode
   status: LessonStatus
   process_status: string | null
   step_statuses: Record<LessonWorkflowStep, LessonWorkflowStepStatus>
@@ -322,6 +325,7 @@ export interface LessonVersion {
   restored_from_id: string | null
   restored_from_version_number?: number | null
   is_current: boolean
+  hebrew_mode: HebrewMode
   content?: unknown
 }
 

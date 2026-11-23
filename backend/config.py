@@ -56,6 +56,7 @@ DEFAULT_CONFIG = {
                 "text": "Please correct the following transcript, fixing any errors while maintaining the original meaning and style.",
                 "model_preset_id": None,
                 "max_tokens": DEFAULT_CORRECTION_PROMPT_MAX_TOKENS,
+                "hebrew_mode": "translit",
             }
         ],
     },
@@ -66,6 +67,7 @@ DEFAULT_CONFIG = {
                 "text": "Please rewrite the following transcript in a clear, written style, maintaining the original meaning and flow. Include timing information (start/end) and cite any sources mentioned.",
                 "model_preset_id": None,
                 "max_tokens": DEFAULT_EDITION_PROMPT_MAX_TOKENS,
+                "hebrew_mode": "translit",
             }
         ],
     },
@@ -76,6 +78,7 @@ DEFAULT_CONFIG = {
                 "text": "Please provide a concise summary of the following lesson transcript.",
                 "model_preset_id": None,
                 "max_tokens": DEFAULT_SUMMARY_PROMPT_MAX_TOKENS,
+                "hebrew_mode": "translit",
             }
         ],
     },
@@ -190,6 +193,7 @@ def _migrate_summary_prompt_model_presets(config: Dict[str, Any]) -> Dict[str, A
         prompt_copy = dict(prompt)
         prompt_copy.setdefault("model_preset_id", None)
         prompt_copy.setdefault("max_tokens", legacy_max_tokens)
+        prompt_copy.setdefault("hebrew_mode", "translit")
         normalized_prompts.append(prompt_copy)
     if normalized_prompts:
         summary_copy["prompts"] = normalized_prompts
@@ -227,6 +231,7 @@ def _migrate_correction_prompt_model_presets(config: Dict[str, Any]) -> Dict[str
         prompt_copy = dict(prompt)
         prompt_copy.setdefault("model_preset_id", None)
         prompt_copy.setdefault("max_tokens", legacy_max_tokens)
+        prompt_copy.setdefault("hebrew_mode", "translit")
         normalized_prompts.append(prompt_copy)
 
     if normalized_prompts:
@@ -398,6 +403,7 @@ def _migrate_edition_prompt_model_presets(config: Dict[str, Any]) -> Dict[str, A
         prompt_copy = dict(prompt)
         prompt_copy.setdefault("model_preset_id", None)
         prompt_copy.setdefault("max_tokens", legacy_max_tokens)
+        prompt_copy.setdefault("hebrew_mode", "translit")
         normalized_prompts.append(prompt_copy)
 
     if normalized_prompts:

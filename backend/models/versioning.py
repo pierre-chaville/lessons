@@ -12,6 +12,8 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import JSON
 from sqlmodel import Field, SQLModel
 
+from schemas.common import DEFAULT_HEBREW_MODE, HebrewMode, parse_hebrew_mode  # noqa: F401  (re-exported)
+
 
 def _jsonb_column() -> Column:
     """Use JSONB on PostgreSQL and JSON elsewhere (tests/dev sqlite)."""
@@ -86,4 +88,8 @@ class ContentVersion(SQLModel, table=True):
     is_current: bool = Field(
         default=False,
         sa_column=Column(Boolean, nullable=False, server_default=text("false")),
+    )
+    hebrew_mode: str = Field(
+        default=DEFAULT_HEBREW_MODE.value,
+        sa_column=Column(String, nullable=False, server_default=text("'translit'")),
     )
