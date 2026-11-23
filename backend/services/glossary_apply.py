@@ -30,8 +30,12 @@ class GlossaryReplacement:
 
 
 def load_glossary_rules(session: Session) -> list[GlossaryRule]:
-    """Load glossary entries as normalized replacement rules."""
-    entries = crud.get_all_glossary_entries(session)
+    """Load spelling normalization rules (variant -> standard transliteration).
+
+    Rules still come from the legacy transliteration glossary until its entries
+    are migrated to the Hebrew-keyed glossary.
+    """
+    entries = crud.get_all_legacy_glossary_entries(session)
     rules: list[GlossaryRule] = []
     for entry in entries:
         standard = str(entry.standard or "").strip()

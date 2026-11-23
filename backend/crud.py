@@ -1,10 +1,13 @@
 """CRUD operations for database models"""
 
-from sqlalchemy import delete
+from enum import Enum
+from sqlalchemy import String, cast, delete, or_
 from sqlalchemy.orm import load_only, selectinload
 from sqlmodel import Session, select, func
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from datetime import datetime
+
+from hebrew_text import hebrew_consonants, normalize_hebrew
 from models import (
     Lesson,
     LessonEditor,
@@ -16,6 +19,7 @@ from models import (
     ContentVersion,
     ModelPreset,
     GlossaryEntry,
+    LegacyGlossaryEntry,
 )
 
 
@@ -294,18 +298,51 @@ def delete_model_preset(session: Session, preset_id: int) -> bool:
 
 
 # Glossary CRUD
-def create_glossary_entry(
-    session: Session,
-    standard: str,
-    variations: List[str],
-    exact_case: bool = False,
-) -> GlossaryEntry:
-    """Create a glossary entry."""
-    entry = GlossaryEntry(
-        standard=standard,
-        variations=variations,
-        exact_case=exact_case,
-    )
+class GlossaryConflictError(Exception):
+    """Another glossary entry already has the same hebrew_norm key."""
+
+
+# Fields a caller may set on a GlossaryEntry (hebrew_norm/hebrew_cons are derived).
+GLOSSARY_EDITABLE_FIELDS = (
+    "hebrew",
+    "translit",
+    "aliases",
+    "type",
+    "case_flag",
+    "status",
+    "source",
+    "context_lesson",
+    "context_paragraph",
+    "translation",
+    "sefaria_title",
+    "sefaria_ref",
+)
+
+
+def _apply_glossary_fields(entry: GlossaryEntry, fields: Dict[str, Any]) -> None:
+    for name, value in fields.items():
+        if name not in GLOSSARY_EDITABLE_FIELDS:
+            raise ValueError(f"Unknown glossary field: {name}")
+        if isinstance(value, Enum):
+            value = value.value
+        setattr(entry, name, value)
+    entry.hebrew_norm = normalize_hebrew(entry.hebrew)
+    entry.hebrew_cons = hebrew_consonants(entry.hebrew)
+
+
+def _ensure_unique_hebrew_norm(
+    session: Session, hebrew_norm: str, exclude_id: Optional[int] = None
+) -> None:
+    existing = get_glossary_entry_by_hebrew_norm(session, hebrew_norm)
+    if existing and existing.id != exclude_id:
+        raise GlossaryConflictError(hebrew_norm)
+
+
+def create_glossary_entry(session: Session, fields: Dict[str, Any]) -> GlossaryEntry:
+    """Create a glossary entry; raises GlossaryConflictError on duplicate key."""
+    entry = GlossaryEntry(hebrew="", hebrew_norm="", hebrew_cons="")
+    _apply_glossary_fields(entry, fields)
+    _ensure_unique_hebrew_norm(session, entry.hebrew_norm)
     session.add(entry)
     session.commit()
     session.refresh(entry)
@@ -317,29 +354,70 @@ def get_glossary_entry(session: Session, entry_id: int) -> Optional[GlossaryEntr
     return session.get(GlossaryEntry, entry_id)
 
 
+def get_glossary_entry_by_hebrew_norm(session: Session, hebrew_norm: str) -> Optional[GlossaryEntry]:
+    """Get glossary entry by its exact key."""
+    statement = select(GlossaryEntry).where(GlossaryEntry.hebrew_norm == hebrew_norm)
+    return session.exec(statement).first()
+
+
 def get_all_glossary_entries(session: Session) -> List[GlossaryEntry]:
-    """Get all glossary entries, ordered by standard form."""
-    statement = select(GlossaryEntry).order_by(GlossaryEntry.standard)
+    """Get all glossary entries, ordered by consonantal form."""
+    statement = select(GlossaryEntry).order_by(GlossaryEntry.hebrew_cons, GlossaryEntry.id)
     return list(session.exec(statement).all())
 
 
-def update_glossary_entry(
+def list_glossary_entries(
     session: Session,
-    entry_id: int,
-    standard: Optional[str] = None,
-    variations: Optional[List[str]] = None,
-    exact_case: Optional[bool] = None,
+    query: Optional[str] = None,
+    entry_type: Optional[str] = None,
+    status: Optional[str] = None,
+    page: int = 1,
+    per_page: int = 50,
+) -> tuple[List[GlossaryEntry], int]:
+    """Filtered, paginated glossary listing. Returns (entries, total).
+
+    ``query`` matches Hebrew (ignoring niqqud) or, case-insensitively,
+    the transliteration, aliases or translation.
+    """
+    conditions = []
+    if query and query.strip():
+        text_query = query.strip()
+        like = f"%{text_query}%"
+        matches = [
+            GlossaryEntry.translit.ilike(like),
+            cast(GlossaryEntry.aliases, String).ilike(like),
+            GlossaryEntry.translation.ilike(like),
+        ]
+        cons_query = hebrew_consonants(text_query)
+        if cons_query:
+            matches.append(GlossaryEntry.hebrew_cons.contains(cons_query))
+        conditions.append(or_(*matches))
+    if entry_type:
+        conditions.append(GlossaryEntry.type == entry_type)
+    if status:
+        conditions.append(GlossaryEntry.status == status)
+
+    total = session.exec(select(func.count()).select_from(GlossaryEntry).where(*conditions)).one()
+    statement = (
+        select(GlossaryEntry)
+        .where(*conditions)
+        .order_by(GlossaryEntry.hebrew_cons, GlossaryEntry.id)
+        .offset((page - 1) * per_page)
+        .limit(per_page)
+    )
+    return list(session.exec(statement).all()), int(total)
+
+
+def update_glossary_entry(
+    session: Session, entry_id: int, fields: Dict[str, Any]
 ) -> Optional[GlossaryEntry]:
-    """Update a glossary entry."""
+    """Update a glossary entry; raises GlossaryConflictError on duplicate key."""
     entry = session.get(GlossaryEntry, entry_id)
     if not entry:
         return None
-    if standard is not None:
-        entry.standard = standard
-    if variations is not None:
-        entry.variations = variations
-    if exact_case is not None:
-        entry.exact_case = exact_case
+    _apply_glossary_fields(entry, fields)
+    _ensure_unique_hebrew_norm(session, entry.hebrew_norm, exclude_id=entry.id)
+    entry.updated_at = datetime.utcnow()
     session.add(entry)
     session.commit()
     session.refresh(entry)
@@ -354,6 +432,12 @@ def delete_glossary_entry(session: Session, entry_id: int) -> bool:
     session.delete(entry)
     session.commit()
     return True
+
+
+def get_all_legacy_glossary_entries(session: Session) -> List[LegacyGlossaryEntry]:
+    """Legacy transliteration glossary (read-only), ordered by standard form."""
+    statement = select(LegacyGlossaryEntry).order_by(LegacyGlossaryEntry.standard)
+    return list(session.exec(statement).all())
 
 
 # Lesson CRUD

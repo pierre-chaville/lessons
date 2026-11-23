@@ -135,24 +135,84 @@ export interface ThemeUpdate {
 
 // ── Glossary ──────────────────────────────────────────────────────────────────
 
+export type GlossaryType =
+  | 'term'
+  | 'expression'
+  | 'quotation'
+  | 'proper_name'
+  | 'book'
+  | 'author'
+  | 'holiday'
+  | 'place'
+export type GlossaryCaseFlag = 'lower' | 'capitalize' | 'keep'
+export type GlossaryStatus = 'validated' | 'auto' | 'rejected'
+export type GlossarySource = 'migration' | 'llm' | 'manual'
+
+export const GLOSSARY_TYPES: readonly GlossaryType[] = [
+  'term', 'expression', 'quotation', 'proper_name', 'book', 'author', 'holiday', 'place',
+]
+export const GLOSSARY_CASE_FLAGS: readonly GlossaryCaseFlag[] = ['lower', 'capitalize', 'keep']
+export const GLOSSARY_STATUSES: readonly GlossaryStatus[] = ['validated', 'auto', 'rejected']
+export const GLOSSARY_SOURCES: readonly GlossarySource[] = ['migration', 'llm', 'manual']
+
+/** Hebrew-keyed glossary entry. hebrew_norm (unique key) and hebrew_cons are computed by the backend. */
 export interface GlossaryEntry {
   id: number
   hashid: string
-  standard: string
-  variations: string[]
-  exact_case: boolean
+  hebrew: string
+  hebrew_norm: string
+  hebrew_cons: string
+  translit: string | null
+  aliases: string[]
+  type: GlossaryType
+  case_flag: GlossaryCaseFlag
+  status: GlossaryStatus
+  source: GlossarySource
+  context_lesson: string | null
+  context_paragraph: string | null
+  translation: string | null
+  sefaria_title: string | null
+  sefaria_ref: string | null
+  created_at: string
+  updated_at: string
 }
 
 export interface GlossaryEntryCreate {
-  standard: string
-  variations: string[]
-  exact_case?: boolean
+  hebrew: string
+  translit?: string | null
+  aliases?: string[]
+  type?: GlossaryType
+  case_flag?: GlossaryCaseFlag
+  status?: GlossaryStatus
+  source?: GlossarySource
+  context_lesson?: string | null
+  context_paragraph?: string | null
+  translation?: string | null
+  sefaria_title?: string | null
+  sefaria_ref?: string | null
 }
 
-export interface GlossaryEntryUpdate {
-  standard?: string
-  variations?: string[]
-  exact_case?: boolean
+export type GlossaryEntryUpdate = Partial<GlossaryEntryCreate>
+
+export interface GlossaryListParams {
+  q?: string
+  type?: GlossaryType
+  status?: GlossaryStatus
+  page?: number
+  per_page?: number
+}
+
+export interface GlossaryEntryList {
+  items: GlossaryEntry[]
+  total: number
+  page: number
+  per_page: number
+}
+
+export interface GlossaryImportResult {
+  created: number
+  updated: number
+  total: number
 }
 
 // ── Lesson ────────────────────────────────────────────────────────────────────

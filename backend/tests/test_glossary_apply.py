@@ -10,7 +10,7 @@ MODULE_PATH = ROOT / "services" / "glossary_apply.py"
 # Avoid importing backend.services package side effects (LLM/config/db setup)
 # by loading glossary_apply directly from file.
 _crud_stub = types.ModuleType("crud")
-_crud_stub.get_all_glossary_entries = lambda session: []
+_crud_stub.get_all_legacy_glossary_entries = lambda session: []
 sys.modules.setdefault("crud", _crud_stub)
 
 _spec = util.spec_from_file_location("glossary_apply_test_module", MODULE_PATH)

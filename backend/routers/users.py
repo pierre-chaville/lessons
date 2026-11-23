@@ -137,6 +137,24 @@ def _publisher_guard_user(claims: Dict[str, Any], user_data: Dict[str, Any]) -> 
             )
 
 
+def _fetch_clerk_user(user_id: str, headers: Dict[str, str]) -> Dict[str, Any]:
+    """Load a Clerk user. Fails closed: raises instead of returning partial data.
+
+    Permission checks depend on the target's role, so an unreachable Clerk API
+    must block the action rather than skip the check.
+    """
+    try:
+        with httpx.Client(timeout=15) as client:
+            resp = client.get(f"{CLERK_API_BASE}/users/{user_id}", headers=headers)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Could not verify the target user") from exc
+    if resp.status_code == 404:
+        raise HTTPException(status_code=404, detail="User not found")
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail="Could not verify the target user")
+    return resp.json()
+
+
 # ── Cache helpers ──────────────────────────────────────────────────────────────
 
 def _fetch_all_clerk_users() -> List[ClerkUser]:
@@ -329,18 +347,10 @@ def update_user_role(
 
     headers = _clerk_headers()
 
-    # Fetch current user to check if target is admin (publisher cannot modify admins)
-    if _caller_role(claims) == "publisher":
-        with httpx.Client(timeout=15) as client:
-            user_resp = client.get(f"{CLERK_API_BASE}/users/{user_id}", headers=headers)
-        if user_resp.status_code == 200:
-            _publisher_guard_user(claims, user_resp.json())
-
-    old_role = None
-    with httpx.Client(timeout=15) as client:
-        existing_resp = client.get(f"{CLERK_API_BASE}/users/{user_id}", headers=headers)
-    if existing_resp.status_code == 200:
-        old_role = ((existing_resp.json().get("public_metadata") or {}).get("role"))
+    # Publisher cannot modify admins: the target must be loaded before any change.
+    existing_user = _fetch_clerk_user(user_id, headers)
+    _publisher_guard_user(claims, existing_user)
+    old_role = (existing_user.get("public_metadata") or {}).get("role")
 
     payload = {"public_metadata": {"role": data.role}}
 
@@ -373,12 +383,9 @@ def delete_user(
     """Delete a Clerk user."""
     headers = _clerk_headers()
 
-    # Publisher cannot delete admin users — fetch target to check
+    # Publisher cannot delete admin users: the target must be loaded to check.
     if _caller_role(claims) == "publisher":
-        with httpx.Client(timeout=15) as client:
-            user_resp = client.get(f"{CLERK_API_BASE}/users/{user_id}", headers=headers)
-        if user_resp.status_code == 200:
-            _publisher_guard_user(claims, user_resp.json())
+        _publisher_guard_user(claims, _fetch_clerk_user(user_id, headers))
 
     with httpx.Client(timeout=15) as client:
         resp = client.delete(f"{CLERK_API_BASE}/users/{user_id}", headers=headers)

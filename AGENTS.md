@@ -50,15 +50,27 @@ Roles are managed in Clerk and transmitted via JWT claims. A user has exactly on
 |                | create | ❌     | ❌     | ✅        | ✅    |
 |                | update | ❌     | ❌     | ✅        | ✅    |
 |                | delete | ❌     | ❌     | ✅        | ✅    |
+| **Glossary**   | read   | ❌     | ✅     | ✅        | ✅    |
+|                | create | ❌     | ❌     | ✅        | ✅    |
+|                | update | ❌     | ❌     | ✅        | ✅    |
+|                | delete | ❌     | ❌     | ✅        | ✅    |
 | **Tasks**      | read   | ❌     | ✅*    | ✅        | ✅    |
 |                | create | ❌     | ✅*    | ✅        | ✅    |
 |                | cancel | ❌     | ❌     | ❌        | ✅    |
+| **Model presets** | read | ❌   | ❌     | ✅        | ✅    |
+|                | create | ❌     | ❌     | ❌        | ✅    |
+|                | update | ❌     | ❌     | ❌        | ✅    |
+|                | delete | ❌     | ❌     | ❌        | ✅    |
 | **Configuration** | read | ❌   | ❌     | ✅        | ✅    |
 |                | update | ❌     | ❌     | ❌        | ✅    |
-| **Users**      | read   | ❌     | ❌     | ❌        | ✅    |
-|                | manage | ❌     | ❌     | ❌        | ✅    |
+| **Users**      | read   | ❌     | ❌     | ✅        | ✅    |
+|                | manage | ❌     | ❌     | ✅†       | ✅    |
 
 \* **Editors can read and create tasks only on lessons they are assigned to as editor.** This is a resource-level check that comes *in addition to* the role check: the role alone is not enough.
+
+† **Publishers manage users with restrictions**: they cannot grant the `admin` role (create, invite or role change), and cannot change the role of or delete a user who is `admin`. "Manage" covers creating, inviting, revoking invitations, changing roles and deleting users.
+
+**Glossary**: covers the Hebrew-keyed glossary and the read-only legacy glossary. YAML export (glossary and legacy) is a *read*; YAML import is a *create/update*.
 
 ### Backend Enforcement
 
@@ -93,9 +105,11 @@ const PERMISSIONS = {
   courses:       { read: ['reader','editor','publisher','admin'], create: ['publisher','admin'], update: ['publisher','admin'], delete: ['publisher','admin'] },
   themes:        { read: ['reader','editor','publisher','admin'], create: ['publisher','admin'], update: ['publisher','admin'], delete: ['publisher','admin'] },
   sources:       { read: ['reader','editor','publisher','admin'], create: ['publisher','admin'], update: ['publisher','admin'], delete: ['publisher','admin'] },
+  glossary:      { read: ['editor','publisher','admin'], create: ['publisher','admin'], update: ['publisher','admin'], delete: ['publisher','admin'] },
   tasks:         { read: ['editor','publisher','admin'], create: ['editor','publisher','admin'], cancel: ['admin'] }, // editor: only on assigned lessons, see below
+  model_presets: { read: ['publisher','admin'], create: ['admin'], update: ['admin'], delete: ['admin'] },
   configuration: { read: ['publisher','admin'], update: ['admin'] },
-  users:         { read: ['admin'], manage: ['admin'] },
+  users:         { read: ['publisher','admin'], manage: ['publisher','admin'] }, // publisher: cannot grant or touch admin, see below
 }
 
 export function usePermissions(userRole) {

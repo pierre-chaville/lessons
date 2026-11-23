@@ -2,11 +2,15 @@ import { apiClient } from './client'
 import type {
   GlossaryEntry,
   GlossaryEntryCreate,
+  GlossaryEntryList,
   GlossaryEntryUpdate,
+  GlossaryImportResult,
+  GlossaryListParams,
 } from './types'
 
 export const glossaryApi = {
-  list: () => apiClient.get<GlossaryEntry[]>('/glossary').then((r) => r.data),
+  list: (params?: GlossaryListParams) =>
+    apiClient.get<GlossaryEntryList>('/glossary', { params }).then((r) => r.data),
 
   get: (hashid: string) => apiClient.get<GlossaryEntry>(`/glossary/${hashid}`).then((r) => r.data),
 
@@ -23,15 +27,19 @@ export const glossaryApi = {
       .get<Blob>('/glossary/export/yaml', { responseType: 'blob' })
       .then((r) => r.data),
 
+  /** Backup of the legacy transliteration glossary (read-only). */
+  exportLegacyYaml: () =>
+    apiClient
+      .get<Blob>('/glossary/legacy/export/yaml', { responseType: 'blob' })
+      .then((r) => r.data),
+
   importYaml: (file: File) => {
     const formData = new FormData()
     formData.append('file', file)
     return apiClient
-      .post<{ created: number; updated: number; total: number }>(
-        '/glossary/import/yaml',
-        formData,
-        { headers: { 'Content-Type': 'multipart/form-data' } },
-      )
+      .post<GlossaryImportResult>('/glossary/import/yaml', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
       .then((r) => r.data)
   },
 }

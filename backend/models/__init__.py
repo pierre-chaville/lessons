@@ -8,7 +8,7 @@ from models.lesson_editor import LessonEditor
 from models.lesson_source import LessonSource
 from models.task import TASK_ORIGIN_BOOKLET, TASK_ORIGIN_LESSON, Task
 from models.model_preset import ModelPreset
-from models.glossary import GlossaryEntry
+from models.glossary import GlossaryEntry, LegacyGlossaryEntry
 from models.sefaria_cache import SefariaCache
 from models.versioning import ContentVersion, ContentType, VersionSource
 from models.preference_versioning import PreferenceVersion, PreferenceVersionSource
@@ -35,6 +35,7 @@ __all__ = [
     "TASK_ORIGIN_BOOKLET",
     "ModelPreset",
     "GlossaryEntry",
+    "LegacyGlossaryEntry",
     "SefariaCache",
     "ContentVersion",
     "ContentType",

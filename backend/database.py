@@ -317,8 +317,56 @@ def _backfill_content_versions() -> int:
     return inserted_rows
 
 
+def _migrate_legacy_glossary_table() -> None:
+    """Move the transliteration glossary aside for the Hebrew-keyed glossary.
+
+    Old shape: glossary_entry(standard, variations, exact_case). It is renamed
+    to glossary_legacy_entry (kept read-only, still used by the pipeline) and a
+    new, empty glossary_entry table is created. create_all() runs first and
+    may already have created an empty glossary_legacy_entry: it is replaced.
+    """
+    inspector = inspect(engine)
+    tables = inspector.get_table_names()
+    if "glossary_entry" not in tables:
+        return
+    columns = {col["name"] for col in inspector.get_columns("glossary_entry")}
+    if "standard" not in columns:
+        return  # Already the Hebrew-keyed model.
+
+    with engine.begin() as conn:
+        if "glossary_legacy_entry" in tables:
+            legacy_rows = conn.execute(text("SELECT COUNT(*) FROM glossary_legacy_entry")).scalar()
+            if legacy_rows:
+                logger.error(
+                    "Glossary migration skipped: glossary_legacy_entry already has %s row(s)",
+                    legacy_rows,
+                )
+                return
+            conn.execute(text("DROP TABLE glossary_legacy_entry"))
+        conn.execute(text("ALTER TABLE glossary_entry RENAME TO glossary_legacy_entry"))
+        if engine.dialect.name == "postgresql":
+            # Free the names the new glossary_entry table will use.
+            conn.execute(text("ALTER INDEX IF EXISTS glossary_entry_pkey RENAME TO glossary_legacy_entry_pkey"))
+            conn.execute(text(
+                "ALTER INDEX IF EXISTS ix_glossary_entry_standard RENAME TO ix_glossary_legacy_entry_standard"
+            ))
+            conn.execute(text(
+                "ALTER SEQUENCE IF EXISTS glossary_entry_id_seq RENAME TO glossary_legacy_entry_id_seq"
+            ))
+
+    from models.glossary import GlossaryEntry
+
+    GlossaryEntry.__table__.create(engine, checkfirst=True)
+    logger.info("Migration: moved glossary_entry to glossary_legacy_entry; created Hebrew-keyed glossary_entry")
+
+
 def _run_migrations():
     """Add missing columns to existing tables (lightweight auto-migration)."""
+    try:
+        _migrate_legacy_glossary_table()
+    except SQLAlchemyError as exc:
+        logger.warning("Glossary migration step failed/skipped: %s", exc)
+
     inspector = inspect(engine)
     tables = inspector.get_table_names()
 
