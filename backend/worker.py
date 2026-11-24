@@ -20,6 +20,7 @@ from services import (
     verify_lesson_sources,
 )
 from services import lessons as lesson_service
+from services.glossary_completion import GLOSSARY_TASK_TYPE, complete_glossary_entries
 from services.llm_utils import get_token_usage_tracker, reset_token_usage_tracker
 from services.rag_embeddings import rebuild_stale_rag_embeddings
 from memory_usage import format_memory_mb, get_rss_memory_mb
@@ -53,7 +54,15 @@ TASK_TYPE_TO_WORKFLOW_STEP = {
     "summary": "summary",
     "brief": "brief",
 }
-LLM_TASK_TYPES = {"correction", "edition", "summary", "brief", "extraction", "sources"}
+LLM_TASK_TYPES = {
+    "correction",
+    "edition",
+    "summary",
+    "brief",
+    "extraction",
+    "sources",
+    GLOSSARY_TASK_TYPE,
+}
 TASK_POLL_SLEEP_SECONDS = 5
 RAG_EMBEDDING_REFRESH_INTERVAL_SECONDS = 15 * 60
 RAG_EMBEDDING_REFRESH_SLEEP_SECONDS = 5
@@ -608,6 +617,33 @@ def process_sources_task(session: Session, task: Task):
         raise
 
 
+def process_glossary_task(session: Session, task: Task):
+    """Complete glossary entries without transliteration with the LLM."""
+    logger.info(f"Processing glossary task {task.id}")
+
+    params = task.parameters or {}
+    use_flex = bool(params.get("use_flex", False))
+    limit = params.get("limit")
+    limit = int(limit) if limit is not None else None
+
+    reset_token_usage_tracker()
+    report = complete_glossary_entries(session=session, use_flex=use_flex, limit=limit)
+    update_task_status(
+        session,
+        task,
+        "completed",
+        result=_build_llm_result(
+            session,
+            {
+                "message": "Glossary completion finished",
+                "use_flex": use_flex,
+                **report,
+            },
+            get_token_usage_tracker(),
+        ),
+    )
+
+
 def process_task(session: Session, task: Task):
     """Process a task based on its type"""
     # Resolve lesson_id so we can update process_status on the lesson
@@ -645,6 +681,8 @@ def process_task(session: Session, task: Task):
             process_extraction_task(session, task)
         elif task.task_type == "sources":
             process_sources_task(session, task)
+        elif task.task_type == GLOSSARY_TASK_TYPE:
+            process_glossary_task(session, task)
         else:
             logger.warning(f"Unknown task type: {task.task_type}")
             update_task_status(

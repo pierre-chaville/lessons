@@ -16,6 +16,20 @@ CONFIG_RECORD_ID = 1
 MIN_SUMMARY_PROMPT_MAX_TOKENS = 1
 DEFAULT_SUMMARY_PROMPT_MAX_TOKENS = 1200
 DEFAULT_BRIEF_MAX_TOKENS = 1000
+DEFAULT_GLOSSARY_MAX_TOKENS = 8000
+DEFAULT_GLOSSARY_PROMPT = """You complete entries of a glossary of Hebrew words, expressions, quotations and names found in French-language Torah lessons.
+
+For each entry you receive its id, its Hebrew form (with niqqud) and, when available, the passage of the lesson where it was found. Return one result per entry, with the same id:
+
+- translit: the transliteration used in the lessons, following French spelling conventions (e.g. תְּשׁוּבָה -> techouva, חֶסֶד -> 'hessed, שַׁבָּת -> chabbat).
+- aliases: other common transliterations of the same Hebrew form (may be empty).
+- type: term, expression, quotation, proper_name, book, author, holiday or place.
+- case_flag: lower (common noun), capitalize (proper name, book, holiday...) or keep (keep the transliteration exactly as written).
+- translation: a short French translation or explanation.
+- sefaria_title / sefaria_ref: for books, authors and quotations, the Sefaria title and reference (e.g. "Pirkei Avot", "Pirkei Avot 1:2"); leave empty otherwise or when unsure.
+
+Use the context passage to choose the meaning that fits the lesson. Do not invent Sefaria references.
+"""
 DEFAULT_EDITION_PROMPT_MAX_TOKENS = 16000
 MIN_EDITION_PROMPT_MAX_TOKENS = 256
 DEFAULT_CORRECTION_PROMPT_MAX_TOKENS = 16000
@@ -86,6 +100,11 @@ DEFAULT_CONFIG = {
         "model_preset_id": None,
         "prompt": "Please provide a brief 1-3 line summary of the following lesson transcript.",
         "max_tokens": DEFAULT_BRIEF_MAX_TOKENS,
+    },
+    "glossary": {
+        "model_preset_id": None,
+        "prompt": DEFAULT_GLOSSARY_PROMPT,
+        "max_tokens": DEFAULT_GLOSSARY_MAX_TOKENS,
     },
     "extraction": {
         "prompts": [
@@ -375,6 +394,42 @@ def _normalize_brief_config(config: Dict[str, Any]) -> Dict[str, Any]:
         brief_copy.pop(key, None)
 
     normalized["brief"] = brief_copy
+    return normalized
+
+
+def _normalize_glossary_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize glossary completion config to model_preset_id/max_tokens/prompt shape."""
+    if not config:
+        return {}
+
+    normalized = dict(config)
+    glossary = normalized.get("glossary")
+    if not isinstance(glossary, dict):
+        normalized["glossary"] = dict(DEFAULT_CONFIG["glossary"])
+        return normalized
+
+    glossary_copy = dict(glossary)
+    prompt = glossary_copy.get("prompt")
+    if not isinstance(prompt, str):
+        prompt = DEFAULT_GLOSSARY_PROMPT
+    glossary_copy["prompt"] = prompt
+
+    raw_model_preset_id = glossary_copy.get("model_preset_id")
+    if raw_model_preset_id in (None, ""):
+        glossary_copy["model_preset_id"] = None
+    else:
+        try:
+            glossary_copy["model_preset_id"] = int(raw_model_preset_id)
+        except (TypeError, ValueError):
+            glossary_copy["model_preset_id"] = None
+
+    try:
+        max_tokens = int(glossary_copy.get("max_tokens", DEFAULT_GLOSSARY_MAX_TOKENS))
+    except (TypeError, ValueError):
+        max_tokens = DEFAULT_GLOSSARY_MAX_TOKENS
+    glossary_copy["max_tokens"] = max(1, max_tokens)
+
+    normalized["glossary"] = glossary_copy
     return normalized
 
 
@@ -771,6 +826,7 @@ def normalize_config(config: Dict[str, Any]) -> Dict[str, Any]:
     normalized = _normalize_extraction_prompt_limits(normalized)
     normalized = _normalize_sources_prompt_limits(normalized)
     normalized = _normalize_brief_config(normalized)
+    normalized = _normalize_glossary_config(normalized)
     normalized = _normalize_alignment_config(normalized)
     normalized = _normalize_rag_config(normalized)
     return _sanitize_config(normalized)
@@ -827,6 +883,7 @@ def load_config() -> Dict[str, Any]:
                 merged = _normalize_extraction_prompt_limits(merged)
                 merged = _normalize_sources_prompt_limits(merged)
                 merged = _normalize_brief_config(merged)
+                merged = _normalize_glossary_config(merged)
                 merged = _normalize_alignment_config(merged)
                 merged = _normalize_rag_config(merged)
                 merged = _sanitize_config(merged)
@@ -846,6 +903,7 @@ def load_config() -> Dict[str, Any]:
             merged = _normalize_extraction_prompt_limits(merged)
             merged = _normalize_sources_prompt_limits(merged)
             merged = _normalize_brief_config(merged)
+            merged = _normalize_glossary_config(merged)
             merged = _normalize_alignment_config(merged)
             merged = _normalize_rag_config(merged)
             cleaned = _sanitize_config(merged)
@@ -868,6 +926,7 @@ def save_config(config: Dict[str, Any]) -> bool:
             normalized = _normalize_extraction_prompt_limits(normalized)
             normalized = _normalize_sources_prompt_limits(normalized)
             normalized = _normalize_brief_config(normalized)
+            normalized = _normalize_glossary_config(normalized)
             normalized = _normalize_alignment_config(normalized)
             normalized = _normalize_rag_config(normalized)
             cleaned = _sanitize_config(normalized)
@@ -900,6 +959,7 @@ def update_config(updates: Dict[str, Any]) -> Dict[str, Any]:
     config = _normalize_extraction_prompt_limits(config)
     config = _normalize_sources_prompt_limits(config)
     config = _normalize_brief_config(config)
+    config = _normalize_glossary_config(config)
     config = _normalize_alignment_config(config)
     config = _normalize_rag_config(config)
     save_config(config)

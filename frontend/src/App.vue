@@ -13,6 +13,7 @@ import {
   MoonIcon,
   ArrowDownTrayIcon,
   ArrowUpTrayIcon,
+  SparklesIcon,
   InformationCircleIcon,
   QuestionMarkCircleIcon,
   XMarkIcon,
@@ -552,6 +553,15 @@ watch(
               >
                 <ArrowUpTrayIcon class="h-4 w-4" />
                 {{ t('glossary.importYaml') }}
+              </button>
+              <button
+                v-if="can('glossary', 'update')"
+                @click="glossaryListRef?.completeWithLlm?.()"
+                :title="t('glossary.completeWithLlmHint')"
+                class="inline-flex items-center gap-x-2 rounded-md px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
+              >
+                <SparklesIcon class="h-4 w-4" />
+                {{ t('glossary.completeWithLlm') }}
               </button>
               <button
                 v-if="can('glossary', 'create')"

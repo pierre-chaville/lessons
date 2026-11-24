@@ -1,5 +1,6 @@
 import { apiClient } from './client'
 import type {
+  GlossaryCompletionLaunch,
   GlossaryEntry,
   GlossaryEntryCreate,
   GlossaryEntryList,
@@ -32,6 +33,10 @@ export const glossaryApi = {
     apiClient
       .get<Blob>('/glossary/legacy/export/yaml', { responseType: 'blob' })
       .then((r) => r.data),
+
+  /** Queue an LLM task completing entries without transliteration (publisher/admin). */
+  complete: () =>
+    apiClient.post<GlossaryCompletionLaunch>('/glossary/complete').then((r) => r.data),
 
   importYaml: (file: File) => {
     const formData = new FormData()

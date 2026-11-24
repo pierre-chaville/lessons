@@ -9,7 +9,9 @@ from auth import require_roles, _extract_role
 from database import get_session
 from models.task import TASK_ORIGIN_LESSON
 from schemas.task import TaskCreate, TaskResponse
+from routers.glossary import WRITE_ROLES as GLOSSARY_WRITE_ROLES
 from services.audit import log_event
+from services.glossary_completion import GLOSSARY_TASK_TYPE
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"])
 
@@ -32,6 +34,9 @@ def create_task(
 ):
     """Create and launch a new background task. Editors must be assigned to the lesson."""
     role = _extract_role(claims)
+    if task.task_type == GLOSSARY_TASK_TYPE and role not in GLOSSARY_WRITE_ROLES:
+        # Glossary completion updates the glossary: publisher/admin only.
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
     if role not in ("publisher", "admin"):
         lesson_id = (task.parameters or {}).get("lesson_id")
         if lesson_id:

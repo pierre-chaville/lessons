@@ -14,7 +14,9 @@ from database import get_session
 from hashid_utils import decode_id, encode_id
 from hebrew_text import normalize_hebrew
 from models.glossary import GlossaryEntry
+from services.glossary_completion import enqueue_glossary_completion
 from schemas.glossary import (
+    GlossaryCompletionLaunch,
     GlossaryEntryCreate,
     GlossaryEntryListResponse,
     GlossaryEntryResponse,
@@ -188,6 +190,21 @@ async def import_glossary_yaml(
             created += 1
 
     return GlossaryImportResult(created=created, updated=updated, total=created + updated)
+
+
+@router.post("/complete", response_model=GlossaryCompletionLaunch)
+def complete_glossary_entries(
+    session: Session = Depends(get_session),
+    claims: Dict[str, Any] = Depends(require_roles(WRITE_ROLES)),
+):
+    """Queue an LLM task completing entries without transliteration.
+
+    Reuses the pending/running glossary task if there is one; no task is
+    created when nothing needs completion.
+    """
+    pending = crud.count_glossary_entries_to_complete(session)
+    task_id = enqueue_glossary_completion(session, created_by_id=claims.get("sub"))
+    return GlossaryCompletionLaunch(task_id=task_id, pending_entries=pending)
 
 
 @router.get("/{entry_hashid}", response_model=GlossaryEntryResponse)

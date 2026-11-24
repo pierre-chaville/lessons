@@ -186,6 +186,19 @@ const importYaml = async (event: Event) => {
   }
 }
 
+const completeWithLlm = async () => {
+  try {
+    const result = await glossaryApi.complete()
+    if (result.task_id === null) {
+      toast.success(t('glossary.completeNothing'))
+    } else {
+      toast.success(t('glossary.completeQueued', { count: result.pending_entries }))
+    }
+  } catch {
+    toast.error(t('glossary.completeFailed'))
+  }
+}
+
 watch(searchInput, (value) => {
   if (searchTimeout) clearTimeout(searchTimeout)
   searchTimeout = setTimeout(() => {
@@ -206,7 +219,7 @@ onBeforeUnmount(() => {
   if (searchTimeout) clearTimeout(searchTimeout)
 })
 
-defineExpose({ openCreateModal, exportYaml, exportLegacyYaml, openImportDialog })
+defineExpose({ openCreateModal, exportYaml, exportLegacyYaml, openImportDialog, completeWithLlm })
 </script>
 
 <template>

@@ -483,6 +483,57 @@ def add_missing_glossary_entries(
     return created
 
 
+def _glossary_to_complete_condition():
+    """Entries the LLM must complete: no transliteration yet, not rejected."""
+    return (
+        or_(GlossaryEntry.translit.is_(None), GlossaryEntry.translit == ""),
+        GlossaryEntry.status != "rejected",
+    )
+
+
+def get_glossary_entries_to_complete(
+    session: Session, limit: Optional[int] = None
+) -> List[GlossaryEntry]:
+    """Entries waiting for LLM completion, oldest first."""
+    statement = (
+        select(GlossaryEntry)
+        .where(*_glossary_to_complete_condition())
+        .order_by(GlossaryEntry.id)
+    )
+    if limit is not None:
+        statement = statement.limit(limit)
+    return list(session.exec(statement).all())
+
+
+def count_glossary_entries_to_complete(session: Session) -> int:
+    statement = select(func.count()).select_from(GlossaryEntry).where(
+        *_glossary_to_complete_condition()
+    )
+    return int(session.exec(statement).one())
+
+
+def fill_glossary_entry(
+    session: Session, entry: GlossaryEntry, fields: Dict[str, Any]
+) -> GlossaryEntry:
+    """Set completed fields on an entry (no commit; ``hebrew`` is not editable here)."""
+    if "hebrew" in fields:
+        raise ValueError("fill_glossary_entry cannot change the Hebrew key")
+    _apply_glossary_fields(entry, fields)
+    entry.updated_at = datetime.utcnow()
+    session.add(entry)
+    return entry
+
+
+def get_active_task_of_type(session: Session, task_type: str) -> Optional[Task]:
+    """A pending or running task of the given type, if any."""
+    statement = (
+        select(Task)
+        .where(Task.task_type == task_type, Task.status.in_(("pending", "running")))
+        .order_by(Task.created_at)
+    )
+    return session.exec(statement).first()
+
+
 def get_all_legacy_glossary_entries(session: Session) -> List[LegacyGlossaryEntry]:
     """Legacy transliteration glossary (read-only), ordered by standard form."""
     statement = select(LegacyGlossaryEntry).order_by(LegacyGlossaryEntry.standard)

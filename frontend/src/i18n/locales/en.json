@@ -300,8 +300,7 @@
     "processStatusSourcesExtraction": "Sources extraction",
     "processStatusSourcesChecking": "Sources checking",
     "processStatusSummary": "Summary",
-    "processingMessage": "This lesson is currently being processed. Editing is disabled."
-    ,
+    "processingMessage": "This lesson is currently being processed. Editing is disabled.",
     "workflowHistory": "Audit Log"
   },
   "courses": {
@@ -472,7 +471,12 @@
     "exportSuccess": "Glossary exported.",
     "exportFailed": "Failed to export glossary.",
     "importSuccess": "Import done: {created} created, {updated} updated.",
-    "importFailed": "Failed to import glossary YAML."
+    "importFailed": "Failed to import glossary YAML.",
+    "completeWithLlm": "Complete with AI",
+    "completeWithLlmHint": "Ask the LLM configured in Preferences › Glossary to fill in the entries that have no transliteration yet.",
+    "completeQueued": "Completion task queued for {count} entries. Progress is shown in Tasks.",
+    "completeNothing": "Every entry already has a transliteration.",
+    "completeFailed": "Could not start the glossary completion"
   },
   "booklets": {
     "title": "Booklets",
@@ -562,8 +566,7 @@
       "saving": "Saving...",
       "markReady": "Mark ready",
       "markDraft": "Mark draft",
-      "archive": "Archive"
-      ,
+      "archive": "Archive",
       "addLesson": "Add lesson",
       "addAllSelected": "Add all selected ({count})",
       "removeLesson": "Remove",
@@ -649,7 +652,8 @@
       "extraction": "Source Extraction",
       "sources": "Source Verification",
       "summary": "Summary",
-      "brief": "Brief"
+      "brief": "Brief",
+      "glossary": "Glossary"
     },
     "statuses": {
       "pending": "Pending",
@@ -981,7 +985,11 @@
     "ragLlmPrompt": "LLM prompt",
     "ragLlmPromptDesc": "Prompt template for answer generation. Use {question} and {context} placeholders, or they will be appended automatically.",
     "maxLength": "Max tokens",
-    "maxLengthDesc": "Maximum tokens for the summary model response"
+    "maxLengthDesc": "Maximum tokens for the summary model response",
+    "glossary": "Glossary",
+    "glossarySettings": "Glossary Completion Settings",
+    "glossaryMaxTokensDesc": "Maximum output tokens per LLM call (each call completes a batch of 25 entries).",
+    "glossaryPromptDesc": "Instructions for completing glossary entries without transliteration (transliteration, aliases, type, capitalization, translation, Sefaria). The entries and their context are appended automatically; the answer format is enforced by structured output."
   },
   "modelPresets": {
     "title": "Model Presets",

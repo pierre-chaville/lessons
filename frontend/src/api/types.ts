@@ -209,6 +209,12 @@ export interface GlossaryEntryList {
   per_page: number
 }
 
+/** Response from POST /glossary/complete (task_id is null when nothing needs completion). */
+export interface GlossaryCompletionLaunch {
+  task_id: number | null
+  pending_entries: number
+}
+
 export interface GlossaryImportResult {
   created: number
   updated: number
@@ -447,6 +453,7 @@ export type TaskType =
   | 'sources'
   | 'summary'
   | 'brief'
+  | 'glossary'
 
 export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed'
 
@@ -746,6 +753,13 @@ export interface BriefConfig {
   prompt: string
 }
 
+/** LLM completion of glossary entries without transliteration (config.glossary). */
+export interface GlossaryCompletionConfig {
+  model_preset_id: number | null
+  max_tokens: number
+  prompt: string
+}
+
 export interface SummaryPromptConfig {
   name: string
   text: string
@@ -781,6 +795,7 @@ export interface AppConfig {
   source_types: Record<string, string>
   summary: SummaryConfig
   brief: BriefConfig
+  glossary: GlossaryCompletionConfig
   transcribe: TranscribeConfig
   alignment?: {
     edited_min_score: number

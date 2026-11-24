@@ -21,6 +21,7 @@ from hashid_utils import encode_id
 from hebrew_text import extract_hebrew_expressions, merge_hebrew_segments
 from schemas.common import HebrewMode
 from schemas.glossary import GlossarySource, GlossaryStatus
+from services.glossary_completion import enqueue_glossary_completion
 from services.glossary_apply import (
     apply_glossary_to_segments_with_report,
     load_glossary_rules,
@@ -274,12 +275,15 @@ def _process_native_hebrew(
         status=GlossaryStatus.AUTO.value,
         source=GlossarySource.LLM.value,
     )
+    glossary_task_id = enqueue_glossary_completion(session) if created else None
     logger.info(
-        "Lesson %s native Hebrew: %s -> %s segments, %s new glossary entries",
+        "Lesson %s native Hebrew: %s -> %s segments, %s new glossary entries "
+        "(glossary completion task: %s)",
         lesson_id,
         len(segments),
         len(merged),
         len(created),
+        glossary_task_id,
     )
     report = {
         "segments_before_merge": len(segments),

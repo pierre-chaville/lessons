@@ -11,6 +11,7 @@ import {
   MagnifyingGlassIcon,
   TrashIcon,
   ClockIcon,
+  LanguageIcon,
 } from '@heroicons/vue/24/outline'
 import { configApi } from '@/api/config'
 import { modelPresetsApi } from '@/api/modelPresets'
@@ -55,6 +56,7 @@ const config = ref<AppConfig>({
     prompts: [{ name: 'Default', text: '', model_preset_id: null, max_tokens: 1200, hebrew_mode: DEFAULT_HEBREW_MODE }],
   },
   brief: { model_preset_id: null, max_tokens: 1000, prompt: '' },
+  glossary: { model_preset_id: null, max_tokens: 8000, prompt: '' },
   transcribe: {
     model: 'nova-3',
     language: 'fr',
@@ -90,7 +92,8 @@ const hasPendingAutoSave = ref(false)
 const importInputRef = ref<HTMLInputElement | null>(null)
 const modelPresets = ref<ModelPreset[]>([])
 type PromptGroupKey = 'correction' | 'edition' | 'extraction' | 'sources' | 'summary'
-type PromptEditorTarget = { kind: 'brief' } | { kind: 'rag' } | { kind: 'group'; group: PromptGroupKey; index: number }
+type SinglePromptKey = 'brief' | 'glossary' | 'rag'
+type PromptEditorTarget = { kind: SinglePromptKey } | { kind: 'group'; group: PromptGroupKey; index: number }
 
 const isPromptEditorOpen = ref(false)
 const promptEditorTitle = ref('')
@@ -112,9 +115,8 @@ const renderMarkdown = (markdown: string | null | undefined): string => {
   return marked(markdown) as string
 }
 
-const promptPreviewKey = (group: PromptGroupKey | 'brief' | 'rag', index?: number): string => {
-  if (group === 'brief') return 'brief'
-  if (group === 'rag') return 'rag'
+const promptPreviewKey = (group: PromptGroupKey | SinglePromptKey, index?: number): string => {
+  if (group === 'brief' || group === 'glossary' || group === 'rag') return group
   return `${group}-${index ?? 0}`
 }
 
@@ -123,11 +125,11 @@ const isPromptPreviewLong = (text: string | null | undefined): boolean => {
   return text.split(/\r?\n/).length > 3
 }
 
-const isPromptPreviewExpanded = (group: PromptGroupKey | 'brief' | 'rag', index?: number): boolean => {
+const isPromptPreviewExpanded = (group: PromptGroupKey | SinglePromptKey, index?: number): boolean => {
   return !!expandedPromptPreviews.value[promptPreviewKey(group, index)]
 }
 
-const togglePromptPreview = (group: PromptGroupKey | 'brief' | 'rag', index?: number) => {
+const togglePromptPreview = (group: PromptGroupKey | SinglePromptKey, index?: number) => {
   const key = promptPreviewKey(group, index)
   expandedPromptPreviews.value[key] = !expandedPromptPreviews.value[key]
 }
@@ -236,6 +238,10 @@ const normalizeConfigShape = () => {
   delete briefWithLegacyFields.provider
   delete briefWithLegacyFields.model
   delete briefWithLegacyFields.temperature
+  if (!config.value.glossary) config.value.glossary = { model_preset_id: null, max_tokens: 8000, prompt: '' }
+  if (typeof config.value.glossary.model_preset_id !== 'number') config.value.glossary.model_preset_id = null
+  if (typeof config.value.glossary.max_tokens !== 'number') config.value.glossary.max_tokens = 8000
+  if (typeof config.value.glossary.prompt !== 'string') config.value.glossary.prompt = ''
   const legacySummaryMaxTokens =
     typeof (config.value.summary as { max_tokens?: unknown }).max_tokens === 'number'
       ? (config.value.summary as { max_tokens: number }).max_tokens
@@ -657,6 +663,14 @@ const openBriefPromptEditor = () => {
   isPromptEditorOpen.value = true
 }
 
+const openGlossaryPromptEditor = () => {
+  promptEditorDraft.value = config.value.glossary.prompt || ''
+  promptEditorMode.value = 'visual'
+  promptEditorTarget.value = { kind: 'glossary' }
+  promptEditorTitle.value = t('preferences.editPromptWysiwyg')
+  isPromptEditorOpen.value = true
+}
+
 const openRagPromptEditor = () => {
   promptEditorDraft.value = config.value.rag.llm_prompt || ''
   promptEditorMode.value = 'visual'
@@ -676,9 +690,11 @@ const savePromptEditor = () => {
 
   if (target.kind === 'brief') {
     config.value.brief.prompt = promptEditorDraft.value
+  } else if (target.kind === 'glossary') {
+    config.value.glossary.prompt = promptEditorDraft.value
   } else if (target.kind === 'rag') {
     config.value.rag.llm_prompt = promptEditorDraft.value
-  } else {
+  } else if (target.kind === 'group') {
     const prompt = getPromptList(target.group)[target.index]
     if (prompt) prompt.text = promptEditorDraft.value
   }
@@ -852,6 +868,17 @@ watch(
               ]">
                 <DocumentTextIcon class="h-5 w-5" />
                 {{ t('preferences.brief') }}
+              </div>
+            </Tab>
+            <Tab v-slot="{ selected }" class="w-full rounded-md py-2.5 text-sm font-medium leading-5 transition-colors focus:outline-none">
+              <div :class="[
+                'flex items-center justify-center gap-2',
+                selected
+                  ? 'bg-white dark:bg-gray-800 text-indigo-700 dark:text-indigo-400 shadow'
+                  : 'text-gray-700 dark:text-gray-300 hover:bg-white/[0.12] dark:hover:bg-gray-600'
+              ]">
+                <LanguageIcon class="h-5 w-5" />
+                {{ t('preferences.glossary') }}
               </div>
             </Tab>
             <Tab v-slot="{ selected }" class="w-full rounded-md py-2.5 text-sm font-medium leading-5 transition-colors focus:outline-none">
@@ -1838,6 +1865,103 @@ watch(
                   </div>
                   <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
                     {{ t('preferences.briefPromptDesc') }}
+                  </p>
+                </div>
+              </div>
+            </TabPanel>
+
+            <!-- Glossary Tab -->
+            <TabPanel class="rounded-lg bg-white dark:bg-gray-800 p-6 shadow">
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                {{ t('preferences.glossarySettings') }}
+              </h2>
+
+              <div class="space-y-6">
+                <!-- Model Preset -->
+                <div>
+                  <label for="glossary-model-preset" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    {{ t('preferences.modelPresets') }}
+                  </label>
+                  <select
+                    id="glossary-model-preset"
+                    v-model="config.glossary.model_preset_id"
+                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option :value="null">{{ t('preferences.selectModelPreset') }}</option>
+                    <option
+                      v-for="preset in modelPresets"
+                      :key="preset.id"
+                      :value="preset.id"
+                    >
+                      {{ preset.name }}
+                    </option>
+                  </select>
+                </div>
+
+                <!-- Max Tokens -->
+                <div>
+                  <label for="glossary-max-tokens" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    {{ t('preferences.maxTokens') }}
+                  </label>
+                  <input
+                    id="glossary-max-tokens"
+                    v-model.number="config.glossary.max_tokens"
+                    type="number"
+                    min="256"
+                    max="200000"
+                    step="256"
+                    class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('preferences.glossaryMaxTokensDesc') }}
+                  </p>
+                </div>
+
+                <!-- Prompt -->
+                <div>
+                  <div class="flex items-center justify-between mb-2">
+                    <span class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {{ t('preferences.prompt') }}
+                    </span>
+                    <button
+                      type="button"
+                      @click="openGlossaryPromptEditor"
+                      class="px-3 py-1 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 border border-indigo-300 dark:border-indigo-600 rounded-md hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
+                    >
+                      {{ t('preferences.editPromptWysiwyg') }}
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    @click="openGlossaryPromptEditor"
+                    class="w-full text-left px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600/60 transition-colors"
+                  >
+                    <div
+                      v-if="config.glossary.prompt"
+                      :class="[
+                        'prose prose-sm max-w-none dark:prose-invert text-gray-900 dark:text-gray-100',
+                        { 'prompt-preview-content--collapsed': !isPromptPreviewExpanded('glossary') }
+                      ]"
+                      v-html="renderMarkdown(config.glossary.prompt)"
+                    />
+                    <p
+                      v-else
+                      class="text-sm text-gray-500 dark:text-gray-400 italic"
+                    >
+                      {{ t('preferences.emptyPromptClickToEdit') }}
+                    </p>
+                  </button>
+                  <div v-if="isPromptPreviewLong(config.glossary.prompt)" class="mt-2 flex justify-end">
+                    <button
+                      type="button"
+                      @click="togglePromptPreview('glossary')"
+                      class="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline"
+                    >
+                      {{ isPromptPreviewExpanded('glossary') ? t('preferences.showLess') : t('preferences.showMore') }}
+                    </button>
+                  </div>
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('preferences.glossaryPromptDesc') }}
                   </p>
                 </div>
               </div>

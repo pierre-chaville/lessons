@@ -173,3 +173,35 @@ class GlossaryImportResult(BaseModel):
     created: int
     updated: int
     total: int
+
+
+class GlossaryCompletion(BaseModel):
+    """LLM completion of one glossary entry (structured output)."""
+
+    id: int = Field(description="Id of the entry, exactly as given in the input.")
+    translit: str = Field(description="Transliteration used in the lessons.")
+    aliases: List[str] = Field(description="Other common transliterations (may be empty).")
+    type: GlossaryType = Field(description="Kind of entry.")
+    case_flag: GlossaryCaseFlag = Field(
+        description="lower: common noun; capitalize: proper name, book, holiday...; keep: keep as written."
+    )
+    translation: str | None = Field(description="Short translation or explanation.")
+    sefaria_title: str | None = Field(
+        description="Sefaria title for books, authors and quotations; null otherwise or when unsure."
+    )
+    sefaria_ref: str | None = Field(
+        description="Sefaria reference for quotations; null otherwise or when unsure."
+    )
+
+
+class GlossaryCompletionBatch(BaseModel):
+    """LLM completions for a batch of glossary entries (structured output)."""
+
+    entries: List[GlossaryCompletion] = Field(description="One result per input entry.")
+
+
+class GlossaryCompletionLaunch(BaseModel):
+    """Result of a request to complete pending glossary entries."""
+
+    task_id: int | None
+    pending_entries: int
