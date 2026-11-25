@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import csv
 from datetime import datetime
+from io import StringIO
 
 from sqlmodel import Session, SQLModel, create_engine
 
@@ -30,8 +32,14 @@ def test_export_lessons_csv_contains_identification_columns() -> None:
 
         csv_payload = export_lessons_csv(session)
 
-        assert "id,title,filename,status,date,course_id,course_name,theme_ids,theme_names,editor_ids" in csv_payload
-        assert "CSV Lesson" in csv_payload
+        rows = csv.DictReader(StringIO(csv_payload))
+        assert rows.fieldnames == [
+            "id", "title", "filename", "status", "date", "hebrew_date",
+            "course_id", "course_name", "theme_ids", "theme_names", "editor_ids",
+        ]
+        row = next(rows)
+        assert row["title"] == "CSV Lesson"
+        assert row["hebrew_date"] == "5786"
 
 
 def test_import_lessons_csv_updates_only_changed_fields() -> None:

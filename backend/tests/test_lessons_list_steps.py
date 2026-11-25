@@ -134,11 +134,13 @@ def test_list_loader_filters_soft_deleted_lessons_by_default() -> None:
     with _session() as session:
         active = _lesson(session, title="Active")
         deleted = _lesson(session, title="Deleted", deleted_at=datetime.utcnow(), deleted_by="admin")
+        active_id = active.id
+        deleted_id = deleted.id
         session.expunge_all()
 
         active_rows = crud.get_lesson_list_lessons(session)
         deleted_rows = crud.get_lesson_list_lessons(session, only_deleted=True)
 
-        assert [row.id for row in active_rows] == [active.id]
-        assert [row.id for row in deleted_rows] == [deleted.id]
+        assert [row.id for row in active_rows] == [active_id]
+        assert [row.id for row in deleted_rows] == [deleted_id]
         assert deleted_rows[0].deleted_by == "admin"
