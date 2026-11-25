@@ -1,6 +1,7 @@
 import { apiClient } from './client'
 import type {
   GlossaryCompletionLaunch,
+  GlossaryCompletionStatus,
   GlossaryEntry,
   GlossaryEntryCreate,
   GlossaryEntryList,
@@ -37,6 +38,10 @@ export const glossaryApi = {
   /** Queue an LLM task completing entries without transliteration (publisher/admin). */
   complete: () =>
     apiClient.post<GlossaryCompletionLaunch>('/glossary/complete').then((r) => r.data),
+
+  /** Pending entry count and latest completion task (publisher/admin). */
+  completionStatus: () =>
+    apiClient.get<GlossaryCompletionStatus>('/glossary/complete/status').then((r) => r.data),
 
   importYaml: (file: File) => {
     const formData = new FormData()

@@ -474,9 +474,16 @@
     "importFailed": "Failed to import glossary YAML.",
     "completeWithLlm": "Complete with AI",
     "completeWithLlmHint": "Ask the LLM configured in Preferences › Glossary to fill in the entries that have no transliteration yet.",
-    "completeQueued": "Completion task queued for {count} entries. Progress is shown in Tasks.",
+    "completeConfirmTitle": "Complete the glossary with AI",
+    "completeConfirm": "{count} entry has no transliteration and will be completed by AI (transliteration, type, translation, Sefaria references). Continue? | {count} entries have no transliteration and will be completed by AI (transliteration, type, translation, Sefaria references). Continue?",
+    "completeConfirmAction": "Complete",
+    "completeAlreadyRunning": "A glossary completion is already running.",
     "completeNothing": "Every entry already has a transliteration.",
-    "completeFailed": "Could not start the glossary completion"
+    "completeFailed": "Could not start the glossary completion",
+    "completeDone": "Glossary completion finished: {count} entries completed.",
+    "completeTaskFailed": "The glossary completion failed. See Tasks for details.",
+    "completionRunning": "AI completion in progress",
+    "completionRunningMessage": "the list will refresh when it finishes."
   },
   "booklets": {
     "title": "Booklets",

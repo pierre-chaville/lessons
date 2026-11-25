@@ -7,6 +7,7 @@ import {
   ExclamationTriangleIcon,
   MagnifyingGlassIcon,
   PencilIcon,
+  SparklesIcon,
   TrashIcon,
   XMarkIcon,
 } from '@heroicons/vue/24/outline'
@@ -15,13 +16,20 @@ import { useI18n } from 'vue-i18n'
 
 import { glossaryApi } from '@/api/glossary'
 import { GLOSSARY_STATUSES, GLOSSARY_TYPES } from '@/api/types'
-import type { GlossaryEntry, GlossaryEntryCreate, GlossaryStatus, GlossaryType } from '@/api/types'
+import type {
+  GlossaryCompletionStatus,
+  GlossaryEntry,
+  GlossaryEntryCreate,
+  GlossaryStatus,
+  GlossaryType,
+} from '@/api/types'
 import GlossaryEntryFormDialog from '@/components/glossary/GlossaryEntryFormDialog.vue'
 import { usePermissions } from '@/composables/usePermissions'
 import { useToast } from '@/composables/useToast'
 
 const PER_PAGE = 50
 const SEARCH_DEBOUNCE_MS = 300
+const COMPLETION_POLL_MS = 3000
 
 const { t } = useI18n()
 const { can } = usePermissions()
@@ -46,6 +54,16 @@ const editingEntry = ref<GlossaryEntry | null>(null)
 const deletingEntry = ref<GlossaryEntry | null>(null)
 const importInputRef = ref<HTMLInputElement | null>(null)
 
+const showCompleteModal = ref(false)
+const isLaunchingCompletion = ref(false)
+const completionPendingCount = ref(0)
+const completionTaskId = ref<number | null>(null)
+const completionTaskStatus = ref<string | null>(null)
+let completionPollTimer: ReturnType<typeof setTimeout> | null = null
+
+const isCompletionRunning = computed(
+  () => completionTaskStatus.value === 'pending' || completionTaskStatus.value === 'running',
+)
 const pageCount = computed(() => Math.max(1, Math.ceil(total.value / PER_PAGE)))
 const canEditEntries = computed(() => can('glossary', 'update') || can('glossary', 'delete'))
 
@@ -186,16 +204,82 @@ const importYaml = async (event: Event) => {
   }
 }
 
-const completeWithLlm = async () => {
+const stopCompletionPolling = () => {
+  if (completionPollTimer) clearTimeout(completionPollTimer)
+  completionPollTimer = null
+}
+
+const scheduleCompletionPoll = () => {
+  stopCompletionPolling()
+  completionPollTimer = setTimeout(refreshCompletionStatus, COMPLETION_POLL_MS)
+}
+
+/** Report the end of a task this page saw running, then refresh the list. */
+const reportFinishedCompletion = async (status: GlossaryCompletionStatus) => {
+  await loadEntries()
+  if (status.task_status === 'completed') {
+    const completed = Number(status.task_result?.completed ?? 0)
+    toast.success(t('glossary.completeDone', { count: completed }))
+  } else if (status.task_status === 'failed') {
+    toast.error(t('glossary.completeTaskFailed'))
+  }
+}
+
+async function refreshCompletionStatus() {
   try {
+    const status = await glossaryApi.completionStatus()
+    const wasRunning = isCompletionRunning.value
+    const watchedTaskId = completionTaskId.value
+    completionTaskId.value = status.task_id
+    completionTaskStatus.value = status.task_status
+    if (wasRunning && !isCompletionRunning.value && watchedTaskId === status.task_id) {
+      await reportFinishedCompletion(status)
+    }
+    return status
+  } catch {
+    return null
+  } finally {
+    if (isCompletionRunning.value) scheduleCompletionPoll()
+    else stopCompletionPolling()
+  }
+}
+
+const completeWithLlm = async () => {
+  const status = await refreshCompletionStatus()
+  if (!status) {
+    toast.error(t('glossary.completeFailed'))
+    return
+  }
+  if (isCompletionRunning.value) {
+    toast.success(t('glossary.completeAlreadyRunning'))
+  } else if (status.pending_entries === 0) {
+    toast.success(t('glossary.completeNothing'))
+  } else {
+    completionPendingCount.value = status.pending_entries
+    showCompleteModal.value = true
+  }
+}
+
+const closeCompleteModal = () => {
+  showCompleteModal.value = false
+}
+
+const confirmCompleteWithLlm = async () => {
+  try {
+    isLaunchingCompletion.value = true
     const result = await glossaryApi.complete()
+    closeCompleteModal()
     if (result.task_id === null) {
       toast.success(t('glossary.completeNothing'))
-    } else {
-      toast.success(t('glossary.completeQueued', { count: result.pending_entries }))
+      return
     }
+    completionTaskId.value = result.task_id
+    completionTaskStatus.value = 'pending'
+    scheduleCompletionPoll()
   } catch {
     toast.error(t('glossary.completeFailed'))
+  } finally {
+    isLaunchingCompletion.value = false
   }
 }
 
@@ -213,13 +297,25 @@ watch([search, typeFilter, statusFilter], () => {
 })
 watch(page, loadEntries)
 
-onMounted(loadEntries)
+onMounted(() => {
+  loadEntries()
+  // Shows the banner if a completion is already running (e.g. queued by a native correction).
+  if (can('glossary', 'update')) refreshCompletionStatus()
+})
 
 onBeforeUnmount(() => {
   if (searchTimeout) clearTimeout(searchTimeout)
+  stopCompletionPolling()
 })
 
-defineExpose({ openCreateModal, exportYaml, exportLegacyYaml, openImportDialog, completeWithLlm })
+defineExpose({
+  openCreateModal,
+  exportYaml,
+  exportLegacyYaml,
+  openImportDialog,
+  completeWithLlm,
+  isCompletionRunning,
+})
 </script>
 
 <template>
@@ -266,7 +362,56 @@ defineExpose({ openCreateModal, exportYaml, exportLegacyYaml, openImportDialog, 
     </div>
   </Dialog>
 
+  <Dialog :open="showCompleteModal" class="relative z-50" @close="closeCompleteModal">
+    <div class="fixed inset-0 bg-black/30" aria-hidden="true" />
+    <div class="fixed inset-0 flex items-center justify-center p-4">
+      <DialogPanel class="mx-auto w-full max-w-md rounded-lg bg-white p-6 shadow-xl dark:bg-gray-800">
+        <div class="mb-4 flex items-center gap-3">
+          <SparklesIcon class="h-6 w-6 text-indigo-600 dark:text-indigo-400" />
+          <DialogTitle class="text-lg font-semibold text-gray-900 dark:text-white">
+            {{ t('glossary.completeConfirmTitle') }}
+          </DialogTitle>
+        </div>
+        <p class="mb-6 text-sm text-gray-600 dark:text-gray-300">
+          {{ t('glossary.completeConfirm', { count: completionPendingCount }, completionPendingCount) }}
+        </p>
+        <div class="flex justify-end gap-2">
+          <button class="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 dark:border-gray-600 dark:text-gray-300" @click="closeCompleteModal">
+            <XMarkIcon class="mr-1 inline h-4 w-4" />
+            {{ t('lessons.cancel') }}
+          </button>
+          <button
+            class="inline-flex items-center gap-2 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
+            :disabled="isLaunchingCompletion"
+            @click="confirmCompleteWithLlm"
+          >
+            <SparklesIcon class="h-4 w-4" />
+            {{ t('glossary.completeConfirmAction') }}
+          </button>
+        </div>
+      </DialogPanel>
+    </div>
+  </Dialog>
+
   <div class="w-full">
+    <div
+      v-if="isCompletionRunning"
+      class="mb-6 flex items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-700 dark:bg-amber-900/20"
+    >
+      <svg class="h-5 w-5 animate-spin text-amber-600 dark:text-amber-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+      </svg>
+      <div>
+        <span class="font-medium text-amber-800 dark:text-amber-300">
+          {{ t('glossary.completionRunning') }}
+        </span>
+        <span class="ml-2 text-sm text-amber-700 dark:text-amber-400">
+          — {{ t('glossary.completionRunningMessage') }}
+        </span>
+      </div>
+    </div>
+
     <div class="mb-6 flex flex-wrap items-center gap-3 rounded-lg bg-white p-4 shadow-sm dark:bg-gray-800">
       <div class="relative min-w-[14rem] flex-1">
         <MagnifyingGlassIcon class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />

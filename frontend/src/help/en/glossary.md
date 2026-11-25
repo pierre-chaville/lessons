@@ -24,7 +24,7 @@ Two entries cannot have the same Hebrew form (niqqud included, cantillation mark
 
 When a lesson is corrected with a prompt in **native** Hebrew mode, every new Hebrew word or expression is added with status *automatic*, with only its Hebrew form and context. A completion task is then queued automatically.
 
-The completion asks the LLM configured in **Preferences › Glossary** (model preset, prompt, max tokens) to fill in the transliteration, other transliterations, type, capitalization, translation and Sefaria references of every entry without a transliteration (rejected entries are skipped). Entries stay *automatic* until you validate them. **Complete with AI** starts the same task by hand.
+The completion asks the LLM configured in **Preferences › Glossary** (model preset, prompt, max tokens) to fill in the transliteration, other transliterations, type, capitalization, translation and Sefaria references of every entry without a transliteration (rejected entries are skipped). Entries stay *automatic* until you validate them. **Complete with AI** starts the same task by hand, after asking you to confirm how many entries will be completed. While the completion runs, a yellow banner is shown above the list, and the list refreshes when it finishes.
 
 ## Legacy glossary
 

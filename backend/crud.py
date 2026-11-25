@@ -534,6 +534,16 @@ def get_active_task_of_type(session: Session, task_type: str) -> Optional[Task]:
     return session.exec(statement).first()
 
 
+def get_latest_task_of_type(session: Session, task_type: str) -> Optional[Task]:
+    """Most recently created task of the given type, whatever its status."""
+    statement = (
+        select(Task)
+        .where(Task.task_type == task_type)
+        .order_by(Task.created_at.desc(), Task.id.desc())
+    )
+    return session.exec(statement).first()
+
+
 def get_all_legacy_glossary_entries(session: Session) -> List[LegacyGlossaryEntry]:
     """Legacy transliteration glossary (read-only), ordered by standard form."""
     statement = select(LegacyGlossaryEntry).order_by(LegacyGlossaryEntry.standard)

@@ -166,3 +166,23 @@ async def test_complete_endpoint_roles_and_payload(session) -> None:
     assert launched.status_code == 200
     body = launched.json()
     assert body["pending_entries"] == 1 and isinstance(body["task_id"], int)
+
+
+@pytest.mark.anyio
+async def test_completion_status_endpoint(session) -> None:
+    async with _client(session, "publisher") as client:
+        empty = (await client.get("/glossary/complete/status")).json()
+    assert empty == {
+        "pending_entries": 0, "task_id": None, "task_status": None,
+        "task_error": None, "task_result": None,
+    }
+
+    crud.create_glossary_entry(session, {"hebrew": HESSED, "status": "auto"})
+    task_id = service.enqueue_glossary_completion(session)
+    async with _client(session, "editor") as client:
+        denied = await client.get("/glossary/complete/status")
+    async with _client(session, "publisher") as client:
+        queued = (await client.get("/glossary/complete/status")).json()
+    assert denied.status_code == 403
+    assert queued["pending_entries"] == 1
+    assert queued["task_id"] == task_id and queued["task_status"] == "pending"

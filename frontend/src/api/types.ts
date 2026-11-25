@@ -215,6 +215,15 @@ export interface GlossaryCompletionLaunch {
   pending_entries: number
 }
 
+/** Latest glossary completion task (any status) and entries still awaiting completion. */
+export interface GlossaryCompletionStatus {
+  pending_entries: number
+  task_id: number | null
+  task_status: string | null
+  task_error: string | null
+  task_result: Record<string, unknown> | null
+}
+
 export interface GlossaryImportResult {
   created: number
   updated: number

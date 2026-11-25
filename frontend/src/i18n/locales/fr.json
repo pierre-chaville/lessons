@@ -474,9 +474,16 @@
     "importFailed": "Échec de l'import YAML du glossaire.",
     "completeWithLlm": "Compléter par l'IA",
     "completeWithLlmHint": "Demande au LLM configuré dans Préférences › Glossaire de remplir les entrées qui n'ont pas encore de translittération.",
-    "completeQueued": "Tâche de complétion lancée pour {count} entrées. Suivi dans Tâches.",
+    "completeConfirmTitle": "Compléter le glossaire par l'IA",
+    "completeConfirm": "{count} entrée n'a pas de translittération et sera complétée par l'IA (translittération, type, traduction, références Sefaria). Continuer ? | {count} entrées n'ont pas de translittération et seront complétées par l'IA (translittération, type, traduction, références Sefaria). Continuer ?",
+    "completeConfirmAction": "Compléter",
+    "completeAlreadyRunning": "Une complétion du glossaire est déjà en cours.",
     "completeNothing": "Toutes les entrées ont déjà une translittération.",
-    "completeFailed": "Impossible de lancer la complétion du glossaire"
+    "completeFailed": "Impossible de lancer la complétion du glossaire",
+    "completeDone": "Complétion du glossaire terminée : {count} entrées complétées.",
+    "completeTaskFailed": "La complétion du glossaire a échoué. Détails dans Tâches.",
+    "completionRunning": "Complétion par l'IA en cours",
+    "completionRunningMessage": "la liste sera actualisée à la fin."
   },
   "booklets": {
     "title": "Livrets",

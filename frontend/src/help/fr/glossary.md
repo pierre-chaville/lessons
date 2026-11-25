@@ -24,7 +24,7 @@ Deux entrées ne peuvent pas avoir la même forme hébraïque (nikoud compris, s
 
 Quand un cours est corrigé avec un prompt en mode hébreu **natif**, chaque nouveau mot ou expression en hébreu est ajouté avec le statut *automatique*, avec seulement sa forme hébraïque et son contexte. Une tâche de complétion est alors lancée automatiquement.
 
-La complétion demande au LLM configuré dans **Préférences › Glossaire** (preset de modèle, prompt, tokens max) de remplir la translittération, les autres translittérations, le type, la casse, la traduction et les références Sefaria de chaque entrée sans translittération (les entrées rejetées sont ignorées). Les entrées restent *automatiques* jusqu'à leur validation. **Compléter par l'IA** lance la même tâche à la main.
+La complétion demande au LLM configuré dans **Préférences › Glossaire** (preset de modèle, prompt, tokens max) de remplir la translittération, les autres translittérations, le type, la casse, la traduction et les références Sefaria de chaque entrée sans translittération (les entrées rejetées sont ignorées). Les entrées restent *automatiques* jusqu'à leur validation. **Compléter par l'IA** lance la même tâche à la main, après vous avoir demandé de confirmer le nombre d'entrées à compléter. Pendant la complétion, un bandeau jaune s'affiche au-dessus de la liste, et la liste est actualisée à la fin.
 
 ## Ancien glossaire
 

@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from enum import Enum
-from typing import List
+from typing import Any, List
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -205,3 +205,13 @@ class GlossaryCompletionLaunch(BaseModel):
 
     task_id: int | None
     pending_entries: int
+
+
+class GlossaryCompletionStatus(BaseModel):
+    """Entries awaiting completion and the latest glossary completion task."""
+
+    pending_entries: int
+    task_id: int | None = Field(default=None, description="Latest glossary task, if any")
+    task_status: str | None = Field(default=None, description="pending, running, completed, failed…")
+    task_error: str | None = None
+    task_result: dict[str, Any] | None = None

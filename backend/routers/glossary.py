@@ -14,9 +14,10 @@ from database import get_session
 from hashid_utils import decode_id, encode_id
 from hebrew_text import normalize_hebrew
 from models.glossary import GlossaryEntry
-from services.glossary_completion import enqueue_glossary_completion
+from services.glossary_completion import GLOSSARY_TASK_TYPE, enqueue_glossary_completion
 from schemas.glossary import (
     GlossaryCompletionLaunch,
+    GlossaryCompletionStatus,
     GlossaryEntryCreate,
     GlossaryEntryListResponse,
     GlossaryEntryResponse,
@@ -205,6 +206,26 @@ def complete_glossary_entries(
     pending = crud.count_glossary_entries_to_complete(session)
     task_id = enqueue_glossary_completion(session, created_by_id=claims.get("sub"))
     return GlossaryCompletionLaunch(task_id=task_id, pending_entries=pending)
+
+
+@router.get("/complete/status", response_model=GlossaryCompletionStatus)
+def glossary_completion_status(
+    session: Session = Depends(get_session),
+    _: Dict[str, Any] = Depends(require_roles(WRITE_ROLES)),
+):
+    """Number of entries awaiting completion and the latest completion task.
+
+    Publisher/admin only, like starting the task (editors don't see tasks
+    that are not tied to a lesson they are assigned to).
+    """
+    task = crud.get_latest_task_of_type(session, GLOSSARY_TASK_TYPE)
+    return GlossaryCompletionStatus(
+        pending_entries=crud.count_glossary_entries_to_complete(session),
+        task_id=task.id if task else None,
+        task_status=task.status if task else None,
+        task_error=task.error if task else None,
+        task_result=task.result if task else None,
+    )
 
 
 @router.get("/{entry_hashid}", response_model=GlossaryEntryResponse)
