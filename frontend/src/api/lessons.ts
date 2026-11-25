@@ -2,6 +2,7 @@ import { apiClient } from './client'
 import type {
   LessonListItem,
   LessonDetail,
+  LessonHebrewTerm,
   LessonCreate,
   LessonUpdate,
   LessonStatus,
@@ -25,6 +26,10 @@ export const lessonsApi = {
 
   get: (hashid: string) =>
     apiClient.get<LessonDetail>(`/lessons/${hashid}`).then((r) => r.data),
+
+  /** Glossary entries used in the lesson's Hebrew-mode texts (any lesson reader). */
+  hebrewTerms: (hashid: string) =>
+    apiClient.get<LessonHebrewTerm[]>(`/lessons/${hashid}/hebrew-terms`).then((r) => r.data),
 
   create: (data: LessonCreate) =>
     apiClient.post<LessonDetail>('/lessons', data).then((r) => r.data),

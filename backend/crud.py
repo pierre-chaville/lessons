@@ -21,6 +21,7 @@ from models import (
     ModelPreset,
     GlossaryEntry,
     LegacyGlossaryEntry,
+    UserPreference,
 )
 
 
@@ -542,6 +543,42 @@ def get_latest_task_of_type(session: Session, task_type: str) -> Optional[Task]:
         .order_by(Task.created_at.desc(), Task.id.desc())
     )
     return session.exec(statement).first()
+
+
+def get_glossary_entries_by_keys(
+    session: Session, norms: set[str], consonants: set[str], chunk_size: int = 500
+) -> List[GlossaryEntry]:
+    """Non-rejected entries whose ``hebrew_norm`` or ``hebrew_cons`` is in the given keys."""
+    found: Dict[int, GlossaryEntry] = {}
+    for column, keys in ((GlossaryEntry.hebrew_norm, sorted(norms)), (GlossaryEntry.hebrew_cons, sorted(consonants))):
+        for index in range(0, len(keys), chunk_size):
+            statement = select(GlossaryEntry).where(
+                column.in_(keys[index:index + chunk_size]),
+                GlossaryEntry.status != "rejected",
+            )
+            for entry in session.exec(statement).all():
+                found[entry.id] = entry
+    return [found[entry_id] for entry_id in sorted(found)]
+
+
+# User preferences (always the signed-in user's own row)
+def get_user_preference(session: Session, user_id: str) -> Optional[UserPreference]:
+    return session.get(UserPreference, user_id)
+
+
+def set_user_hebrew_display(
+    session: Session, user_id: str, hebrew_display: Dict[str, Any]
+) -> UserPreference:
+    """Create or replace the user's Hebrew display settings."""
+    preference = session.get(UserPreference, user_id)
+    if preference is None:
+        preference = UserPreference(user_id=user_id)
+    preference.hebrew_display = hebrew_display
+    preference.updated_at = datetime.utcnow()
+    session.add(preference)
+    session.commit()
+    session.refresh(preference)
+    return preference
 
 
 def get_all_legacy_glossary_entries(session: Session) -> List[LegacyGlossaryEntry]:

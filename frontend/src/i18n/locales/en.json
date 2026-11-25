@@ -607,6 +607,53 @@
     "light": "Switch to light mode",
     "dark": "Switch to dark mode"
   },
+  "hebrewDisplay": {
+    "buttonTitle": "Hebrew display: {mode}",
+    "title": "Hebrew display",
+    "description": "How Hebrew terms appear in lessons. Saved on your account, on all your devices.",
+    "saveFailed": "Could not save these settings to your account. They apply on this device only for now.",
+    "presetsLabel": "Presets",
+    "defaultBadge": "default",
+    "custom": "custom",
+    "customize": "Customize",
+    "example": "One must do {first}… {next} repairs everything.",
+    "sampleTranslation": "repentance",
+    "presets": {
+      "beginner": { "name": "Beginner" },
+      "standard": { "name": "Standard" },
+      "bilingual": { "name": "Bilingual" },
+      "advanced": { "name": "Advanced" },
+      "fluent": { "name": "Fluent reader" }
+    },
+    "primary": {
+      "label": "Primary form",
+      "translit": "Transliterated",
+      "vocalized": "Vocalized Hebrew",
+      "unvocalized": "Hebrew without niqqud"
+    },
+    "supplement": {
+      "label": "Supplementary form (in parentheses)",
+      "none": "None",
+      "hebrew": "Hebrew",
+      "translit": "Transliteration",
+      "translation": "Translation"
+    },
+    "frequency": {
+      "label": "Show the supplementary form",
+      "first": "On the first occurrence",
+      "every": "On every occurrence"
+    },
+    "quotations": {
+      "label": "Always display quotations in Hebrew",
+      "description": "Biblical verses (pessoukim) and Gemara quotations, whatever the primary form."
+    },
+    "tooltip": {
+      "translit": "Transliteration",
+      "translation": "Translation",
+      "sefaria": "Sefaria: {ref}",
+      "notValidated": "Automatic entry, not yet validated."
+    }
+  },
   "help": {
     "open": "Open help",
     "close": "Close help",

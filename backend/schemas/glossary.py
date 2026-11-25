@@ -207,6 +207,22 @@ class GlossaryCompletionLaunch(BaseModel):
     pending_entries: int
 
 
+class LessonHebrewTerm(BaseModel):
+    """Display data of a glossary entry used in a lesson (readable by every lesson reader)."""
+
+    id: int
+    hebrew: str
+    hebrew_norm: str
+    hebrew_cons: str
+    translit: str | None
+    type: GlossaryType
+    case_flag: GlossaryCaseFlag
+    translation: str | None
+    sefaria_title: str | None
+    sefaria_ref: str | None
+    validated: bool
+
+
 class GlossaryCompletionStatus(BaseModel):
     """Entries awaiting completion and the latest glossary completion task."""
 

@@ -65,12 +65,16 @@ Roles are managed in Clerk and transmitted via JWT claims. A user has exactly on
 |                | update | ❌     | ❌     | ❌        | ✅    |
 | **Users**      | read   | ❌     | ❌     | ✅        | ✅    |
 |                | manage | ❌     | ❌     | ✅†       | ✅    |
+| **My preferences** | read | ✅  | ✅     | ✅        | ✅    |
+|                | update | ✅     | ✅     | ✅        | ✅    |
 
 \* **Editors can read and create tasks only on lessons they are assigned to as editor.** This is a resource-level check that comes *in addition to* the role check: the role alone is not enough.
 
 † **Publishers manage users with restrictions**: they cannot grant the `admin` role (create, invite or role change), and cannot change the role of or delete a user who is `admin`. "Manage" covers creating, inviting, revoking invitations, changing roles and deleting users.
 
-**Glossary**: covers the Hebrew-keyed glossary and the read-only legacy glossary. YAML export (glossary and legacy) is a *read*; YAML import is a *create/update*.
+**My preferences**: personal display settings of the signed-in user (e.g. how Hebrew is displayed in lessons). A user only ever reads and updates **their own** preferences, identified by the token's user id — no endpoint takes a user id, so nobody (admin included) reads or changes another user's preferences.
+
+**Glossary**: covers the Hebrew-keyed glossary and the read-only legacy glossary. YAML export (glossary and legacy) is a *read*; YAML import is a *create/update*. Exception: reading a **lesson** includes the display data (Hebrew, transliteration, translation, type, Sefaria title/ref) of the glossary entries that appear in that lesson's edited text and summary (`GET /lessons/{id}/hebrew-terms`), so every role that can read the lesson can display it in their chosen Hebrew mode. This does not grant access to the glossary itself.
 
 ### Backend Enforcement
 
@@ -110,6 +114,7 @@ const PERMISSIONS = {
   model_presets: { read: ['publisher','admin'], create: ['admin'], update: ['admin'], delete: ['admin'] },
   configuration: { read: ['publisher','admin'], update: ['admin'] },
   users:         { read: ['publisher','admin'], manage: ['publisher','admin'] }, // publisher: cannot grant or touch admin, see below
+  preferences:   { read: ['reader','editor','publisher','admin'], update: ['reader','editor','publisher','admin'] }, // own preferences only
 }
 
 export function usePermissions(userRole) {

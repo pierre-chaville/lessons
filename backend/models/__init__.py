@@ -13,6 +13,7 @@ from models.sefaria_cache import SefariaCache
 from models.versioning import ContentVersion, ContentType, VersionSource
 from models.preference_versioning import PreferenceVersion, PreferenceVersionSource
 from models.audit import AuditLog
+from models.user_preference import UserPreference
 from models.booklet import (
     Booklet,
     BookletItem,
@@ -43,6 +44,7 @@ __all__ = [
     "PreferenceVersion",
     "PreferenceVersionSource",
     "AuditLog",
+    "UserPreference",
     "Booklet",
     "BookletItem",
     "BookletItemType",

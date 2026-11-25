@@ -16,3 +16,4 @@ export type Resource =
   | 'users'
   | 'model_presets'
   | 'glossary'
+  | 'preferences'

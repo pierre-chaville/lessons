@@ -607,6 +607,53 @@
     "light": "Passer en mode clair",
     "dark": "Passer en mode sombre"
   },
+  "hebrewDisplay": {
+    "buttonTitle": "Affichage de l'hébreu : {mode}",
+    "title": "Affichage de l'hébreu",
+    "description": "Comment les termes hébreux apparaissent dans les cours. Enregistré sur votre compte, pour tous vos appareils.",
+    "saveFailed": "Impossible d'enregistrer ces réglages sur votre compte. Ils ne s'appliquent pour l'instant qu'à cet appareil.",
+    "presetsLabel": "Préréglages",
+    "defaultBadge": "par défaut",
+    "custom": "personnalisé",
+    "customize": "Personnaliser",
+    "example": "Il faut faire {first}… la {next} répare tout.",
+    "sampleTranslation": "repentir",
+    "presets": {
+      "beginner": { "name": "Débutant" },
+      "standard": { "name": "Standard" },
+      "bilingual": { "name": "Bilingue" },
+      "advanced": { "name": "Avancé" },
+      "fluent": { "name": "Lecteur courant" }
+    },
+    "primary": {
+      "label": "Forme principale",
+      "translit": "Translittéré",
+      "vocalized": "Hébreu vocalisé",
+      "unvocalized": "Hébreu sans nikoud"
+    },
+    "supplement": {
+      "label": "Forme complémentaire (entre parenthèses)",
+      "none": "Aucune",
+      "hebrew": "Hébreu",
+      "translit": "Translittération",
+      "translation": "Traduction"
+    },
+    "frequency": {
+      "label": "Forme complémentaire affichée",
+      "first": "À la première occurrence",
+      "every": "À chaque occurrence"
+    },
+    "quotations": {
+      "label": "Toujours afficher les citations en hébreu",
+      "description": "Versets (psoukim) et citations de la Guemara, quelle que soit la forme principale."
+    },
+    "tooltip": {
+      "translit": "Translittération",
+      "translation": "Traduction",
+      "sefaria": "Sefaria : {ref}",
+      "notValidated": "Entrée automatique, pas encore validée."
+    }
+  },
   "help": {
     "open": "Ouvrir l'aide",
     "close": "Fermer l'aide",

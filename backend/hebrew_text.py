@@ -40,6 +40,19 @@ _HEBREW_SPAN_RE = re.compile(
 )
 
 
+# Doubt markers added by the correction LLM: <d alt="...">text</d>. The opening
+# tag (with its attributes, quoted values may contain spaces or '>') and the
+# closing tag are removed; the marked text itself is kept.
+_DOUBT_OPEN_TAG_RE = re.compile(r"""<d\b(?:[^>"']|"[^"]*"|'[^']*')*>""", re.IGNORECASE)
+_DOUBT_CLOSE_TAG_RE = re.compile(r"</d\s*>", re.IGNORECASE)
+
+
+def strip_doubt_tags(text: str) -> str:
+    """Remove ``<d ...>`` / ``</d>`` doubt tags, keeping the text between them."""
+    value = _DOUBT_OPEN_TAG_RE.sub("", str(text or ""))
+    return _DOUBT_CLOSE_TAG_RE.sub("", value)
+
+
 def contains_hebrew_letter(text: str) -> bool:
     """True when the text contains at least one Hebrew letter (alef..tav)."""
     return bool(_HEBREW_LETTER_RE.search(text or ""))
@@ -78,14 +91,16 @@ def merge_hebrew_segments(segments: list[dict]) -> list[dict]:
     the first word of the second both contain Hebrew letters (punctuation
     attached to the words is ignored). Merging repeats, so a Hebrew passage
     spread over several segments ends up in a single segment spanning
-    ``start`` of the first to ``end`` of the last.
+    ``start`` of the first to ``end`` of the last. Doubt tags are ignored for
+    the decision (an ``alt`` attribute does not count as a Hebrew word) but
+    kept in the merged text.
     """
     merged: list[dict] = []
     for segment in segments:
         text = str(segment.get("text") or "")
         if merged:
-            previous_words = str(merged[-1].get("text") or "").split()
-            next_words = text.split()
+            previous_words = strip_doubt_tags(merged[-1].get("text")).split()
+            next_words = strip_doubt_tags(text).split()
             if (
                 previous_words
                 and next_words
@@ -98,6 +113,49 @@ def merge_hebrew_segments(segments: list[dict]) -> list[dict]:
     return merged
 
 
+# Any HTML tag (doubt tags, source markers...): never part of a Hebrew term.
+_HTML_TAG_RE = re.compile(r"""<(?:[^>"']|"[^"]*"|'[^']*')*>""")
+# Longest sub-expression looked up in the glossary (long quotations included).
+MAX_LOOKUP_WORDS = 40
+
+
+def _hebrew_runs(text: str) -> list[list[str]]:
+    """Runs of consecutive Hebrew words, each word trimmed to its Hebrew span."""
+    runs: list[list[str]] = []
+    current: list[str] = []
+    for token in _HTML_TAG_RE.sub(" ", str(text or "")).split():
+        match = _HEBREW_SPAN_RE.search(token)
+        if match:
+            current.append(match.group(0))
+        elif current:
+            runs.append(current)
+            current = []
+    if current:
+        runs.append(current)
+    return runs
+
+
+def hebrew_lookup_keys(text: str, max_words: int = MAX_LOOKUP_WORDS) -> tuple[set[str], set[str]]:
+    """Glossary keys (``hebrew_norm``, ``hebrew_cons``) of every Hebrew sub-expression.
+
+    Every contiguous sequence of up to ``max_words`` words inside a Hebrew run
+    is a candidate, so a run made of several glossary terms finds each of
+    them. HTML tags are ignored. The client picks the actual matches
+    (longest first); this only has to return a superset.
+    """
+    norms: set[str] = set()
+    consonants: set[str] = set()
+    for run in _hebrew_runs(text):
+        for start in range(len(run)):
+            for end in range(start + 1, min(len(run), start + max_words) + 1):
+                expression = " ".join(run[start:end])
+                norms.add(normalize_hebrew(expression))
+                consonants.add(hebrew_consonants(expression))
+    norms.discard("")
+    consonants.discard("")
+    return norms, consonants
+
+
 def extract_hebrew_expressions(text: str) -> list[str]:
     """Hebrew words and expressions found in a text, in order of appearance.
 
@@ -105,11 +163,12 @@ def extract_hebrew_expressions(text: str) -> list[str]:
     that contain Hebrew letters; a word without Hebrew letters ends the run.
     Leading/trailing punctuation is trimmed (a closing geresh of an
     abbreviation is kept). Duplicates (same ``normalize_hebrew`` key) are
-    returned once.
+    returned once. Doubt tags (``<d alt=...>…</d>``) are removed first: only
+    the marked text is kept, never the tags or their ``alt`` attribute.
     """
     runs: list[list[str]] = []
     current: list[str] = []
-    for token in str(text or "").split():
+    for token in strip_doubt_tags(text).split():
         if _is_hebrew_token(token):
             current.append(token)
         elif current:

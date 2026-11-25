@@ -41,12 +41,14 @@ import { usersApi, type ClerkUser } from '@/api/users'
 import { useToast } from '@/composables/useToast'
 import { usePermissions } from '@/composables/usePermissions'
 import { useAuth } from '@/composables/useAuth'
+import { useLessonHebrewTerms } from '@/composables/useLessonHebrewTerms'
 import { formatApiDateTime } from '@/utils/dateTime'
 import { hierarchyLabel } from '@/utils/hierarchyLabel'
 import VersionHistoryPanel from '@/components/VersionHistoryPanel.vue'
 import MilkdownEditor from '@/components/MilkdownEditor.vue'
 import LessonDocumentModal from '@/components/LessonDocumentModal.vue'
 import MultiSelectDropdown from '@/components/MultiSelectDropdown.vue'
+import HebrewTermsLayer from '@/components/lessons/HebrewTermsLayer.vue'
 import type {
   LessonDetail as LessonDetailType,
   LessonSource,
@@ -516,8 +518,17 @@ onBeforeUnmount(() => {
   clearDraftSaveTimeout('edited')
 })
 
+// Hebrew terms of Hebrew-mode texts, displayed per the user's Hebrew display settings
+const { renderHebrew, termsById: hebrewTermsById } = useLessonHebrewTerms(() => ({
+  hashid: props.lesson.hashid,
+  editedMarkdown: props.lesson.edited_transcript?.markdown,
+  summary: props.lesson.summary,
+  editedMode: props.lesson.edited_transcript_hebrew_mode,
+  summaryMode: props.lesson.summary_hebrew_mode,
+}))
+
 // Render markdown to HTML
-const renderMarkdown = (markdown: string | null | undefined): string => {
+const renderMarkdown =(markdown: string | null | undefined): string => {
   if (!markdown) return ''
   return marked(markdown) as string
 }
@@ -3547,6 +3558,8 @@ const saveParagraph = async () => {
         
         <!-- Content Panels -->
         <div data-tour="detail-content" class="p-6">
+          <!-- Hebrew terms: first-occurrence supplements and tooltips -->
+          <HebrewTermsLayer :terms="hebrewTermsById">
           <!-- Global floating now-playing bar -->
           <div
             v-if="isPlaying && (activeView === 'transcript' || activeView === 'edited' || (activeView === 'summary' && showSummaryWithEdited))"
@@ -3670,7 +3683,7 @@ const saveParagraph = async () => {
                   <div
                     v-if="row.summaryText"
                     class="text-gray-900 dark:text-gray-100 leading-relaxed"
-                    v-html="renderMarkdown(row.summaryText)"
+                    v-html="renderMarkdown(renderHebrew(row.summaryText, lesson.summary_hebrew_mode))"
                   ></div>
                   <div
                     v-else
@@ -3712,7 +3725,7 @@ const saveParagraph = async () => {
                       </div>
                       <div
                         class="text-gray-900 dark:text-gray-100 leading-relaxed"
-                        v-html="renderMarkdown(part.text)"
+                        v-html="renderMarkdown(renderHebrew(part.text, lesson.edited_transcript_hebrew_mode))"
                       ></div>
                     </div>
                   </div>
@@ -3728,7 +3741,7 @@ const saveParagraph = async () => {
             <div
               v-else-if="lesson.summary"
               class="prose prose-indigo dark:prose-invert max-w-none"
-              v-html="renderMarkdown(lesson.summary)"
+              v-html="renderMarkdown(renderHebrew(lesson.summary, lesson.summary_hebrew_mode))"
             ></div>
             <div v-else class="text-center py-12">
               <p class="text-gray-500 dark:text-gray-400">
@@ -4228,7 +4241,7 @@ const saveParagraph = async () => {
                         <div class="prose prose-sm dark:prose-invert max-w-none">
                           <div 
                             class="text-gray-900 dark:text-gray-100 leading-relaxed whitespace-pre-wrap print:text-black"
-                            v-html="renderMarkdown(showSourcesInEdited ? addSourceMarkers(row.editedPart.text, getSourcesForParagraph(row.editedPart.index) as any, getGlobalSourceIndex(row.editedPart.index)) : row.editedPart.text)"
+                            v-html="renderMarkdown(renderHebrew(showSourcesInEdited ? addSourceMarkers(row.editedPart.text, getSourcesForParagraph(row.editedPart.index) as any, getGlobalSourceIndex(row.editedPart.index)) : row.editedPart.text, lesson.edited_transcript_hebrew_mode))"
                           ></div>
                         </div>
                       </div>
@@ -4386,7 +4399,7 @@ const saveParagraph = async () => {
                       <div class="prose prose-sm dark:prose-invert max-w-none">
                         <div 
                           class="text-gray-900 dark:text-gray-100 leading-normal whitespace-pre-wrap print:text-black"
-                          v-html="renderMarkdown(showSourcesInEdited ? addSourceMarkers(part.text, getSourcesForParagraph(index) as any, getGlobalSourceIndex(index)) : part.text)"
+                          v-html="renderMarkdown(renderHebrew(showSourcesInEdited ? addSourceMarkers(part.text, getSourcesForParagraph(index) as any, getGlobalSourceIndex(index)) : part.text, lesson.edited_transcript_hebrew_mode))"
                         ></div>
                       </div>
                     </div>
@@ -4482,6 +4495,7 @@ const saveParagraph = async () => {
               </p>
             </div>
           </div>
+          </HebrewTermsLayer>
         </div>
       </div>
 

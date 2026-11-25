@@ -8,7 +8,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 import crud
 from hashid_utils import encode_id
-from hebrew_text import extract_hebrew_expressions, merge_hebrew_segments
+from hebrew_text import extract_hebrew_expressions, merge_hebrew_segments, strip_doubt_tags
 from models.glossary import GlossaryEntry
 from services.correction import _process_native_hebrew
 
@@ -68,6 +68,35 @@ def test_extract_ignores_text_without_hebrew() -> None:
     assert extract_hebrew_expressions("Aucun mot hébreu ici.") == []
 
 
+def test_strip_doubt_tags_keeps_inner_text() -> None:
+    text = f'la <d alt="{TESHUVA} גְּמוּרָה">{TESHUVA}</d> et <d alt=\'x > y\'>shalom</d> <D>ok</D >'
+    assert strip_doubt_tags(text) == f"la {TESHUVA} et shalom ok"
+
+
+def test_extract_removes_doubt_tags() -> None:
+    text = (
+        f'La <d alt="techouva">{TESHUVA}</d>, puis <d alt="{TESHUVA}">{EIN_OD}</d> '
+        f'et <d alt="מִלְבַדּוֹ">milvado</d> fin.'
+    )
+    # Hebrew inside the tags is kept whole; Hebrew only in an alt attribute is ignored.
+    assert extract_hebrew_expressions(text) == [TESHUVA, EIN_OD]
+
+
+def test_merge_ignores_hebrew_in_doubt_alt_attribute() -> None:
+    segments = [
+        _seg(0, 1, f'la <d alt="{TESHUVA}">techouva</d>'),
+        _seg(1, 2, f"{TESHUVA} encore"),
+    ]
+    assert merge_hebrew_segments(segments) == segments
+    tagged = [
+        _seg(0, 1, f'le verset <d alt="x">אֵין עוֹד</d>'),
+        _seg(1, 2, "מִלְבַדּוֹ selon"),
+    ]
+    assert merge_hebrew_segments(tagged) == [
+        _seg(0, 2, f'le verset <d alt="x">אֵין עוֹד</d> מִלְבַדּוֹ selon')
+    ]
+
+
 def test_add_missing_entries_skips_existing_and_duplicate_keys(session: Session) -> None:
     crud.create_glossary_entry(session, {"hebrew": TESHUVA, "translit": "techouva"})
     created = crud.add_missing_glossary_entries(
@@ -110,3 +139,13 @@ def test_process_native_hebrew_merges_and_feeds_glossary(session: Session) -> No
     assert new_entry.aliases == []
     assert new_entry.context_lesson == encode_id(7)
     assert new_entry.context_paragraph == merged[0]["text"]
+
+
+def test_process_native_hebrew_strips_doubt_tags_from_glossary(session: Session) -> None:
+    segments = [_seg(0, 1, f'La <d alt="אֵין עוֹד">{TESHUVA}</d> ici.')]
+    merged, _ = _process_native_hebrew(session, 7, segments)
+
+    assert merged == segments  # the transcript keeps its tags
+    entries = session.exec(select(GlossaryEntry)).all()
+    assert [entry.hebrew for entry in entries] == [TESHUVA]
+    assert entries[0].context_paragraph == f"La {TESHUVA} ici."

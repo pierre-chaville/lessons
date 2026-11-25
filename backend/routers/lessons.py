@@ -39,8 +39,14 @@ from services.versioning import (
 )
 from models.versioning import ContentVersion, parse_hebrew_mode
 from hashid_utils import decode_id
+from hebrew_text import hebrew_lookup_keys
+from schemas.common import HebrewMode
+from schemas.glossary import LessonHebrewTerm
+from services.edited_transcript import edited_transcript_markdown
 
 router = APIRouter(prefix="/lessons", tags=["Lessons"])
+
+LESSON_READ_ROLES = ["reader", "editor", "publisher", "admin"]
 
 
 def _require_lesson_access(
@@ -384,6 +390,47 @@ def get_lesson(lesson_hashid: str, session: Session = Depends(get_session)):
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
     return lesson_service.build_lesson_response(lesson, session)
+
+
+@router.get("/{lesson_hashid}/hebrew-terms", response_model=List[LessonHebrewTerm])
+def get_lesson_hebrew_terms(
+    lesson_hashid: str,
+    session: Session = Depends(get_session),
+    _: Dict[str, Any] = Depends(require_roles(LESSON_READ_ROLES)),
+):
+    """Glossary entries found in the lesson's Hebrew-mode texts (edited + summary).
+
+    Part of reading a lesson (AGENTS.md › Access Control › Glossary): only the
+    display fields of the matching entries, so readers can display the lesson
+    in their chosen Hebrew mode. Texts in transliteration mode are skipped.
+    """
+    lesson = crud.get_lesson(session, decode_id(lesson_hashid))
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+    texts: list[str] = []
+    if parse_hebrew_mode(lesson.edited_transcript_hebrew_mode) != HebrewMode.TRANSLIT:
+        texts.append(edited_transcript_markdown(lesson.edited_transcript))
+    if parse_hebrew_mode(lesson.summary_hebrew_mode) != HebrewMode.TRANSLIT:
+        texts.append(lesson.summary or "")
+    norms, consonants = hebrew_lookup_keys("\n\n".join(texts))
+    if not norms and not consonants:
+        return []
+    return [
+        LessonHebrewTerm(
+            id=entry.id,
+            hebrew=entry.hebrew,
+            hebrew_norm=entry.hebrew_norm,
+            hebrew_cons=entry.hebrew_cons,
+            translit=entry.translit or None,
+            type=entry.type,
+            case_flag=entry.case_flag,
+            translation=entry.translation or None,
+            sefaria_title=entry.sefaria_title or None,
+            sefaria_ref=entry.sefaria_ref or None,
+            validated=entry.status == "validated",
+        )
+        for entry in crud.get_glossary_entries_by_keys(session, norms, consonants)
+    ]
 
 
 @router.post("", response_model=LessonResponse, status_code=201)

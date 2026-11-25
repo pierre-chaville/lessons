@@ -18,7 +18,7 @@ from models.versioning import ContentType, VersionSource
 from services.versioning import hebrew_mode_from_prompt, update_content
 import crud
 from hashid_utils import encode_id
-from hebrew_text import extract_hebrew_expressions, merge_hebrew_segments
+from hebrew_text import extract_hebrew_expressions, merge_hebrew_segments, strip_doubt_tags
 from schemas.common import HebrewMode
 from schemas.glossary import GlossarySource, GlossaryStatus
 from services.glossary_completion import enqueue_glossary_completion
@@ -264,10 +264,12 @@ def _process_native_hebrew(
         {
             "hebrew": expression,
             "context_lesson": lesson_hashid,
-            "context_paragraph": segment["text"],
+            "context_paragraph": context,
         }
         for segment in merged
-        for expression in extract_hebrew_expressions(segment["text"])
+        # Doubt tags are LLM markup, not lesson text: kept out of the glossary.
+        for context in [strip_doubt_tags(segment["text"])]
+        for expression in extract_hebrew_expressions(context)
     ]
     created = crud.add_missing_glossary_entries(
         session,

@@ -215,6 +215,43 @@ export interface GlossaryCompletionLaunch {
   pending_entries: number
 }
 
+/** What is shown in the body of the text for a Hebrew term. */
+export type HebrewPrimaryForm = 'translit' | 'vocalized' | 'unvocalized'
+/** What is added in parentheses after the primary form. */
+export type HebrewSupplementForm = 'none' | 'alternate' | 'translation'
+/** When the supplementary form is added. */
+export type HebrewSupplementFrequency = 'first' | 'every'
+
+/** How Hebrew terms are displayed in lessons (mirrors backend schemas.user_preference). */
+export interface HebrewDisplaySettings {
+  primary: HebrewPrimaryForm
+  /** `alternate` = Hebrew when the primary form is the transliteration, transliteration otherwise. */
+  supplement: HebrewSupplementForm
+  frequency: HebrewSupplementFrequency
+  /** Biblical verses and Talmud quotations always shown in Hebrew, whatever `primary` is. */
+  quotations_in_hebrew: boolean
+}
+
+/** Display data of a glossary entry used in a lesson (GET /lessons/{id}/hebrew-terms). */
+export interface LessonHebrewTerm {
+  id: number
+  hebrew: string
+  hebrew_norm: string
+  hebrew_cons: string
+  translit: string | null
+  type: GlossaryType
+  case_flag: GlossaryCaseFlag
+  translation: string | null
+  sefaria_title: string | null
+  sefaria_ref: string | null
+  validated: boolean
+}
+
+/** The signed-in user's own preferences; `null` = never saved (use the defaults). */
+export interface UserPreferences {
+  hebrew_display: HebrewDisplaySettings | null
+}
+
 /** Latest glossary completion task (any status) and entries still awaiting completion. */
 export interface GlossaryCompletionStatus {
   pending_entries: number

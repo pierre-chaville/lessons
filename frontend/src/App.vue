@@ -21,6 +21,7 @@ import {
 import { useAuth } from '@/composables/useAuth';
 import { usePermissions } from '@/composables/usePermissions';
 import NavigationSidebar from './components/NavigationSidebar.vue';
+import HebrewDisplayMenu from './components/layout/HebrewDisplayMenu.vue';
 import LessonsList from './views/LessonsList.vue';
 import SearchLessons from './views/SearchLessons.vue';
 import AIAssistant from './views/AIAssistant.vue';
@@ -362,6 +363,10 @@ watch(
             >
               <QuestionMarkCircleIcon class="h-5 w-5" />
             </button>
+            <!-- Hebrew display settings -->
+            <SignedIn>
+              <HebrewDisplayMenu v-if="hasAccess" data-tour="hebrew-display" />
+            </SignedIn>
             <!-- Dark Mode Toggle -->
             <button
               data-tour="theme-toggle"

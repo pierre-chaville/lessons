@@ -37,3 +37,9 @@ Les onglets apparaissent selon les donnees presentes:
 - Exporter/importer des contenus (Markdown, Word, PDF selon onglet)
 - Consulter l'historique et restaurer des versions
 - Lancer les etapes restantes du pipeline
+
+## Termes hébreux
+
+Quand le résumé ou la version rédigée ont été générés avec les termes en hébreu (mode hébreu natif ou partiel), chaque terme présent dans le glossaire est affiché selon votre choix fait avec le bouton **אב** en haut de la page : translittéré, en hébreu vocalisé ou sans nikoud, éventuellement suivi entre parenthèses de l'hébreu, de la translittération ou de la traduction. Les citations peuvent rester toujours en hébreu.
+
+Survolez, touchez ou sélectionnez un terme (souligné en pointillés) pour voir toutes ses formes : hébreu vocalisé, translittération, traduction et, pour les livres et citations, un lien vers Sefaria. Les termes absents du glossaire sont affichés tels quels.

@@ -60,6 +60,11 @@ const PERMISSIONS: Record<Resource, Record<string, Role[]>> = {
     update: ['publisher', 'admin'],
     delete: ['publisher', 'admin'],
   },
+  // The signed-in user's own preferences only (no endpoint targets another user).
+  preferences: {
+    read:   ['reader', 'editor', 'publisher', 'admin'],
+    update: ['reader', 'editor', 'publisher', 'admin'],
+  },
 }
 
 export function usePermissions() {
