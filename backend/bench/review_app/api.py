@@ -8,6 +8,7 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from bench.review_app import data
 
@@ -29,6 +30,10 @@ def _call(func, *args, **kwargs):
         return func(*args, **kwargs)
     except data.NotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+    except data.Conflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.get("/api/campaigns")
@@ -51,6 +56,18 @@ def lesson(stem: str, step: str, lesson: str, candidates: Optional[str] = Query(
            repeat: Optional[int] = Query(None)):
     keys = [c for c in candidates.split(",") if c] if candidates else None
     return _call(data.lesson_detail, stem, step, lesson, keys, repeat)
+
+
+class GoldSegment(BaseModel):
+    start: int
+    end: int
+    previous: str  # text shown by the page, to detect concurrent changes
+    text: str
+
+
+@app.put("/api/campaigns/{stem}/steps/{step}/lessons/{lesson}/gold-segment")
+def update_gold_segment(stem: str, step: str, lesson: str, body: GoldSegment):
+    return _call(data.update_gold_segment, stem, step, lesson, body.start, body.end, body.previous, body.text)
 
 
 @app.get("/vendor/{name}")

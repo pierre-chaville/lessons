@@ -1,0 +1,21 @@
+[tool.coverage.run]
+source = ["app"]
+branch = true
+omit = [
+    "*/tests/*",
+    "*/migrations/*",
+    "*/alembic/*",
+    "*/scripts/*",
+    "*/__init__.py",
+    "*/config.py",
+    "*/generated/*",
+    "*/experimental/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+precision = 1
+
+[tool.coverage.html]
+directory = "htmlcov"

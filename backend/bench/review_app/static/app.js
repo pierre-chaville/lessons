@@ -1,12 +1,14 @@
-import { createApp, reactive, computed, watch, ref } from "/vendor/vue.js";
+import { createApp, reactive, computed, watch, ref, onMounted } from "/vendor/vue.js";
 import { marked } from "/vendor/marked.js";
 
 // --------------------------------------------------------------------------- //
 // Helpers
 // --------------------------------------------------------------------------- //
 
-async function api(path) {
-  const response = await fetch(`/api${path}`);
+async function api(path, method = "GET", body = undefined) {
+  const options = { method };
+  if (body !== undefined) Object.assign(options, { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const response = await fetch(`/api${path}`, options);
   if (!response.ok) {
     let detail = response.statusText;
     try { detail = (await response.json()).detail || detail; } catch { /* not JSON */ }
@@ -313,10 +315,96 @@ function sortKeys(obj) {
   return obj;
 }
 
+/** One piece of a segment text (backend review_app/segment_view.py): a category maps to CSS classes. */
+const Piece = {
+  props: ["p"],
+  template: `<span v-if="p.c" :class="['tok', 'tok--' + p.c, 'sev--' + p.s, { 'tok--gap': p.gap }]" :title="p.h">{{ p.t }}</span><template v-else>{{ p.t }}</template>`,
+};
+
+/** Pieces of a segment text; each Hebrew passage is isolated in <bdi dir="rtl"> (punctuation around it stays outside). */
+const Pieces = {
+  components: { Piece },
+  props: ["items"],
+  template: `<template v-for="(it, i) in items" :key="i"><bdi v-if="it.rtl" dir="rtl"><Piece v-for="(p, j) in it.rtl" :key="j" :p="p" /></bdi><Piece v-else :p="it" /></template>`,
+};
+
+/** Modal to edit the gold text of one segment, with the texts of the initial transcript and of the models to copy from. */
+const GoldEditor = {
+  components: { Pieces },
+  props: ["data", "row"],
+  emits: ["close", "saved"],
+  setup(props, { emit }) {
+    const draft = ref(props.row.gold_raw);  // as written: doubt tags are kept
+    const box = ref(null);
+    onMounted(() => box.value?.focus());
+    const state = reactive({ saving: false, error: null });
+    const sources = computed(() => [
+      { key: "initial", name: "initial", detail: "initial.md", text: props.row.initial.text, raw: props.row.initial.raw, html: props.row.initial.html,
+        severity: props.row.initial.severity, pieces: props.row.initial.pieces, same: props.row.initial.changed === 0 },
+      ...props.data.outputs.map((o) => {
+        const cell = props.row.cells[o.key];
+        const missing = !cell || cell.missing;
+        return { key: o.key, name: o.model, detail: `${o.prompt} · r${o.repeat}`, text: missing ? null : cell.text, raw: missing ? null : cell.raw,
+                 html: cell?.html ?? null, severity: cell?.severity ?? null, pieces: cell?.pieces ?? null, worst: cell?.worst ?? null,
+                 same: cell?.pieces ? !cell.worst : !cell?.severity };
+      }),
+    ]);
+    const changed = computed(() => draft.value.split(/\s+/).join(" ").trim() !== props.row.gold_raw);
+    const save = async () => {
+      if (!changed.value || state.saving) return;
+      state.saving = true; state.error = null;
+      try {
+        await api(`/campaigns/${enc(route.params.c)}/steps/${enc(route.params.s)}/lessons/${enc(props.data.lesson)}/gold-segment`, "PUT",
+                  { start: props.row.start, end: props.row.end, previous: props.row.gold_raw, text: draft.value });
+        emit("saved");
+      } catch (e) {
+        state.error = e.message;
+      } finally {
+        state.saving = false;
+      }
+    };
+    const close = () => {
+      if (!changed.value || confirm("Discard the changes of this segment?")) emit("close");
+    };
+    return { draft, box, state, sources, changed, save, close };
+  },
+  template: `
+  <div class="modal-backdrop" @mousedown.self="close" @keydown.esc="close">
+    <div class="modal" role="dialog" aria-modal="true">
+      <header><span class="name">corrected (gold)</span> <span class="muted small">{{ row.time }} · {{ data.gold_file }}</span></header>
+      <textarea ref="box" v-model="draft" rows="4" @keydown.ctrl.enter="save" @keydown.meta.enter="save"></textarea>
+      <div class="toolbar" style="margin:.4rem 0 .8rem">
+        <button class="primary" :disabled="!changed || state.saving" @click="save">{{ state.saving ? "Saving…" : "Save" }}</button>
+        <button @click="close">Cancel</button>
+        <button :disabled="!changed" @click="draft = row.gold_raw">Reset</button>
+        <span class="muted small">Ctrl+Enter to save · Esc to cancel</span>
+        <span v-if="state.error" class="error small">{{ state.error }}</span>
+      </div>
+      <div class="muted small" style="margin-bottom:.3rem">Copy the text of another transcript into the gold, doubt tags included (marks: differences with the saved gold, tags ignored):</div>
+      <div class="sources">
+        <div v-for="src in sources" :key="src.key" class="source" :class="src.text === null ? 'na' : (src.worst ? 'worst--' + src.worst : (src.severity ? 'sev-' + src.severity : ''))">
+          <button :disabled="src.text === null" @click="draft = src.raw" :title="'Copy into the gold'">{{ src.name }}</button>
+          <span class="muted small">{{ src.detail }}</span>
+          <div class="text">
+            <em v-if="src.text === null" class="muted">no segment</em>
+            <span v-else-if="src.pieces" class="seg-text"><Pieces :items="src.pieces" /><span v-if="src.same" class="muted small"> (= gold)</span></span>
+            <span v-else-if="src.html" v-html="src.html"></span>
+            <span v-else>{{ src.text }} <span class="muted small">(= gold)</span></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`,
+};
+
 const CorrectionSegments = {
+  components: { GoldEditor },
   props: ["data"],
-  setup(props) {
+  emits: ["changed"],
+  setup(props, { emit }) {
     const onlyDiff = ref(true);
+    const editing = ref(null);
+    const saved = () => { editing.value = null; emit("changed"); };
     const outputs = computed(() => props.data.outputs);
     const rows = computed(() => props.data.segments.filter((r) => !onlyDiff.value || r.initial.severity || Object.values(r.cells).some((c) => c.severity)));
     const counts = computed(() => {
@@ -329,7 +417,7 @@ const CorrectionSegments = {
       return result;
     });
     const total = (c) => c.fold + c.norm + c.minor;
-    return { onlyDiff, rows, outputs, counts, total };
+    return { onlyDiff, rows, outputs, counts, total, editing, saved };
   },
   template: `
   <div class="toolbar">
@@ -350,14 +438,86 @@ const CorrectionSegments = {
       <tr v-for="r in rows" :key="r.start">
         <td class="ts">{{ r.time }}</td>
         <td :class="r.initial.severity ? 'sev-' + r.initial.severity : ''"><span v-if="r.initial.html" v-html="r.initial.html"></span><span v-else>{{ r.initial.text }}</span></td>
-        <td class="gold">{{ r.gold }}</td>
+        <td class="gold editable" title="Click to edit the gold" @click="editing = r">{{ r.gold }}</td>
         <td v-for="o in outputs" :class="o.output === null ? 'na' : (r.cells[o.key]?.severity ? 'sev-' + r.cells[o.key].severity : '')">
           <template v-if="o.output !== null && r.cells[o.key]?.severity"><span v-html="r.cells[o.key].html"></span></template>
         </td>
       </tr>
     </tbody>
   </table></div>
-  <p class="small muted">Model cells: empty = same words as corrected.md; grey = no output.</p>`,
+  <p class="small muted">Model cells: empty = same words as corrected.md; grey = no output. Click a gold cell to edit corrected.md.</p>
+  <GoldEditor v-if="editing" :data="data" :row="editing" @close="editing = null" @saved="saved" />`,
+};
+
+/** Segments of a correction in Hebrew script: colors and counters from the categories of the metrics
+ * (backend metrics/hebrew.py compare_unit), so they match hebrew_identification / wer_french. */
+const HebrewSegments = {
+  components: { GoldEditor, Pieces },
+  props: ["data"],
+  emits: ["changed"],
+  setup(props, { emit }) {
+    const minimum = ref("any");
+    const editing = ref(null);
+    const saved = () => { editing.value = null; emit("changed"); };
+    const outputs = computed(() => props.data.outputs);
+    const order = computed(() => props.data.segment_legend.map((s) => s.severity));
+    const rank = (severity) => (severity ? order.value.indexOf(severity) : Infinity);
+    const rows = computed(() => props.data.segments.filter((r) => {
+      const worst = Math.min(...Object.values(r.cells).map((c) => rank(c.worst)));
+      if (minimum.value === "all") return true;
+      if (minimum.value === "any") return worst < Infinity || r.initial.changed > 0 || r.doubts > 0;
+      return worst <= rank(minimum.value);
+    }));
+    const totals = props.data.segment_totals;
+    const count = (key, severity) => {
+      const counts = totals.models[key] || {};
+      return props.data.segment_legend.find((s) => s.severity === severity).categories.reduce((n, c) => n + (counts[c.category] || 0), 0);
+    };
+    const breakdown = (key, severity) => {
+      const counts = totals.models[key] || {};
+      return props.data.segment_legend.find((s) => s.severity === severity).categories
+        .map((c) => `${c.label}: ${counts[c.category] || 0}`).join("\n");
+    };
+    const categoriesOf = (s) => s.categories.map((c) => c.label).join(", ");
+    return { minimum, editing, saved, outputs, rows, totals, count, breakdown, categoriesOf };
+  },
+  template: `
+  <div class="toolbar">
+    <label>show <select v-model="minimum">
+      <option value="any">segments with a difference</option>
+      <option v-for="s in data.segment_legend" :value="s.severity">{{ s.label }} or worse</option>
+      <option value="all">all segments</option>
+    </select></label>
+    <span class="small muted">{{ rows.length }} / {{ data.segments.length }} segments</span>
+    <span class="small"><span class="tok tok--gold_doubt sev--doubt">questionable gold (&lt;d&gt;)</span>: {{ totals.gold_doubts }}</span>
+    <span class="small"><span class="tok tok--gold_changed sev--cosmetic">changed by the gold</span> (initial): {{ totals.initial_changes }}</span>
+    <span class="small muted">glossary: {{ totals.glossary_entries }} entries</span>
+  </div>
+  <table style="margin-bottom:1rem">
+    <thead><tr><th class="l">differences with corrected.md</th><th v-for="o in outputs">{{ o.model }}</th></tr></thead>
+    <tbody>
+      <tr v-for="s in data.segment_legend">
+        <td class="l" :title="categoriesOf(s)"><span :class="['tok', 'sev--' + s.severity]">{{ s.label }}</span> <span class="muted small">{{ categoriesOf(s) }}</span></td>
+        <td v-for="o in outputs" :title="breakdown(o.key, s.severity)"><template v-if="o.output === null">–</template><template v-else>{{ count(o.key, s.severity) }}</template></td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="tablewrap"><table class="segments">
+    <thead><tr><th class="l">time</th><th class="l">initial</th><th class="l">corrected (gold)</th><th class="l" v-for="o in outputs">{{ o.model }}<div class="muted small">{{ o.prompt }} · r{{ o.repeat }}</div></th></tr></thead>
+    <tbody>
+      <tr v-for="r in rows" :key="r.start">
+        <td class="ts">{{ r.time }}</td>
+        <td class="seg-text"><Pieces :items="r.initial.pieces" /></td>
+        <td class="gold editable seg-text" title="Click to edit the gold" @click="editing = r"><Pieces :items="r.gold_pieces" /></td>
+        <td v-for="o in outputs" :class="o.output === null || !r.cells[o.key] ? 'na' : (r.cells[o.key].missing ? 'worst--error' : (r.cells[o.key].worst ? 'seg-text worst--' + r.cells[o.key].worst : 'seg-text'))">
+          <em v-if="r.cells[o.key]?.missing" class="muted">missing segment</em>
+          <Pieces v-else-if="r.cells[o.key]?.worst" :items="r.cells[o.key].pieces" />
+        </td>
+      </tr>
+    </tbody>
+  </table></div>
+  <p class="small muted">Model cells: empty = same words as corrected.md; grey = no output. Hover a marked word for its category, the gold form and the rendering of both forms. Click a gold cell to edit corrected.md.</p>
+  <GoldEditor v-if="editing" :data="data" :row="editing" @close="editing = null" @saved="saved" />`,
 };
 
 const SideBySide = {
@@ -751,7 +911,7 @@ const RubricView = {
 };
 
 const LessonView = {
-  components: { CorrectionSegments, SideBySide, IdeasMatrix, IdeasView, ClaimsView, HebrewExpressionsView, RubricView, ScoresTable },
+  components: { CorrectionSegments, HebrewSegments, SideBySide, IdeasMatrix, IdeasView, ClaimsView, HebrewExpressionsView, RubricView, ScoresTable },
   setup() {
     const state = reactive({ data: null, error: null, loading: false, tab: null });
     const selected = computed(() => (route.query.m ? route.query.m.split(",").filter(Boolean) : null));
@@ -801,7 +961,7 @@ const LessonView = {
       const index = lessons.indexOf(state.data.lesson);
       navigate({ lesson: lessons[(index + delta + lessons.length) % lessons.length] });
     };
-    return { state, tabs, navigate, toggle, shift, route, go };
+    return { state, tabs, navigate, toggle, shift, route, go, load };
   },
   template: `
   <div v-if="state.error" class="error">{{ state.error }}</div>
@@ -829,7 +989,8 @@ const LessonView = {
       <template v-for="k in ['lesson', 'speaker', 'topic', 'audio_quality']"><span v-if="state.data.meta[k]" class="tag">{{ k }}: {{ state.data.meta[k] }}</span></template>
     </div>
     <nav class="tabs" role="tablist"><a v-for="t in tabs" role="tab" tabindex="0" :class="{ on: state.tab === t.id }" @click="state.tab = t.id" @keydown.enter="state.tab = t.id">{{ t.label }}</a></nav>
-    <CorrectionSegments v-if="state.tab === 'segments'" :data="state.data" />
+    <HebrewSegments v-if="state.tab === 'segments' && state.data.segment_view === 'hebrew'" :data="state.data" @changed="load" />
+    <CorrectionSegments v-else-if="state.tab === 'segments'" :data="state.data" @changed="load" />
     <SideBySide v-else-if="state.tab === 'texts'" :data="state.data" />
     <IdeasMatrix v-else-if="state.tab === 'ideas'" :data="state.data" />
     <IdeasView v-else-if="state.tab === 'idea_details'" :data="state.data" />

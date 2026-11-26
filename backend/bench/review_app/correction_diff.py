@@ -7,7 +7,7 @@ from typing import Optional
 
 from rapidfuzz.distance import Levenshtein
 
-from bench.metrics.text import WORD_LEVELS, strip_speaker_tag, tokenize
+from bench.metrics.text import WORD_LEVELS, segment_text, strip_doubt_tags, tokenize
 
 # Severity of a difference, from the least to the most important: "minor" = counted by wer only
 # (case, accents, inner apostrophes / hyphens), "norm" = counted by wer_norm but not by wer_fold
@@ -16,7 +16,7 @@ SEVERITIES = ("minor", "norm", "fold")
 
 
 class Comparator:
-    """Compares texts with corrected.md, ignoring punctuation and spacing (case counts by default)."""
+    """Compares texts with corrected.md, ignoring punctuation, spacing and doubt tags (case counts by default)."""
 
     def __init__(self, case_sensitive: bool = True):
         self.lowercase = not case_sensitive
@@ -25,9 +25,9 @@ class Comparator:
         """Words compared at a severity level: the words of the comparator for "minor", the words of
         wer_norm / wer_fold for "norm" / "fold"."""
         if severity == "minor":
-            return tokenize(strip_speaker_tag(text), lowercase=self.lowercase)
+            return tokenize(segment_text(text), lowercase=self.lowercase)
         transform = WORD_LEVELS[severity]
-        return [w for w in map(transform, tokenize(strip_speaker_tag(text))) if w]
+        return [w for w in map(transform, tokenize(segment_text(text))) if w]
 
     def same(self, text: str, gold: str) -> bool:
         return self.words(text) == self.words(gold)
@@ -41,8 +41,9 @@ class Comparator:
 
     def highlight(self, text: str, gold: str) -> str:
         """HTML of `text` with the words that differ from `gold` in <mark class="severity">, and a
-        caret where gold words are missing. Each word gets the most important level at which it differs."""
-        raw = text.split()
+        caret where gold words are missing. Each word gets the most important level at which it differs.
+        Doubt tags are not shown."""
+        raw = strip_doubt_tags(text).split()
         marked: dict[int, str] = {}
         gaps: dict[int, str] = {}
         for severity in SEVERITIES:

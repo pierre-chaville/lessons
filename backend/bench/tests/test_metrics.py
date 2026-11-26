@@ -3,7 +3,8 @@
 import pytest
 
 from bench.metrics import get_metric
-from bench.metrics.text import edits, tokenize, Edit
+from bench.metrics.text import edits, strip_doubt_tags, tokenize, Edit
+from bench.review_app.correction_diff import Comparator
 
 wer = get_metric("wer")
 cer = get_metric("cer")
@@ -50,6 +51,29 @@ class TestEdits:
 # --------------------------------------------------------------------------- #
 # WER
 # --------------------------------------------------------------------------- #
+
+
+class TestDoubtTags:
+    def test_strip_keeps_the_chosen_value(self):
+        text = 'du <d i="Shurim" alt="Chiourim|Shiourim">שִׁיעוּר</d> de <d brut="a > b">פֶּסַח</d>'
+        assert strip_doubt_tags(text) == "du שִׁיעוּר de פֶּסַח"
+
+    def test_tags_are_not_errors(self):
+        reference = transcript('du <d i="Shurim">שִׁיעוּר</d> de פֶּסַח', "la suite")
+        output = transcript('du שִׁיעוּר de <d alt="Pessah">פֶּסַח</d>', "[audience] la suite")
+        for metric in (wer, cer):
+            assert metric(output, reference=reference).value == 0
+
+    def test_chosen_value_still_counts(self):
+        r = wer(transcript('le <d alt="chat">chien</d> noir'), reference=transcript("le chat noir"))
+        assert r.details["substitutions"] == 1
+
+    def test_review_comparator_ignores_tags(self):
+        compare = Comparator()
+        gold = 'du <d i="Shurim">שִׁיעוּר</d> de'
+        assert compare.severity("du שִׁיעוּר de", gold) is None
+        html = compare.highlight('le <d alt="x">chien</d>', "le chat")
+        assert "&lt;d" not in html and "<mark class='fold'>chien</mark>" in html
 
 
 class TestWer:

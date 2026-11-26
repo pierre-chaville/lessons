@@ -8,6 +8,7 @@ when its config file or the database changes.
 from __future__ import annotations
 
 import json
+import os
 import threading
 from collections import defaultdict
 from dataclasses import dataclass
@@ -17,9 +18,12 @@ from typing import Any, Optional
 
 import yaml
 
-from bench.dataset import BENCH_DIR, _format_seconds, format_transcript, load_dataset
+from bench.dataset import _SEGMENT_RE, BENCH_DIR, _format_seconds, format_transcript, load_dataset, parse_transcript
 from bench.db import BenchDB, options_json
+from bench.metrics.hebrew import load_glossary
+from bench.metrics.text import strip_doubt_tags
 from bench.metrics import get_metric_module
+from bench.review_app import segment_view
 from bench.review_app.correction_diff import Comparator
 from bench.review_app.metrics_table import aggregate, baseline_row
 from bench.review_app.metrics_table import columns as metric_columns
@@ -27,6 +31,7 @@ from bench.run import Planner, gold_input, load_config, step_tasks
 from bench.score import REFERENCE_FILES, metric_specs, reference_text
 
 CONFIG_DIR = BENCH_DIR / "configs"
+UTF8_BOM = b"\xef\xbb\xbf"
 INPUT_FILES = {"correction": "initial.md", "edition": "corrected.md", "summary": "edited.md"}
 SATURATION_RATE = 0.95  # idea_coverage: share of present ideas above which the metric no longer discriminates
 CLUSTER_SHARE, CLUSTER_MIN_SCORES = 0.7, 8  # judge_rubric: share of identical judge scores flagged
@@ -35,6 +40,10 @@ LENGTH_BIAS_RHO, LENGTH_BIAS_MIN_OUTPUTS = 0.7, 5  # judge_rubric: rank correlat
 
 class NotFound(LookupError):
     pass
+
+
+class Conflict(RuntimeError):
+    """The file changed since the page was loaded."""
 
 
 # --------------------------------------------------------------------------- #
@@ -394,8 +403,6 @@ def step_detail(stem: str, step_name: str) -> dict:
 
 
 def _correction_rows(item, outputs: dict[str, str], case_sensitive: bool) -> list[dict]:
-    from bench.dataset import parse_transcript
-
     compare = Comparator(case_sensitive)
     initial = {(s.start, s.end): s.text for s in item.initial or []}
     parsed = {}
@@ -415,12 +422,13 @@ def _correction_rows(item, outputs: dict[str, str], case_sensitive: bool) -> lis
             else:
                 severity = compare.severity(text, gold.text)
                 cells[key] = {"severity": severity, "html": compare.highlight(text, gold.text) if severity else None,
-                              "text": text}
+                              "text": strip_doubt_tags(text), "raw": text}
+        # "text" / "gold": shown without doubt tags; "raw" / "gold_raw": as written (gold editor)
         rows.append({
             "start": gold.start, "end": gold.end,
             "time": f"{_format_seconds(gold.start)} – {_format_seconds(gold.end)}",
-            "gold": gold.text,
-            "initial": {"severity": init_sev, "text": init_text,
+            "gold": strip_doubt_tags(gold.text), "gold_raw": gold.text,
+            "initial": {"severity": init_sev, "text": strip_doubt_tags(init_text), "raw": init_text,
                         "html": compare.highlight(init_text, gold.text) if init_sev else None},
             "cells": cells,
         })
@@ -494,9 +502,113 @@ def lesson_detail(stem: str, step_name: str, lesson_id: str, candidates: Optiona
         "outputs": outputs,
     }
     if task == "correction":
-        case_sensitive = bool((((campaign.config.get("report") or {}).get("correction_errors") or {})
-                               .get("case_sensitive", True)))
-        result["segments"] = _correction_rows(
-            item, {o["key"]: o["output"] for o in outputs if o["output"] is not None}, case_sensitive)
+        texts = {o["key"]: o["output"] for o in outputs if o["output"] is not None}
+        if any(metric in HEBREW_METRICS for metric, _ in metric_specs(step)):
+            result.update(_hebrew_correction_rows(item, texts, step))
+        else:
+            case_sensitive = bool((((campaign.config.get("report") or {}).get("correction_errors") or {})
+                                   .get("case_sensitive", True)))
+            result["segment_view"] = "fold"
+            result["segments"] = _correction_rows(item, texts, case_sensitive)
         result["input"] = format_transcript(item.initial or [])
     return result
+
+
+# Metrics of a correction in Hebrew script: the segment view uses their categories.
+HEBREW_METRICS = {"hebrew_identification", "hebrew_script_rate", "vocalized_rate", "wer_french", "wer_rendered"}
+
+
+def _metric_options(step: dict, metric: str) -> dict:
+    return next((options for name, options in metric_specs(step) if name == metric), {})
+
+
+def _hebrew_correction_rows(item, outputs: dict[str, str], step: dict) -> dict:
+    """Segment view with the categories of metrics.hebrew.compare_unit, run with the options of
+    the step metrics, so that the counters equal the details of hebrew_identification / wer_french."""
+    rendered = _metric_options(step, "wer_rendered")
+    identification = _metric_options(step, "hebrew_identification") or _metric_options(step, "wer_french")
+    options = segment_view.RenderOptions(
+        load_glossary(bool(identification.get("glossary", rendered.get("glossary", True)))),
+        rendered.get("primary", "translit"), bool(rendered.get("quotations_in_hebrew", True)))
+    french = _metric_options(step, "wer_french")
+    case_sensitive = bool(french.get("case_sensitive", False))
+    one_letter = bool(french.get("one_letter_variants", True))
+    initial = {(s.start, s.end): s.text for s in item.initial or []}
+    parsed = {key: {(s.start, s.end): s.text for s in parse_transcript(text)[0]} for key, text in outputs.items()}
+    totals: dict[str, dict[str, int]] = {key: {} for key in outputs}
+    rows, doubts, changes = [], 0, 0
+    for gold in item.corrected or []:
+        span = (gold.start, gold.end)
+        init_raw = initial.get(span, "")
+        gold_pieces, n_doubts = segment_view.gold_column(gold.text)
+        init_pieces, n_changes = segment_view.initial_column(init_raw, gold.text)
+        doubts += n_doubts
+        changes += n_changes
+        cells = {}
+        for key, segments in parsed.items():
+            text = segments.get(span)
+            if text is None:
+                cells[key] = {"missing": True, "worst": "error"}
+                continue
+            cell = segment_view.output_cell(gold.start, gold.text, text, init_raw, options, case_sensitive, one_letter)
+            for category, n in cell["counts"].items():
+                totals[key][category] = totals[key].get(category, 0) + n
+            cells[key] = cell
+        rows.append({
+            "start": gold.start, "end": gold.end,
+            "time": f"{_format_seconds(gold.start)} – {_format_seconds(gold.end)}",
+            "gold": strip_doubt_tags(gold.text), "gold_raw": gold.text, "gold_pieces": gold_pieces, "doubts": n_doubts,
+            "initial": {"pieces": init_pieces, "changed": n_changes, "text": strip_doubt_tags(init_raw), "raw": init_raw},
+            "cells": cells,
+        })
+    return {"segment_view": "hebrew", "segments": rows, "segment_legend": segment_view.legend(),
+            "segment_totals": {"models": totals, "gold_doubts": doubts, "initial_changes": changes,
+                               "glossary_entries": options.glossary.size}}
+
+
+# --------------------------------------------------------------------------- #
+# Gold edition
+# --------------------------------------------------------------------------- #
+
+
+def update_gold_segment(stem: str, step_name: str, lesson_id: str, start: int, end: int,
+                        previous: str, text: str) -> dict:
+    """Replace the text of one segment of corrected.md (correction step). Only that line changes:
+    its timestamps as written, the other lines, the line endings and the BOM are kept. `previous` is
+    the text the page showed: if the file no longer has it, nothing is written (Conflict)."""
+    campaign = load_campaign(stem)
+    jobs = [j for j in campaign.step_jobs(step_name) if j.item.id == lesson_id]
+    if not jobs:
+        raise NotFound(f"no job for lesson {lesson_id!r} in step {step_name!r}")
+    if jobs[0].task != "correction":
+        raise ValueError("only the gold of a correction step (corrected.md) can be edited here")
+    path = jobs[0].item.path / "corrected.md"
+    raw = path.read_bytes()
+    bom = raw.startswith(UTF8_BOM)
+    content = raw.decode("utf-8-sig")
+    text = " ".join(text.split())  # a segment is a single line
+
+    segments, _ = parse_transcript(content)
+    matches = [s for s in segments if (s.start, s.end) == (start, end)]
+    if len(matches) != 1:
+        raise Conflict(f"{len(matches)} segments [{_format_seconds(start)} - {_format_seconds(end)}] "
+                       "in corrected.md: reload the page")
+    segment = matches[0]
+    if segment.text != previous.strip():
+        raise Conflict("this segment of corrected.md changed since the page was loaded: reload the page")
+
+    lines = content.splitlines(keepends=True)
+    index = segment.line - 1
+    body = lines[index].rstrip("\r\n")
+    ending = lines[index][len(body):]
+    match = _SEGMENT_RE.match(body.strip())
+    indent = body[: len(body) - len(body.lstrip())]
+    lines[index] = f"{indent}- [{match.group('start')} - {match.group('end')}]{' ' + text if text else ''}{ending}"
+    new_content = "".join(lines)
+    if new_content != content:
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_bytes((UTF8_BOM if bom else b"") + new_content.encode("utf-8"))
+        os.replace(tmp, path)
+        with _lock:
+            _cache.clear()  # the dataset is loaded with the campaigns (several may use this lesson)
+    return {"start": start, "end": end, "text": text, "file": path.relative_to(BENCH_DIR).as_posix()}

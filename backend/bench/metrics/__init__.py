@@ -36,6 +36,8 @@ IMPLEMENTED = (
     "wer", "wer_norm", "wer_fold", "cer", "edit_precision_recall", "overcorrection_rate",
     "length_ratio", "length_words", "hebrew_quotes_preserved", "hebrew_term_accuracy",
     "hebrew_expression_format", "idea_coverage", "faithfulness", "judge_rubric",
+    # correction in Hebrew script: levels A (identification), B (French text), C (rendering)
+    "hebrew_identification", "hebrew_script_rate", "vocalized_rate", "wer_french", "wer_rendered",
 )
 
 

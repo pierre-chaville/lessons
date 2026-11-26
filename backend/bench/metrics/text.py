@@ -14,19 +14,35 @@ from bench.dataset import Segment, parse_transcript
 _APOSTROPHES = str.maketrans({c: "'" for c in "’‘ʼ`´ʹ′"})
 _HYPHENS = str.maketrans({c: "-" for c in "‐‑"})
 _SPEAKER_TAG_RE = re.compile(r"^\[[^\]]*\]\s*")
+# Doubt tags of the transcripts: `<d alt="..." i="...">chosen value</d>` (a quoted attribute may contain ">").
+DOUBT_OPEN = r'<d\b(?:[^>"]|"[^"]*")*>'
+DOUBT_CLOSE = r"</d\s*>"
+_DOUBT_TAG_RE = re.compile(f"{DOUBT_OPEN}|{DOUBT_CLOSE}")
 
 
 def strip_speaker_tag(text: str) -> str:
     return _SPEAKER_TAG_RE.sub("", text)
 
 
+def strip_doubt_tags(text: str) -> str:
+    """`du <d i="Shurim" alt="...">שִׁיעוּר</d>` -> `du שִׁיעוּר`: only the value chosen by the model is kept,
+    so neither the tags nor their alternatives are compared."""
+    return _DOUBT_TAG_RE.sub("", text)
+
+
+def segment_text(text: str) -> str:
+    """Text of a segment as compared by the correction metrics: doubt tags and speaker tag removed."""
+    return strip_speaker_tag(strip_doubt_tags(text))
+
+
 def segment_texts(text: str) -> tuple[list[str], Optional[list[Segment]]]:
     """Texts to compare: the segment texts of a `- [start - end] text` transcript (speaker tags
-    such as `[audience]` removed), else the whole text. Returns (texts, segments or None)."""
+    such as `[audience]` and doubt tags removed), else the whole text (doubt tags removed).
+    Returns (texts, segments or None)."""
     segments, _ = parse_transcript(text)
     if not segments:
-        return [text], None
-    return [strip_speaker_tag(s.text) for s in segments], segments
+        return [strip_doubt_tags(text)], None
+    return [segment_text(s.text) for s in segments], segments
 
 
 def tokenize(text: str, strict: bool = False, lowercase: bool = True) -> list[str]:
@@ -203,11 +219,16 @@ def unchanged_positions(source: list[str], target: list[str]) -> set[int]:
     return kept
 
 
+# Scholarly transliteration letters without a plain equivalent after accent removal (ḥ, ṭ, ḳ... lose
+# their dot below with the accents): š = sh, ṣ = ts; ʿ ʾ (ayin, alef) and quote-like marks are removed.
+_SCHOLARLY = str.maketrans({"š": "sh", "ṣ": "ts", "ʿ": "", "ʾ": "", "ʻ": "", "ʼ": "", "‘": "", "’": "", "´": ""})
+
+
 def fold(word: str) -> str:
     """ replaces transliterated words by their original form """
-    w = unicodedata.normalize("NFD", word.lower())
-    w = "".join(c for c in w if unicodedata.category(c) != "Mn")   # accents : Sinaï -> sinai
-    w = re.sub(r"[''`\-]", "", w)                                     # 'Omer, ha-Lou'hoth
+    w = unicodedata.normalize("NFD", unicodedata.normalize("NFC", word).lower().translate(_SCHOLARLY))
+    w = "".join(c for c in w if unicodedata.category(c) != "Mn")   # accents : Sinaï -> sinai, Pessaḥ -> pessah
+    w = re.sub(r"['`\-]", "", w)                                      # 'Omer, ha-Lou'hoth
     for a, b in [("tz", "ts"), ("th", "t"), ("sh", "ch"), ("q", "k"), ("ou", "u"),
                  ("ei", "e"), ("ph", "f"), ("ck", "k"), 
                  ("ss", "s"), ("nn", "n"), ("yy", "y"), ("tt", "t"), ("rr", "r"), ("ll", "l"), ("mm", "m"), ("pp", "p"), ("kk", "k"),

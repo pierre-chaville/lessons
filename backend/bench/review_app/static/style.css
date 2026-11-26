@@ -102,6 +102,8 @@ tr.clickable:hover td { background: var(--accent-soft); }
 table.segments td { text-align: left; max-width: 26rem; }
 table.segments td.ts { white-space: nowrap; color: var(--muted); }
 table.segments td.gold { background: var(--gold); }
+table.segments td.gold.editable { cursor: pointer; }
+table.segments td.gold.editable:hover { outline: 2px solid var(--accent); outline-offset: -2px; }
 td.sev-fold { background: var(--fold); }
 td.sev-norm { background: var(--norm); }
 td.sev-minor { background: var(--minor); }
@@ -152,3 +154,45 @@ table.ideas td.idea { max-width: 34rem; }
 details summary { cursor: pointer; }
 pre.json { white-space: pre-wrap; max-height: 24rem; overflow: auto; background: rgba(128, 128, 128, .08); padding: .5rem; border-radius: 6px; }
 .loading { color: var(--muted); padding: 2rem; }
+
+/* gold editor */
+.modal-backdrop { position: fixed; inset: 0; z-index: 50; background: rgba(0, 0, 0, .45); display: flex; align-items: flex-start; justify-content: center; padding: 6vh 1rem; }
+.modal { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 1rem 1.1rem; width: min(56rem, 100%); max-height: 88vh; overflow: auto; box-shadow: 0 10px 40px rgba(0, 0, 0, .3); }
+.modal header { margin-bottom: .5rem; }
+.modal header .name { font-weight: 650; }
+.modal textarea { width: 100%; font: inherit; color: inherit; background: var(--gold); border: 1px solid var(--border); border-radius: 6px; padding: .45rem .55rem; resize: vertical; }
+.modal textarea:focus { outline: 2px solid var(--accent); }
+.modal button:disabled { opacity: .5; cursor: default; }
+.sources { display: flex; flex-direction: column; gap: .35rem; }
+.source { border: 1px solid var(--border); border-radius: 6px; padding: .35rem .55rem; }
+.source .text { margin-top: .25rem; }
+.source.na { background: rgba(128, 128, 128, .12); }
+
+/* correction in Hebrew script: one style per severity (backend SEVERITIES), never color alone */
+:root {
+  --sev-error: rgba(229, 57, 53, .32);
+  --sev-error-line: #d32f2f;
+  --sev-drift: rgba(142, 68, 173, .22);
+  --sev-drift-line: #8e44ad;
+  --sev-form: rgba(251, 140, 0, .28);
+  --sev-form-line: #ef6c00;
+  --sev-variant: rgba(253, 216, 53, .38);
+  --sev-variant-line: #b59a00;
+  --sev-cosmetic: rgba(128, 128, 128, .22);
+  --sev-cosmetic-line: #8a8f98;
+}
+.seg-text, td.seg-text { direction: ltr; unicode-bidi: plaintext; }
+bdi[dir="rtl"] { unicode-bidi: isolate; }
+.tok { border-radius: 2px; padding: 0 1px; text-decoration-thickness: 2px; text-underline-offset: 3px; cursor: help; }
+.tok.sev--error { background: var(--sev-error); text-decoration: underline solid var(--sev-error-line); }
+.tok.sev--drift { background: var(--sev-drift); text-decoration: underline wavy var(--sev-drift-line); text-decoration-thickness: 1px; }
+.tok.sev--form { background: var(--sev-form); text-decoration: underline dashed var(--sev-form-line); }
+.tok.sev--variant { background: var(--sev-variant); text-decoration: underline dotted var(--sev-variant-line); }
+.tok.sev--cosmetic { background: var(--sev-cosmetic); text-decoration: none; }
+.tok.sev--doubt { outline: 1px dashed var(--accent); outline-offset: 1px; background: none; }
+.tok--gap { font-weight: 700; padding: 0 2px; user-select: none; text-decoration: none !important; }
+td.worst--error, .source.worst--error { background: rgba(229, 57, 53, .07); }
+td.worst--drift, .source.worst--drift { background: rgba(142, 68, 173, .07); }
+td.worst--form, .source.worst--form { background: rgba(251, 140, 0, .07); }
+td.worst--variant, .source.worst--variant { background: rgba(253, 216, 53, .1); }
+td.worst--cosmetic, .source.worst--cosmetic { background: rgba(128, 128, 128, .06); }

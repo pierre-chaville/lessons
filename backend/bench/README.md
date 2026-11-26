@@ -190,7 +190,7 @@ The steps evaluated are part of the app workflow:
 
 | Step | Dataset | Input (`gold` mode) | References | Metrics |
 |---|---|---|---|---|
-| `correction` | extracts | `initial.md` | `corrected.md` | wer, wer_norm, wer_fold, hebrew_term_accuracy, cer, edit_precision_recall, overcorrection_rate |
+| `correction` | extracts | `initial.md` | `corrected.md` | Hebrew script: hebrew_identification, hebrew_script_rate, vocalized_rate, wer_french, wer_rendered; transliterated Hebrew: wer, wer_norm, wer_fold, hebrew_term_accuracy, cer; both: edit_precision_recall, overcorrection_rate |
 | `edition` | extracts | `corrected.md` | `edited_ideas.yaml`, `edited.md` | idea_coverage, faithfulness, length_ratio, hebrew_quotes_preserved, hebrew_expression_format, judge_rubric, judge_pairwise |
 | `summary` | full | `edited.md` | `summary_keypoints.yaml`, `summary.md` | keypoint_coverage, faithfulness, length_words, judge_pairwise |
 
@@ -331,6 +331,61 @@ becomes unreadable.)
   when it is aligned with the same folded word. Details: the most frequent errors
   (`guehinnom -> guéhinam (×3)`, `∅` = word missing).
 - **cer** – same at character level (less sensitive to word splitting, useful for Hebrew terms).
+
+#### Correction with Hebrew in Hebrew script (three levels)
+
+When the correction prompt writes the Hebrew words in Hebrew script (`prompts/correction/standard_he_*`),
+wer / wer_fold mix three different questions. They are measured separately (`metrics/hebrew.py`):
+
+| Level | Compared | Question | Metrics |
+|---|---|---|---|
+| A. Hebrew identification | each Hebrew word of `corrected.md`, aligned by segment, with its counterpart in the output | did the model recognize the right Hebrew word? | hebrew_identification, hebrew_script_rate, vocalized_rate |
+| B. French text | the texts with each Hebrew passage replaced by a `⟨HE⟩` token | is the French correction right (agreements, capitalization, wording)? | wer_french |
+| C. Final rendering | both texts rendered through the glossary as the app displays them | is the text shown to the reader right? | wer_rendered (replaces wer / wer_fold) |
+
+Keys of a Hebrew word: `he_key` (no points nor cantillation, standard geresh / gershayim:
+מִצְוֹת ≠ מִצְווֹת) and `he_skeleton` (he_key without the inner ו / י: both give מצת, הַלֻּחֹת and
+הַלּוּחוֹת give הלחת). Two words are the same when they have the same he_key, the same entry of the
+app glossary (Hebrew-keyed, looked up as the app does: exact key, then consonants) or - only when
+they are not both in the glossary - the same skeleton. ה׳ = השם and אלקים = אלהים (abbreviation,
+substitute spelling). A Latin word is compared with a Hebrew word through the glossary
+transliterations (translit and aliases, folded), else phonetically (same consonant classes, vowels
+and gutturals ignored: `Pessaḥ` = פֶּסַח). `fold()` handles the scholarly letters (`ḥ` → h, `š` →
+sh, `ʿ` `ʾ` `‘` removed).
+
+- **hebrew_identification** (A) – each Hebrew word of the gold gets a category: `exact` (same
+  he_key), `spelling_variant` (same glossary entry or skeleton), `unvocalized` (right word without
+  vowel points: no transliteration possible; abbreviations excepted), `form_variant` (same stem, another
+  ending: singular / plural, not identified), `prefix_variant` (same word,
+  different prefix ו ה ב כ ל מ ש: עֹמֶר / הָעֹמֶר), `latin_correct` (right transliteration in Latin
+  script), `latin_uncorrected` (Latin word left as in `initial.md`: `Amalek`, `Amara`),
+  `wrong_word`, `missing`. Counterparts are found in the word alignment of the segment (a block of
+  differences is searched for the best counterpart; a French word of the sentence is never one).
+  Value = (exact + spelling_variant + prefix_variant + latin_correct) / Hebrew words of the gold.
+  Details: count per category, `top_differences` (`הַשֵּׁם → ה' [spelling_variant] (×6)`). Replaces
+  hebrew_term_accuracy.
+- **hebrew_script_rate** (A) – share of the gold Hebrew words (with a counterpart) written in
+  Hebrew script by the output: compliance with the prompt, whatever the word.
+- **vocalized_rate** (A) – share of the Hebrew-script counterparts of vocalized gold words that have
+  vowel points (the transliteration needs them); abbreviations are left out.
+- **wer_french** (B) – WER of the French words: Hebrew passages and the Latin words standing for a
+  gold Hebrew word (level A) are one `⟨HE⟩` token each. Accents count; case does not (French
+  words compared in lowercase, a case difference is `minor`; option `case_sensitive: true` to count
+  it); punctuation does not; two words that differ by one letter are a harmless `french_variant`, not an
+  error (option `one_letter_variants`, default true; note it also hides one-letter agreements such
+  as `reçues` / `reçus`), `2` = `deux`. Detail `large_edits`:
+  insertions and replacements of more than 3 words (rewritten passages), listed in
+  `large_edit_examples`; the other errors in `top_errors` (`reçues → reçus`).
+- **wer_rendered** (C) – WER of the rendered texts: in the gold and in the output, each Hebrew
+  expression found in the glossary is replaced by its display form (option `primary`: `translit`
+  by default, `vocalized`, `unvocalized`; long quotations stay in Hebrew unless
+  `quotations_in_hebrew: false`), other Hebrew words stay as written; then words are compared as
+  wer_fold (Hebrew without points), and a Latin word facing a Hebrew word with the same consonants
+  is not an error. Mirrors the frontend `renderHebrewTerms` (supplementary forms in parentheses are
+  not rendered).
+- These metrics read the Hebrew glossary of the app DB at scoring time (option `glossary: false` to
+  do without): rescore after adding glossary entries. `glossary_entries` (and, for wer_rendered,
+  `glossary_matches_gold` / `glossary_matches_output`) are stored in the details.
 - **edit_precision_recall** – compares the edits made by the model (word diff `initial → output`)
   with the expected edits (diff `initial → corrected`). Precision = share of the model edits that are
   correct; recall = share of the expected edits made by the model; F1.
@@ -637,9 +692,21 @@ starts a FastAPI server and opens a Vue.js page:
   chosen metric (or metric detail);
 - **lesson** (click a lesson): gold vs the outputs of the selected models (chips), previous / next
   lesson, repeat selector. Correction: the segments where the initial transcript or a model
-  differs from `corrected.md`, the differing words highlighted by severity (red: still counted by
-  wer_fold; orange: transliteration variant, counted by wer_norm only; yellow: case, accents,
-  apostrophes or hyphens; ‸ = missing words), with counts per model; punctuation and spacing are
+  differs from `corrected.md`, with counts per model. When the step has the Hebrew-script metrics
+  (hebrew_identification, wer_french...), the differences are the categories of
+  `metrics/hebrew.compare_unit`, the function of the metrics, run with their options: the counters
+  equal the details of hebrew_identification / wer_french. Severity: red (semantic error:
+  `wrong_word`, `latin_uncorrected`, `missing`, `french_error`; solid underline), purple (content
+  drift: insertion / replacement of more than 3 words; wavy underline), orange (instruction or
+  word form not respected: `latin_correct`, `form_variant`, `unvocalized`; dashed), yellow
+  (harmless: `spelling_variant`, `prefix_variant`, `french_variant`; dotted), gray (cosmetic: `minor` such as 2 /
+  deux, `exact_niqqud`); ‸ = missing words. Hovering a word shows its category, the gold form and
+  the rendering of both forms through the glossary. The initial column only grays the words
+  changed by the gold; doubt tags of the gold are outlined (counted as questionable gold
+  entries). Hebrew passages are isolated (`<bdi dir="rtl">`, punctuation outside) so punctuation
+  stays on the French side. Otherwise (transliterated Hebrew): red = still counted by wer_fold,
+  orange = transliteration variant counted by wer_norm only, yellow = case, accents, apostrophes or
+  hyphens; punctuation and spacing are
   ignored, case counts unless `report.correction_errors.case_sensitive: false`; edition / summary: gold and outputs side by side (rendered or raw
   markdown, optionally the input), the judge verdicts per idea (`Ideas`, quotes on hover), the
   claims not supported (`Claims`: category, severity, explanation, output and source quotes with
