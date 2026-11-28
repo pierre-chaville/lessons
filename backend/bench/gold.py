@@ -30,6 +30,8 @@ Config (`params` = model params + step params, as in the campaigns):
         prompt: prompts/correction/standard_V1.md
         model: { id: openai/gpt-6-luna, provider: openrouter, params: { temperature: 1.0 } }
         params: { segments_per_group: 10 }      # optional
+        # params: { extract_glossary: true }    # add the new Hebrew terms to the app glossary
+                                                # (as the app correction in native Hebrew mode)
 """
 
 from __future__ import annotations
@@ -509,7 +511,14 @@ def run(tasks: list[Task], step_specs: dict, pricing: Pricing, timeout: float, r
               f"{tokens_in:,}/{tokens_out:,} tokens, {cost_text})")
         for warning in sanity_warnings(step, source, text):
             print(f"    WARNING: {warning}")
-        invalid = (result.get("meta") or {}).get("invalid_references")
+        meta = result.get("meta") or {}
+        if "new_glossary_entries" in meta:
+            entries = meta["new_glossary_entries"]
+            task_id = meta.get("glossary_completion_task")
+            print(f"    glossary: {len(entries)} new entr{'y' if len(entries) == 1 else 'ies'}"
+                  + (f": {', '.join(entries)}" if entries else "")
+                  + (f" (completion task {task_id})" if task_id else ""))
+        invalid = meta.get("invalid_references")
         if invalid:
             print(f"    WARNING: timestamps / paragraphs not found in the input (check them): {', '.join(invalid)}")
 

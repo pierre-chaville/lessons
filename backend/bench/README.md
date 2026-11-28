@@ -144,7 +144,13 @@ steps:                         # per step: prompt, model (id, provider, params),
   correction:
     prompt: prompts/correction/standard_V1.md
     model: { id: openai/gpt-6.1-sol, provider: openrouter, params: { temperature: 1.0 } }
+    params: { extract_glossary: true }  # optional: new Hebrew terms -> app glossary (see correction)
 ```
+
+The step params are those of the bench adapters: with `extract_glossary: true` on `correction`,
+the new Hebrew words and expressions of the drafted corrected.md are added to the app glossary
+(`auto` entries, completion task enqueued), as the app correction in native Hebrew mode; the run
+prints the entries added for each lesson.
 
 - First a plan: a matrix lesson × step (`RUN`, `exists`, `-` = not used by the dataset,
   `no input`), then the calls and estimated cost per step (same estimators as `bench.run`,
@@ -223,6 +229,16 @@ on OpenRouter, e.g. Gemini).
 the app: apply the glossary of the app DB after the LLM; `false` to measure the model alone). `meta`: number of LLM calls, segments changed,
 `unparsed_output_lines` (lines of the model output that the app parser ignored) and glossary
 replacements.
+
+`extract_glossary: true` (default `false`) does what the app correction does in native Hebrew
+mode (`services.correction.add_new_hebrew_terms`): every Hebrew word or expression of the output
+that is not yet in the app DB glossary is added as an `auto` entry (context: the lesson
+`lesson_id` of `meta.yaml` and the segment), and the glossary completion task is enqueued (the
+app worker completes the entries with the LLM). Unlike the app, the output segments are not
+merged (they must stay aligned with the gold); the merge only gives each expression its context.
+`meta` lists `new_glossary_entries` and `glossary_completion_task`. The param is not part of the
+cache key: a cached generation is not extracted again. Warning: the Hebrew metrics read this
+glossary, so each spelling a model writes becomes an entry (see "Hebrew metrics").
 
 `edition` runs `services.edition.edit_segment_group_with_retry` on groups of segments built as in
 the app (by word count), then the app paragraph post-processing (oversized paragraphs split). The

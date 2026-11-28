@@ -41,6 +41,8 @@ VERSIONS = {
 
 PROVIDERS = {"openai": "OpenAI", "anthropic": "Anthropic", "openrouter": "OpenRouter"}
 _LLM_PARAMS = {"temperature", "max_tokens", "thinking_mode", "use_flex"}
+# Step params that do not change the output (side effects only): left out of the cache key.
+CACHE_NEUTRAL_PARAMS = {"extract_glossary"}
 
 
 class StepError(RuntimeError):
@@ -233,7 +235,7 @@ class RecordingLLM:
 # Correction
 # --------------------------------------------------------------------------- #
 
-_CORRECTION_PARAMS = {"segments_per_group", "max_concurrency", "glossary"}
+_CORRECTION_PARAMS = {"segments_per_group", "max_concurrency", "glossary", "extract_glossary"}
 
 
 @functools.lru_cache(maxsize=1)
@@ -246,6 +248,24 @@ def _load_glossary_rules() -> tuple:
 
     with Session(engine) as session:
         return tuple(load_glossary_rules(session))
+
+
+def _extract_glossary(item: Any, segments: list[Segment]) -> dict:
+    """As the app correction in native Hebrew mode: add the new Hebrew words and expressions of
+    the output to the app DB glossary (`auto` entries, context = the merged segment) and enqueue
+    the glossary completion task. The output itself is not merged (its segments must stay aligned
+    with the gold): the merge only gives each expression its full context."""
+    from sqlmodel import Session
+
+    from database import engine
+    from hebrew_text import merge_hebrew_segments
+    from services.correction import add_new_hebrew_terms
+
+    data = [{"start": s.start, "end": s.end, "text": s.text} for s in segments]
+    with Session(engine) as session:
+        created, task_id = add_new_hebrew_terms(session, merge_hebrew_segments(data),
+                                                (item.meta or {}).get("lesson_id"))
+        return {"new_glossary_entries": [e.hebrew for e in created], "glossary_completion_task": task_id}
 
 
 def _use_glossary(params: dict) -> bool:
@@ -311,6 +331,9 @@ def correction(text: str, *, item: Any, provider: str, model: str, prompt: str, 
     - max_concurrency (default 10)
     - glossary (default True): apply the glossary of the app DB after the LLM, as the app does.
       The glossary content is not part of the cache key: bump the step version when it changes.
+    - extract_glossary (default False): add the new Hebrew words and expressions of the output to
+      the app DB glossary, as the app does in native Hebrew mode (see `_extract_glossary`). Not
+      part of the cache key; a cached generation is not extracted again.
     """
     _check_params(params, _CORRECTION_PARAMS)
     segments = _parse_input_transcript(text)
@@ -340,6 +363,8 @@ def correction(text: str, *, item: Any, provider: str, model: str, prompt: str, 
         data, glossary_report = apply_glossary_to_segments_with_report(data, _load_glossary_rules())
         corrected = [Segment(s.start, s.end, d["text"], s.line) for s, d in zip(corrected, data)]
 
+    extraction = _extract_glossary(item, corrected) if params.get("extract_glossary", False) else {}
+
     return {
         "output": format_transcript(corrected),
         "tokens_in": llm.tokens_in,
@@ -351,6 +376,7 @@ def correction(text: str, *, item: Any, provider: str, model: str, prompt: str, 
             "segments_changed_by_llm": changed,
             "unparsed_output_lines": _count_unparsed_lines(llm.outputs, segments_per_group),
             "glossary_replacements": glossary_report,
+            **extraction,
         },
     }
 

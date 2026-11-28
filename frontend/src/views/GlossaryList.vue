@@ -468,8 +468,9 @@ defineExpose({
           </thead>
           <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
             <tr v-for="entry in entries" :key="entry.hashid" class="align-top">
-              <td class="whitespace-nowrap px-4 py-3 text-right text-lg text-gray-900 dark:text-gray-100" dir="rtl" lang="he">
-                {{ entry.hebrew }}
+              <td class="px-4 py-3 text-right text-lg text-gray-900 dark:text-gray-100" dir="rtl" lang="he">
+                <!-- Long expressions (verses) wrap instead of widening the column -->
+                <div class="max-w-xs break-words leading-snug">{{ entry.hebrew }}</div>
               </td>
               <td class="px-4 py-3 text-sm">
                 <div class="font-medium text-gray-900 dark:text-gray-100">

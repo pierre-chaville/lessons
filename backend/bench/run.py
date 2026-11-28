@@ -31,7 +31,7 @@ from bench.judge import (JudgeModel, JudgeSummary, calls_needed, is_judge_metric
                          rescore_judged, run_judge)
 from bench.metrics import get_metric_module
 from bench.score import metric_specs, reference_text, score_jobs
-from bench.steps import PROVIDERS
+from bench.steps import CACHE_NEUTRAL_PARAMS, PROVIDERS
 
 INPUT_SOURCES = ("raw", "gold", "pipeline")
 PRICING_PATH = BENCH_DIR / "configs" / "pricing.yaml"
@@ -397,7 +397,7 @@ class Job:
             "version": self.version,
             "provider": self.provider,
             "model": self.model_id,
-            "params": self.params,
+            "params": {k: v for k, v in self.params.items() if k not in CACHE_NEUTRAL_PARAMS},
             "prompt": sha256(self.prompt),
             "input": sha256(self.input_text),
             "repeat": self.repeat,

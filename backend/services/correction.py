@@ -247,6 +247,38 @@ async def correct_segment_group(
         return result
 
 
+def add_new_hebrew_terms(
+    session: Session, segments: list[dict], lesson_hashid: str | None
+) -> tuple[list, int | None]:
+    """Add every Hebrew word/expression of the segments whose normalized form
+    is not yet in the glossary, as an ``auto`` entry with only its context
+    filled in, and enqueue the glossary completion task when entries were
+    created. Returns (created entries, completion task id or None).
+
+    Segments should already be merged (``merge_hebrew_segments``) so a Hebrew
+    passage spread over several segments is extracted as one expression.
+    """
+    candidates = [
+        {
+            "hebrew": expression,
+            "context_lesson": lesson_hashid,
+            "context_paragraph": context,
+        }
+        for segment in segments
+        # Doubt tags are LLM markup, not lesson text: kept out of the glossary.
+        for context in [strip_doubt_tags(segment["text"])]
+        for expression in extract_hebrew_expressions(context)
+    ]
+    created = crud.add_missing_glossary_entries(
+        session,
+        candidates,
+        status=GlossaryStatus.AUTO.value,
+        source=GlossarySource.LLM.value,
+    )
+    glossary_task_id = enqueue_glossary_completion(session) if created else None
+    return created, glossary_task_id
+
+
 def _process_native_hebrew(
     session: Session, lesson_id: int, segments: list[dict]
 ) -> tuple[list[dict], dict]:
@@ -259,25 +291,7 @@ def _process_native_hebrew(
        (the remaining fields are completed later).
     """
     merged = merge_hebrew_segments(segments)
-    lesson_hashid = encode_id(lesson_id)
-    candidates = [
-        {
-            "hebrew": expression,
-            "context_lesson": lesson_hashid,
-            "context_paragraph": context,
-        }
-        for segment in merged
-        # Doubt tags are LLM markup, not lesson text: kept out of the glossary.
-        for context in [strip_doubt_tags(segment["text"])]
-        for expression in extract_hebrew_expressions(context)
-    ]
-    created = crud.add_missing_glossary_entries(
-        session,
-        candidates,
-        status=GlossaryStatus.AUTO.value,
-        source=GlossarySource.LLM.value,
-    )
-    glossary_task_id = enqueue_glossary_completion(session) if created else None
+    created, glossary_task_id = add_new_hebrew_terms(session, merged, encode_id(lesson_id))
     logger.info(
         "Lesson %s native Hebrew: %s -> %s segments, %s new glossary entries "
         "(glossary completion task: %s)",
