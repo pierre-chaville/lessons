@@ -12,7 +12,8 @@ import { Dialog, DialogPanel, DialogTitle } from '@headlessui/vue'
 import { modelPresetsApi } from '@/api/modelPresets'
 import { useToast } from '@/composables/useToast'
 import { usePermissions } from '@/composables/usePermissions'
-import type { ModelPreset } from '@/api/types'
+import { downloadJson } from '@/utils/downloadJson'
+import type { ModelPreset, ModelPresetTransfer } from '@/api/types'
 
 const { t } = useI18n()
 const toast = useToast()
@@ -27,6 +28,7 @@ const showEditModal = ref(false)
 const showDeleteConfirm = ref(false)
 const editingPreset = ref<ModelPreset | null>(null)
 const deletingPreset = ref<ModelPreset | null>(null)
+const importInputRef = ref<HTMLInputElement | null>(null)
 
 const formData = ref({
   name: '',
@@ -170,12 +172,77 @@ const deletePreset = async () => {
   }
 }
 
+const exportJson = async () => {
+  try {
+    const data = await modelPresetsApi.exportJson()
+    downloadJson(data, `model-presets-${data.exported_at.slice(0, 10)}.json`)
+    toast.success(t('modelPresets.exportSuccess'))
+  } catch {
+    toast.error(t('modelPresets.exportFailed'))
+  }
+}
+
+const openImportDialog = () => {
+  importInputRef.value?.click()
+}
+
+/** Accept an export file ({ presets: [...] }) or a bare list of presets. */
+const extractPresets = (parsed: unknown): ModelPresetTransfer[] | null => {
+  if (Array.isArray(parsed)) return parsed as ModelPresetTransfer[]
+  if (parsed && typeof parsed === 'object' && Array.isArray((parsed as { presets?: unknown }).presets)) {
+    return (parsed as { presets: ModelPresetTransfer[] }).presets
+  }
+  return null
+}
+
+const importJson = async (event: Event) => {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  try {
+    let items: ModelPresetTransfer[] | null = null
+    try {
+      items = extractPresets(JSON.parse(await file.text()))
+    } catch {
+      items = null
+    }
+    if (!items) {
+      toast.error(t('modelPresets.importInvalidJson'))
+      return
+    }
+    const result = await modelPresetsApi.importJson(items)
+    await fetchPresets()
+    toast.success(
+      t('modelPresets.importSuccess', {
+        created: result.created,
+        updated: result.updated,
+        unchanged: result.unchanged,
+      }),
+    )
+    if (result.ids_not_in_file.length > 0) {
+      toast.warning(t('modelPresets.importExtraIds', { ids: result.ids_not_in_file.join(', ') }))
+    }
+  } catch {
+    toast.error(t('modelPresets.importFailed'))
+  } finally {
+    input.value = ''
+  }
+}
+
 onMounted(fetchPresets)
 
-defineExpose({ openCreateModal })
+defineExpose({ openCreateModal, exportJson, openImportDialog })
 </script>
 
 <template>
+  <input
+    ref="importInputRef"
+    type="file"
+    accept=".json,application/json"
+    class="hidden"
+    @change="importJson"
+  />
+
   <Dialog :open="showEditModal" @close="closeEditModal" class="relative z-50">
     <div class="fixed inset-0 bg-black/30 backdrop-blur-sm" aria-hidden="true" />
     <div class="fixed inset-0 flex items-center justify-center p-4">

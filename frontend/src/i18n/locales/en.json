@@ -391,7 +391,15 @@
     "idLabel": "Theme ID",
     "theme": "theme",
     "themes": "themes",
-    "lessonsCount": "lesson | lessons"
+    "lessonsCount": "lesson | lessons",
+    "exportJson": "Export (JSON)",
+    "importJson": "Import (JSON)",
+    "exportSuccess": "Themes exported",
+    "exportFailed": "Failed to export themes",
+    "importSuccess": "Import done: {created} created, {updated} updated, {unchanged} unchanged",
+    "importFailed": "Failed to import themes",
+    "importInvalidJson": "Invalid JSON file: it must contain a list of themes or a \"themes\" object",
+    "importHint": "Merges by name under the same parent: missing themes are created, nothing is deleted"
   },
   "glossary": {
     "title": "Glossary",
@@ -1089,7 +1097,16 @@
       "delete": "Delete",
       "deleting": "Deleting...",
       "cancel": "Cancel"
-    }
+    },
+    "exportJson": "Export (JSON)",
+    "importJson": "Import (JSON)",
+    "exportSuccess": "Presets exported",
+    "exportFailed": "Failed to export presets",
+    "importSuccess": "Import done: {created} created, {updated} updated, {unchanged} unchanged",
+    "importExtraIds": "Presets present here but not in the file (left unchanged): ids {ids}",
+    "importFailed": "Failed to import presets",
+    "importInvalidJson": "Invalid JSON file: it must contain a list of presets or a \"presets\" object",
+    "importHint": "Imports by id: existing presets with the same id are overwritten, others are created with their id. Nothing is deleted."
   },
   "users": {
     "title": "Users",

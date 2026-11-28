@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel
-from typing import List, Optional
+from datetime import datetime
+
+from pydantic import BaseModel, field_validator
+from typing import List, Literal, Optional
 
 
 class ThemeCreate(BaseModel):
@@ -48,3 +50,44 @@ class ThemeTreeNode(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ── JSON export / import ──────────────────────────────────────────────────────
+# Themes are transferred as a name-based tree (no ids) so a file exported from
+# one environment can be imported into another, or written by hand.
+
+
+class ThemeTransferNode(BaseModel):
+    """One theme in an export/import file; children are nested."""
+
+    name: str
+    description: Optional[str] = None
+    children: List[ThemeTransferNode] = []
+
+    @field_validator("name")
+    @classmethod
+    def _strip_name(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Theme name must not be empty")
+        return value
+
+
+class ThemeExport(BaseModel):
+    format: Literal["themes"] = "themes"
+    version: int = 1
+    exported_at: datetime
+    themes: List[ThemeTransferNode]
+
+
+class ThemeImportRequest(BaseModel):
+    """Accepts an export file as-is: extra keys (format, version, exported_at) are ignored."""
+
+    themes: List[ThemeTransferNode]
+
+
+class ThemeImportResult(BaseModel):
+    created: int
+    updated: int
+    unchanged: int
+    total: int

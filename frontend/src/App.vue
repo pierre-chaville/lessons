@@ -510,14 +510,33 @@ watch(
             <h2 class="text-xl font-semibold text-gray-900 dark:text-white">
               {{ t('themes.title') }}
             </h2>
-            <button
-              v-if="can('themes', 'create')"
-              @click="themesListRef?.openCreateModal()"
-              class="inline-flex items-center gap-x-2 rounded-md bg-indigo-600 dark:bg-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 dark:hover:bg-indigo-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:focus-visible:outline-indigo-500 transition-colors"
-            >
-              <PlusIcon class="h-5 w-5" />
-              {{ t('themes.addNew') }}
-            </button>
+            <div class="flex items-center gap-2">
+              <button
+                v-if="can('themes', 'read')"
+                @click="themesListRef?.exportJson?.()"
+                class="inline-flex items-center gap-x-2 rounded-md px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
+              >
+                <ArrowDownTrayIcon class="h-4 w-4" />
+                {{ t('themes.exportJson') }}
+              </button>
+              <button
+                v-if="can('themes', 'create')"
+                @click="themesListRef?.openImportDialog?.()"
+                :title="t('themes.importHint')"
+                class="inline-flex items-center gap-x-2 rounded-md px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
+              >
+                <ArrowUpTrayIcon class="h-4 w-4" />
+                {{ t('themes.importJson') }}
+              </button>
+              <button
+                v-if="can('themes', 'create')"
+                @click="themesListRef?.openCreateModal()"
+                class="inline-flex items-center gap-x-2 rounded-md bg-indigo-600 dark:bg-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 dark:hover:bg-indigo-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:focus-visible:outline-indigo-500 transition-colors"
+              >
+                <PlusIcon class="h-5 w-5" />
+                {{ t('themes.addNew') }}
+              </button>
+            </div>
           </div>
         </div>
         <!-- Content -->
@@ -666,14 +685,33 @@ watch(
             <h2 class="text-xl font-semibold text-gray-900 dark:text-white">
               {{ t('modelPresets.title') }}
             </h2>
-            <button
-              v-if="can('model_presets', 'create')"
-              @click="modelPresetsRef?.openCreateModal()"
-              class="inline-flex items-center gap-x-2 rounded-md bg-indigo-600 dark:bg-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 dark:hover:bg-indigo-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:focus-visible:outline-indigo-500 transition-colors"
-            >
-              <PlusIcon class="h-5 w-5" />
-              {{ t('modelPresets.addNew') }}
-            </button>
+            <div class="flex items-center gap-2">
+              <button
+                v-if="can('model_presets', 'read')"
+                @click="modelPresetsRef?.exportJson?.()"
+                class="inline-flex items-center gap-x-2 rounded-md px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
+              >
+                <ArrowDownTrayIcon class="h-4 w-4" />
+                {{ t('modelPresets.exportJson') }}
+              </button>
+              <button
+                v-if="can('model_presets', 'create')"
+                @click="modelPresetsRef?.openImportDialog?.()"
+                :title="t('modelPresets.importHint')"
+                class="inline-flex items-center gap-x-2 rounded-md px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
+              >
+                <ArrowUpTrayIcon class="h-4 w-4" />
+                {{ t('modelPresets.importJson') }}
+              </button>
+              <button
+                v-if="can('model_presets', 'create')"
+                @click="modelPresetsRef?.openCreateModal()"
+                class="inline-flex items-center gap-x-2 rounded-md bg-indigo-600 dark:bg-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 dark:hover:bg-indigo-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:focus-visible:outline-indigo-500 transition-colors"
+              >
+                <PlusIcon class="h-5 w-5" />
+                {{ t('modelPresets.addNew') }}
+              </button>
+            </div>
           </div>
         </div>
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8">

@@ -1,6 +1,7 @@
 """Themes router — /themes endpoints."""
 
 import json
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -11,8 +12,20 @@ import crud
 from auth import require_roles
 from database import get_session
 from models import Lesson, Theme
-from schemas.theme import ThemeCreate, ThemeUpdate, ThemeResponse, ThemeTreeNode
+from schemas.theme import (
+    ThemeCreate,
+    ThemeExport,
+    ThemeImportRequest,
+    ThemeImportResult,
+    ThemeResponse,
+    ThemeTreeNode,
+    ThemeUpdate,
+)
+from services.theme_transfer import export_theme_tree, import_theme_tree
 from hashid_utils import encode_id, decode_id
+
+THEME_READ_ROLES = ["reader", "editor", "publisher", "admin"]
+THEME_WRITE_ROLES = ["publisher", "admin"]
 
 
 class ReorderRequest(BaseModel):
@@ -124,6 +137,29 @@ def get_themes_tree(session: Session = Depends(get_session)):
     themes = crud.get_all_themes(session)
     lesson_counts = _get_lesson_counts(session)
     return _build_tree(themes, lesson_counts)
+
+
+@router.get("/export", response_model=ThemeExport)
+def export_themes(
+    session: Session = Depends(get_session),
+    _: Dict[str, Any] = Depends(require_roles(THEME_READ_ROLES)),
+):
+    """Export all themes as a name-based JSON tree (portable across environments)."""
+    return ThemeExport(
+        exported_at=datetime.now(timezone.utc),
+        themes=export_theme_tree(session),
+    )
+
+
+@router.post("/import", response_model=ThemeImportResult)
+def import_themes(
+    body: ThemeImportRequest,
+    session: Session = Depends(get_session),
+    _: Dict[str, Any] = Depends(require_roles(THEME_WRITE_ROLES)),
+):
+    """Merge a JSON theme tree: themes are matched by name under the same parent,
+    missing ones are created. Nothing is deleted or moved."""
+    return import_theme_tree(session, body.themes)
 
 
 @router.patch("/{theme_hashid}/reorder", response_model=List[ThemeResponse])

@@ -13,7 +13,8 @@ import { useToast } from '@/composables/useToast'
 import { usePermissions } from '@/composables/usePermissions'
 import CourseTreeItem from '@/components/CourseTreeItem.vue'
 import { hierarchyLabel } from '@/utils/hierarchyLabel'
-import type { Theme, ThemeTreeNode } from '@/api/types'
+import { downloadJson } from '@/utils/downloadJson'
+import type { Theme, ThemeTransferNode, ThemeTreeNode } from '@/api/types'
 
 const { t } = useI18n()
 const toast = useToast()
@@ -32,6 +33,7 @@ const editingTheme = ref<Theme | null>(null)
 const deletingTheme = ref<Theme | null>(null)
 const isSaving = ref(false)
 const isDeleting = ref(false)
+const importInputRef = ref<HTMLInputElement | null>(null)
 
 const expanded = ref<Set<number>>(new Set())
 const draggedNode = ref<ThemeTreeNode | null>(null)
@@ -333,14 +335,76 @@ const availableParents = computed(() => {
 
 const parentLabel = (theme: Theme) => hierarchyLabel(theme, themes.value)
 
+const exportJson = async () => {
+  try {
+    const data = await themesApi.exportJson()
+    downloadJson(data, `themes-${data.exported_at.slice(0, 10)}.json`)
+    toast.success(t('themes.exportSuccess'))
+  } catch {
+    toast.error(t('themes.exportFailed'))
+  }
+}
+
+const openImportDialog = () => {
+  importInputRef.value?.click()
+}
+
+/** Accept an export file ({ themes: [...] }) or a bare list of theme nodes. */
+const extractThemeNodes = (parsed: unknown): ThemeTransferNode[] | null => {
+  if (Array.isArray(parsed)) return parsed as ThemeTransferNode[]
+  if (parsed && typeof parsed === 'object' && Array.isArray((parsed as { themes?: unknown }).themes)) {
+    return (parsed as { themes: ThemeTransferNode[] }).themes
+  }
+  return null
+}
+
+const importJson = async (event: Event) => {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  try {
+    let nodes: ThemeTransferNode[] | null = null
+    try {
+      nodes = extractThemeNodes(JSON.parse(await file.text()))
+    } catch {
+      nodes = null
+    }
+    if (!nodes) {
+      toast.error(t('themes.importInvalidJson'))
+      return
+    }
+    const result = await themesApi.importJson(nodes)
+    await fetchData()
+    toast.success(
+      t('themes.importSuccess', {
+        created: result.created,
+        updated: result.updated,
+        unchanged: result.unchanged,
+      }),
+    )
+  } catch {
+    toast.error(t('themes.importFailed'))
+  } finally {
+    input.value = ''
+  }
+}
+
 onMounted(() => {
   fetchData()
 })
 
-defineExpose({ openCreateModal })
+defineExpose({ openCreateModal, exportJson, openImportDialog })
 </script>
 
 <template>
+  <input
+    ref="importInputRef"
+    type="file"
+    accept=".json,application/json"
+    class="hidden"
+    @change="importJson"
+  />
+
   <!-- Create Theme Modal -->
   <Dialog :open="showCreateModal" @close="closeCreateModal" class="relative z-50">
     <div class="fixed inset-0 bg-black/30 backdrop-blur-sm" aria-hidden="true" />

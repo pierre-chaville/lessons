@@ -133,6 +133,27 @@ export interface ThemeUpdate {
   parent_id?: number | null
 }
 
+/** Name-based theme tree used by JSON export / import (no ids, portable across environments). */
+export interface ThemeTransferNode {
+  name: string
+  description?: string | null
+  children?: ThemeTransferNode[]
+}
+
+export interface ThemeExport {
+  format: 'themes'
+  version: number
+  exported_at: string
+  themes: ThemeTransferNode[]
+}
+
+export interface ThemeImportResult {
+  created: number
+  updated: number
+  unchanged: number
+  total: number
+}
+
 // ── Glossary ──────────────────────────────────────────────────────────────────
 
 export type GlossaryType =
@@ -873,6 +894,26 @@ export interface ModelPresetCreate {
   cost_output_per_m_tokens: number
   flex_cost_ratio: number
   thinking_mode: Record<string, unknown>
+}
+
+/** Preset as exported / imported in JSON: keeps its id (referenced by configuration). */
+export interface ModelPresetTransfer extends ModelPresetCreate {
+  id: number
+}
+
+export interface ModelPresetExport {
+  format: 'model_presets'
+  version: number
+  exported_at: string
+  presets: ModelPresetTransfer[]
+}
+
+export interface ModelPresetImportResult {
+  created: number
+  updated: number
+  unchanged: number
+  total: number
+  ids_not_in_file: number[]
 }
 
 export interface ModelPresetUpdate {

@@ -1,5 +1,6 @@
 """Model presets router — /model-presets endpoints."""
 
+from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -10,9 +11,13 @@ from auth import require_roles
 from database import get_session
 from schemas.model_preset import (
     ModelPresetCreate,
+    ModelPresetExport,
+    ModelPresetImportRequest,
+    ModelPresetImportResult,
     ModelPresetResponse,
     ModelPresetUpdate,
 )
+from services import model_preset_transfer
 
 router = APIRouter(prefix="/model-presets", tags=["Model Presets"])
 
@@ -24,6 +29,29 @@ def get_model_presets(
 ):
     """Get all model presets."""
     return crud.get_all_model_presets(session)
+
+
+@router.get("/export", response_model=ModelPresetExport)
+def export_model_presets(
+    session: Session = Depends(get_session),
+    _: Dict[str, Any] = Depends(require_roles(["publisher", "admin"])),
+):
+    """Export all model presets as JSON, with their ids (referenced by configuration)."""
+    return ModelPresetExport(
+        exported_at=datetime.now(timezone.utc),
+        presets=model_preset_transfer.export_model_presets(session),
+    )
+
+
+@router.post("/import", response_model=ModelPresetImportResult)
+def import_model_presets(
+    body: ModelPresetImportRequest,
+    session: Session = Depends(get_session),
+    _: Dict[str, Any] = Depends(require_roles(["admin"])),
+):
+    """Upsert model presets by id: existing ids are overwritten, missing ids are
+    created with that id. Presets absent from the file are left untouched."""
+    return model_preset_transfer.import_model_presets(session, body.presets)
 
 
 @router.get("/{preset_id}", response_model=ModelPresetResponse)

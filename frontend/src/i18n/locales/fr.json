@@ -391,7 +391,15 @@
     "idLabel": "ID du thème",
     "theme": "thème",
     "themes": "thèmes",
-    "lessonsCount": "session | sessions"
+    "lessonsCount": "session | sessions",
+    "exportJson": "Exporter (JSON)",
+    "importJson": "Importer (JSON)",
+    "exportSuccess": "Thèmes exportés",
+    "exportFailed": "Échec de l'export des thèmes",
+    "importSuccess": "Import terminé : {created} créé(s), {updated} mis à jour, {unchanged} inchangé(s)",
+    "importFailed": "Échec de l'import des thèmes",
+    "importInvalidJson": "Fichier JSON invalide : il doit contenir une liste de thèmes ou un objet « themes »",
+    "importHint": "Fusionne par nom sous le même parent : les thèmes manquants sont créés, rien n'est supprimé"
   },
   "glossary": {
     "title": "Glossaire",
@@ -1089,7 +1097,16 @@
       "delete": "Supprimer",
       "deleting": "Suppression...",
       "cancel": "Annuler"
-    }
+    },
+    "exportJson": "Exporter (JSON)",
+    "importJson": "Importer (JSON)",
+    "exportSuccess": "Presets exportés",
+    "exportFailed": "Échec de l'export des presets",
+    "importSuccess": "Import terminé : {created} créé(s), {updated} mis à jour, {unchanged} inchangé(s)",
+    "importExtraIds": "Presets présents ici mais absents du fichier (non modifiés) : ids {ids}",
+    "importFailed": "Échec de l'import des presets",
+    "importInvalidJson": "Fichier JSON invalide : il doit contenir une liste de presets ou un objet « presets »",
+    "importHint": "Importe par id : les presets existants avec le même id sont écrasés, les autres sont créés avec leur id. Rien n'est supprimé."
   },
   "users": {
     "title": "Utilisateurs",

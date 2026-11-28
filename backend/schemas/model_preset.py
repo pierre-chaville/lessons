@@ -1,9 +1,9 @@
 """Pydantic schemas for model preset API."""
 
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ModelPresetCreate(BaseModel):
@@ -43,3 +43,44 @@ class ModelPresetResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ── JSON export / import ──────────────────────────────────────────────────────
+# Presets keep their id: configuration YAML references presets by
+# `model_preset_id`, so ids must match between environments.
+
+
+class ModelPresetTransfer(ModelPresetCreate):
+    id: int = Field(gt=0)
+
+
+class ModelPresetExport(BaseModel):
+    format: Literal["model_presets"] = "model_presets"
+    version: int = 1
+    exported_at: datetime
+    presets: List[ModelPresetTransfer]
+
+
+class ModelPresetImportRequest(BaseModel):
+    """Accepts an export file as-is: extra keys (format, version, exported_at) are ignored."""
+
+    presets: List[ModelPresetTransfer]
+
+    @field_validator("presets")
+    @classmethod
+    def _unique_ids(cls, presets: List[ModelPresetTransfer]) -> List[ModelPresetTransfer]:
+        seen: set[int] = set()
+        for preset in presets:
+            if preset.id in seen:
+                raise ValueError(f"Duplicate model preset id {preset.id}")
+            seen.add(preset.id)
+        return presets
+
+
+class ModelPresetImportResult(BaseModel):
+    created: int
+    updated: int
+    unchanged: int
+    total: int
+    # Presets present in the database but absent from the file (left untouched).
+    ids_not_in_file: List[int]
