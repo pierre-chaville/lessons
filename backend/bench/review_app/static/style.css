@@ -190,6 +190,20 @@ bdi[dir="rtl"] { unicode-bidi: isolate; }
 .tok.sev--variant { background: var(--sev-variant); text-decoration: underline dotted var(--sev-variant-line); }
 .tok.sev--cosmetic { background: var(--sev-cosmetic); text-decoration: none; }
 .tok.sev--doubt { outline: 1px dashed var(--accent); outline-offset: 1px; background: none; }
+/* After the judge (segment view): critical red, significant orange, minor yellow, none grey */
+.tok.jl--critical { background: var(--sev-error); text-decoration: underline solid var(--sev-error-line); }
+.tok.jl--significant { background: var(--sev-form); text-decoration: underline solid var(--sev-form-line); }
+.tok.jl--minor { background: var(--sev-variant); text-decoration: underline dotted var(--sev-variant-line); }
+.tok.jl--none { background: var(--sev-cosmetic); text-decoration: none; }
+.tok--unjudged::after { content: "?"; font-size: .75em; vertical-align: super; font-weight: 700; }
+.tok--suspect { outline: 2px solid var(--accent); outline-offset: 1px; }
+td.jworst--critical { background: rgba(229, 57, 53, .07); }
+td.jworst--significant { background: rgba(251, 140, 0, .07); }
+td.jworst--minor { background: rgba(253, 216, 53, .1); }
+td.jworst--none { background: rgba(128, 128, 128, .06); }
+.seg-toggle { display: inline-flex; border: 1px solid var(--border, #ccc); border-radius: 4px; overflow: hidden; }
+.seg-toggle button { border: 0; border-radius: 0; padding: .2rem .6rem; background: none; cursor: pointer; color: inherit; }
+.seg-toggle button.on { background: var(--accent); color: #fff; }
 .tok--gap { font-weight: 700; padding: 0 2px; user-select: none; text-decoration: none !important; }
 td.worst--error, .source.worst--error { background: rgba(229, 57, 53, .07); }
 td.worst--drift, .source.worst--drift { background: rgba(142, 68, 173, .07); }

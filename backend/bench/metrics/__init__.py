@@ -38,6 +38,7 @@ IMPLEMENTED = (
     "hebrew_expression_format", "idea_coverage", "faithfulness", "judge_rubric",
     # correction in Hebrew script: levels A (identification), B (French text), C (rendering)
     "hebrew_identification", "hebrew_script_rate", "vocalized_rate", "wer_french", "wer_rendered",
+    "correction_judge",  # judge: impact of the red / purple discrepancies on the meaning
 )
 
 

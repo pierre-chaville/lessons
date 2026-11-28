@@ -315,17 +315,28 @@ function sortKeys(obj) {
   return obj;
 }
 
-/** One piece of a segment text (backend review_app/segment_view.py): a category maps to CSS classes. */
+/** One piece of a segment text (backend review_app/segment_view.py): a category maps to CSS classes.
+ * `judged`: colors after the judge (level `p.j`; a red / purple difference without verdict keeps its color). */
 const Piece = {
-  props: ["p"],
-  template: `<span v-if="p.c" :class="['tok', 'tok--' + p.c, 'sev--' + p.s, { 'tok--gap': p.gap }]" :title="p.h">{{ p.t }}</span><template v-else>{{ p.t }}</template>`,
+  props: ["p", "judged"],
+  setup(props) {
+    const classes = computed(() => {
+      const p = props.p;
+      const afterJudge = props.judged && p.j && p.j !== "unjudged";
+      return ["tok", "tok--" + p.c, afterJudge ? "jl--" + p.j : "sev--" + p.s,
+        { "tok--gap": p.gap, "tok--unjudged": props.judged && p.j === "unjudged", "tok--suspect": props.judged && p.gs }];
+    });
+    const title = computed(() => (props.judged && props.p.jh ? props.p.h + "\n\n" + props.p.jh : props.p.h));
+    return { classes, title };
+  },
+  template: `<span v-if="p.c" :class="classes" :title="title">{{ p.t }}</span><template v-else>{{ p.t }}</template>`,
 };
 
 /** Pieces of a segment text; each Hebrew passage is isolated in <bdi dir="rtl"> (punctuation around it stays outside). */
 const Pieces = {
   components: { Piece },
-  props: ["items"],
-  template: `<template v-for="(it, i) in items" :key="i"><bdi v-if="it.rtl" dir="rtl"><Piece v-for="(p, j) in it.rtl" :key="j" :p="p" /></bdi><Piece v-else :p="it" /></template>`,
+  props: ["items", "judged"],
+  template: `<template v-for="(it, i) in items" :key="i"><bdi v-if="it.rtl" dir="rtl"><Piece v-for="(p, j) in it.rtl" :key="j" :p="p" :judged="judged" /></bdi><Piece v-else :p="it" :judged="judged" /></template>`,
 };
 
 /** Modal to edit the gold text of one segment, with the texts of the initial transcript and of the models to copy from. */
@@ -460,32 +471,50 @@ const HebrewSegments = {
     const editing = ref(null);
     const saved = () => { editing.value = null; emit("changed"); };
     const outputs = computed(() => props.data.outputs);
-    const order = computed(() => props.data.segment_legend.map((s) => s.severity));
-    const rank = (severity) => (severity ? order.value.indexOf(severity) : Infinity);
+    const judge = computed(() => props.data.judge || null);
+    // "after": colors and counters after the judge (critical / significant / minor / none).
+    const view = ref(props.data.judge && Object.values(props.data.judge.judged).some(Boolean) ? "after" : "before");
+    const judged = computed(() => view.value === "after" && judge.value !== null);
+    watch(view, () => { minimum.value = "any"; });
+    // Levels of the current view, from the most to the least serious: {key, label, parts: [{key, label}]}.
+    const levels = computed(() => (judged.value
+      ? judge.value.legend.map((l) => ({ key: l.level, label: l.label, parts: l.parts, css: l.level === "unjudged" ? "sev--error tok--unjudged" : "jl--" + l.level }))
+      : props.data.segment_legend.map((s) => ({ key: s.severity, label: s.label, css: "sev--" + s.severity,
+        parts: s.categories.map((c) => ({ key: c.category, label: c.label })) }))));
+    const rank = (level) => { const i = levels.value.findIndex((l) => l.key === level); return i < 0 ? Infinity : i; };
+    const cellWorst = (cell) => (judged.value ? cell.judge_worst : cell.worst);
+    const cellClass = (cell) => {
+      const worst = cellWorst(cell);
+      if (!worst) return "seg-text";
+      if (!judged.value) return "seg-text worst--" + worst;
+      return "seg-text " + (worst === "unjudged" ? "worst--" + cell.worst : "jworst--" + worst);
+    };
     const rows = computed(() => props.data.segments.filter((r) => {
-      const worst = Math.min(...Object.values(r.cells).map((c) => rank(c.worst)));
+      const worst = Math.min(...Object.values(r.cells).map((c) => (c.missing ? 0 : rank(cellWorst(c)))));
       if (minimum.value === "all") return true;
       if (minimum.value === "any") return worst < Infinity || r.initial.changed > 0 || r.doubts > 0;
       return worst <= rank(minimum.value);
     }));
     const totals = props.data.segment_totals;
-    const count = (key, severity) => {
-      const counts = totals.models[key] || {};
-      return props.data.segment_legend.find((s) => s.severity === severity).categories.reduce((n, c) => n + (counts[c.category] || 0), 0);
-    };
-    const breakdown = (key, severity) => {
-      const counts = totals.models[key] || {};
-      return props.data.segment_legend.find((s) => s.severity === severity).categories
-        .map((c) => `${c.label}: ${counts[c.category] || 0}`).join("\n");
-    };
-    const categoriesOf = (s) => s.categories.map((c) => c.label).join(", ");
-    return { minimum, editing, saved, outputs, rows, totals, count, breakdown, categoriesOf };
+    const countsOf = (key) => (judged.value ? judge.value.totals[key] : totals.models[key]) || {};
+    const count = (key, level) => level.parts.reduce((n, p) => n + (countsOf(key)[p.key] || 0), 0);
+    const breakdown = (key, level) => level.parts.map((p) => `${p.label}: ${countsOf(key)[p.key] || 0}`).join("\n");
+    const partsOf = (level) => level.parts.map((p) => p.label).join(", ");
+    const visibleLevels = computed(() => levels.value.filter((l) => l.key !== "unjudged" || outputs.value.some((o) => count(o.key, l) > 0)));
+    const suspects = (key) => countsOf(key).gold_suspect || 0;
+    const acceptable = (key) => countsOf(key).both_acceptable || 0;
+    const notJudged = computed(() => (judge.value ? outputs.value.filter((o) => o.output !== null && !judge.value.judged[o.key]).map((o) => o.model) : []));
+    return { minimum, editing, saved, outputs, judge, view, judged, levels, visibleLevels, rows, totals, count, breakdown,
+      partsOf, cellClass, cellWorst, suspects, acceptable, notJudged };
   },
   template: `
   <div class="toolbar">
+    <span v-if="judge" class="seg-toggle" title="Colors and counters before / after the judge (correction_judge)">
+      <button :class="{ on: view === 'before' }" @click="view = 'before'">before judge</button><button :class="{ on: view === 'after' }" @click="view = 'after'">after judge</button>
+    </span>
     <label>show <select v-model="minimum">
       <option value="any">segments with a difference</option>
-      <option v-for="s in data.segment_legend" :value="s.severity">{{ s.label }} or worse</option>
+      <option v-for="l in visibleLevels" :value="l.key">{{ l.label }} or worse</option>
       <option value="all">all segments</option>
     </select></label>
     <span class="small muted">{{ rows.length }} / {{ data.segments.length }} segments</span>
@@ -493,12 +522,17 @@ const HebrewSegments = {
     <span class="small"><span class="tok tok--gold_changed sev--cosmetic">changed by the gold</span> (initial): {{ totals.initial_changes }}</span>
     <span class="small muted">glossary: {{ totals.glossary_entries }} entries</span>
   </div>
+  <p v-if="judged && notJudged.length" class="small muted">Not judged yet: {{ notJudged.join(", ") }} (run the scoring with the judge: <code>python -m bench.run &lt;campaign&gt; --only score</code>).</p>
   <table style="margin-bottom:1rem">
-    <thead><tr><th class="l">differences with corrected.md</th><th v-for="o in outputs">{{ o.model }}</th></tr></thead>
+    <thead><tr><th class="l">{{ judged ? 'impact after the judge' : 'differences with corrected.md' }}</th><th v-for="o in outputs">{{ o.model }}</th></tr></thead>
     <tbody>
-      <tr v-for="s in data.segment_legend">
-        <td class="l" :title="categoriesOf(s)"><span :class="['tok', 'sev--' + s.severity]">{{ s.label }}</span> <span class="muted small">{{ categoriesOf(s) }}</span></td>
-        <td v-for="o in outputs" :title="breakdown(o.key, s.severity)"><template v-if="o.output === null">–</template><template v-else>{{ count(o.key, s.severity) }}</template></td>
+      <tr v-for="l in visibleLevels" :key="l.key">
+        <td class="l" :title="partsOf(l)"><span :class="['tok', l.css]">{{ l.label }}</span> <span class="muted small">{{ partsOf(l) }}</span></td>
+        <td v-for="o in outputs" :title="breakdown(o.key, l)"><template v-if="o.output === null">–</template><template v-else>{{ count(o.key, l) }}</template></td>
+      </tr>
+      <tr v-if="judged">
+        <td class="l"><span class="tok tok--suspect jl--none">gold suspects</span> <span class="muted small">the judge says the output is right, not the gold (review corrected.md)</span></td>
+        <td v-for="o in outputs" :title="'both acceptable: ' + acceptable(o.key)"><template v-if="o.output === null">–</template><template v-else>{{ suspects(o.key) }}</template></td>
       </tr>
     </tbody>
   </table>
@@ -509,14 +543,14 @@ const HebrewSegments = {
         <td class="ts">{{ r.time }}</td>
         <td class="seg-text"><Pieces :items="r.initial.pieces" /></td>
         <td class="gold editable seg-text" title="Click to edit the gold" @click="editing = r"><Pieces :items="r.gold_pieces" /></td>
-        <td v-for="o in outputs" :class="o.output === null || !r.cells[o.key] ? 'na' : (r.cells[o.key].missing ? 'worst--error' : (r.cells[o.key].worst ? 'seg-text worst--' + r.cells[o.key].worst : 'seg-text'))">
+        <td v-for="o in outputs" :class="o.output === null || !r.cells[o.key] ? 'na' : (r.cells[o.key].missing ? 'worst--error' : cellClass(r.cells[o.key]))">
           <em v-if="r.cells[o.key]?.missing" class="muted">missing segment</em>
-          <Pieces v-else-if="r.cells[o.key]?.worst" :items="r.cells[o.key].pieces" />
+          <Pieces v-else-if="r.cells[o.key]?.worst" :items="r.cells[o.key].pieces" :judged="judged" />
         </td>
       </tr>
     </tbody>
   </table></div>
-  <p class="small muted">Model cells: empty = same words as corrected.md; grey = no output. Hover a marked word for its category, the gold form and the rendering of both forms. Click a gold cell to edit corrected.md.</p>
+  <p class="small muted">Model cells: empty = same words as corrected.md; grey = no output. Hover a marked word for its category, the gold form and the rendering of both forms<template v-if="judged">, and the verdict of the judge (blue outline: gold suspect; red / purple with a "?" : not judged)</template>. Click a gold cell to edit corrected.md.</p>
   <GoldEditor v-if="editing" :data="data" :row="editing" @close="editing = null" @saved="saved" />`,
 };
 

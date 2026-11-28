@@ -20,6 +20,7 @@ import yaml
 
 from bench.dataset import _SEGMENT_RE, BENCH_DIR, _format_seconds, format_transcript, load_dataset, parse_transcript
 from bench.db import BenchDB, options_json
+from bench.metrics.correction_judge import segment_label
 from bench.metrics.hebrew import load_glossary
 from bench.metrics.text import strip_doubt_tags
 from bench.metrics import get_metric_module
@@ -504,7 +505,11 @@ def lesson_detail(stem: str, step_name: str, lesson_id: str, candidates: Optiona
     if task == "correction":
         texts = {o["key"]: o["output"] for o in outputs if o["output"] is not None}
         if any(metric in HEBREW_METRICS for metric, _ in metric_specs(step)):
-            result.update(_hebrew_correction_rows(item, texts, step))
+            judgments = None
+            if any(metric == "correction_judge" for metric, _ in metric_specs(step)):
+                judgments = {o["key"]: next((s["details"] for s in o["scores"] if s["metric"] == "correction_judge"),
+                                            None) for o in outputs if o["output"] is not None}
+            result.update(_hebrew_correction_rows(item, texts, step, judgments))
         else:
             case_sensitive = bool((((campaign.config.get("report") or {}).get("correction_errors") or {})
                                    .get("case_sensitive", True)))
@@ -522,9 +527,21 @@ def _metric_options(step: dict, metric: str) -> dict:
     return next((options for name, options in metric_specs(step) if name == metric), {})
 
 
-def _hebrew_correction_rows(item, outputs: dict[str, str], step: dict) -> dict:
+def _segment_verdicts(details: Optional[dict]) -> dict[str, dict[tuple, list[dict]]]:
+    """Verdicts of a stored correction_judge judgment: {segment label: {(category, gold, output): [verdict]}}."""
+    by_segment: dict[str, dict[tuple, list[dict]]] = {}
+    for verdict in (details or {}).get("verdicts", []):
+        key = (verdict["category"], verdict["gold"], verdict["output"])
+        by_segment.setdefault(verdict["segment"], {}).setdefault(key, []).append(verdict)
+    return by_segment
+
+
+def _hebrew_correction_rows(item, outputs: dict[str, str], step: dict,
+                            judgments: Optional[dict[str, Optional[dict]]] = None) -> dict:
     """Segment view with the categories of metrics.hebrew.compare_unit, run with the options of
-    the step metrics, so that the counters equal the details of hebrew_identification / wer_french."""
+    the step metrics, so that the counters equal the details of hebrew_identification / wer_french.
+    `judgments`: {output key: correction_judge details or None} when the step has the judge: the
+    cells also get their levels after the judge (counters equal to the correction_judge details)."""
     rendered = _metric_options(step, "wer_rendered")
     identification = _metric_options(step, "hebrew_identification") or _metric_options(step, "wer_french")
     options = segment_view.RenderOptions(
@@ -536,6 +553,8 @@ def _hebrew_correction_rows(item, outputs: dict[str, str], step: dict) -> dict:
     initial = {(s.start, s.end): s.text for s in item.initial or []}
     parsed = {key: {(s.start, s.end): s.text for s in parse_transcript(text)[0]} for key, text in outputs.items()}
     totals: dict[str, dict[str, int]] = {key: {} for key in outputs}
+    verdicts = ({key: _segment_verdicts(judgments.get(key)) for key in outputs} if judgments is not None else None)
+    judge_totals: dict[str, dict[str, int]] = {key: {} for key in outputs}
     rows, doubts, changes = [], 0, 0
     for gold in item.corrected or []:
         span = (gold.start, gold.end)
@@ -550,9 +569,14 @@ def _hebrew_correction_rows(item, outputs: dict[str, str], step: dict) -> dict:
             if text is None:
                 cells[key] = {"missing": True, "worst": "error"}
                 continue
-            cell = segment_view.output_cell(gold.start, gold.text, text, init_raw, options, case_sensitive, one_letter)
+            segment_verdicts = (verdicts[key].get(segment_label(gold.start, gold.end), {})
+                                if verdicts is not None else None)
+            cell = segment_view.output_cell(gold.start, gold.text, text, init_raw, options, case_sensitive, one_letter,
+                                            segment_verdicts)
             for category, n in cell["counts"].items():
                 totals[key][category] = totals[key].get(category, 0) + n
+            for level, n in (cell.get("judge_counts") or {}).items():
+                judge_totals[key][level] = judge_totals[key].get(level, 0) + n
             cells[key] = cell
         rows.append({
             "start": gold.start, "end": gold.end,
@@ -561,9 +585,13 @@ def _hebrew_correction_rows(item, outputs: dict[str, str], step: dict) -> dict:
             "initial": {"pieces": init_pieces, "changed": n_changes, "text": strip_doubt_tags(init_raw), "raw": init_raw},
             "cells": cells,
         })
-    return {"segment_view": "hebrew", "segments": rows, "segment_legend": segment_view.legend(),
-            "segment_totals": {"models": totals, "gold_doubts": doubts, "initial_changes": changes,
-                               "glossary_entries": options.glossary.size}}
+    result = {"segment_view": "hebrew", "segments": rows, "segment_legend": segment_view.legend(),
+              "segment_totals": {"models": totals, "gold_doubts": doubts, "initial_changes": changes,
+                                 "glossary_entries": options.glossary.size}}
+    if judgments is not None:
+        result["judge"] = {"legend": segment_view.JUDGE_LEGEND, "totals": judge_totals,
+                           "judged": {key: judgments.get(key) is not None for key in outputs}}
+    return result
 
 
 # --------------------------------------------------------------------------- #

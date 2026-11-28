@@ -196,7 +196,7 @@ The steps evaluated are part of the app workflow:
 
 | Step | Dataset | Input (`gold` mode) | References | Metrics |
 |---|---|---|---|---|
-| `correction` | extracts | `initial.md` | `corrected.md` | Hebrew script: hebrew_identification, hebrew_script_rate, vocalized_rate, wer_french, wer_rendered; transliterated Hebrew: wer, wer_norm, wer_fold, hebrew_term_accuracy, cer; both: edit_precision_recall, overcorrection_rate |
+| `correction` | extracts | `initial.md` | `corrected.md` | Hebrew script: hebrew_identification, hebrew_script_rate, vocalized_rate, wer_french, wer_rendered, correction_judge (judge); transliterated Hebrew: wer, wer_norm, wer_fold, hebrew_term_accuracy, cer; both: edit_precision_recall, overcorrection_rate |
 | `edition` | extracts | `corrected.md` | `edited_ideas.yaml`, `edited.md` | idea_coverage, faithfulness, length_ratio, hebrew_quotes_preserved, hebrew_expression_format, judge_rubric, judge_pairwise |
 | `summary` | full | `edited.md` | `summary_keypoints.yaml`, `summary.md` | keypoint_coverage, faithfulness, length_words, judge_pairwise |
 
@@ -471,6 +471,26 @@ output, a model from a different family than the candidates when possible.
   (`present_rate`, `partial_rate`, `absent_rate`) is shown per model: when every model has ≥ 95 %
   present, the metric is saturated (the app warns). For calibration, review first the
   present-vs-partial cases (Ideas tab, "only ideas not present for some model").
+- **correction_judge** (correction in Hebrew script) – judges the discrepancies, not the whole
+  text. Deterministic filtering first: only the red and purple discrepancies of the segment view
+  (`wrong_word`, `latin_uncorrected`, `missing`, `french_error`, `drift`) are sent; variants, word
+  forms, Latin script of the right word, vowel points and minor differences never are. A missing
+  Hebrew passage replaced by French words is one discrepancy. One call per lesson × model (batches
+  of `batch_size` discrepancies, default 80, a segment never split), the discrepancies grouped by
+  segment with the raw transcription, the gold (and its `<d>` doubts), the output and
+  `context_segments` (default 2) gold segments before and after. For each discrepancy the judge
+  gives its impact on the edited version: `severity` 0 none (form only) / 1 minor (grammar, the
+  edition fixes it) / 2 significant (information lost or unclear, recoverable from context) /
+  3 critical (meaning altered: other concept, source or person, made-up content),
+  `recoverable_from_context`, `who_is_right` (`gold` / `model` / `both_acceptable` / `unsure`) and
+  an explanation. A discrepancy is a model error when the gold is right or the judge is unsure;
+  `model` makes it a gold suspect, `both_acceptable` is not an error. Rates per 1,000 gold words:
+  value = `weighted_error_score` (sum of the severities of the model errors), `critical_errors`,
+  `significant_errors`; `unrecoverable_rate` (share of the model errors not recoverable from
+  context); `gold_suspects` (listed in `gold_suspect_list`: the gold review queue). Details also
+  hold every verdict (most severe first). A new judgment is made when the output, corrected.md or
+  a judge option changes (not when the app glossary changes). Options: `context_segments`,
+  `batch_size`, and `glossary`, `case_sensitive`, `one_letter_variants` as wer_french.
 - **keypoint_coverage** (summary) – same principle with `summary_keypoints.yaml`.
 - **faithfulness** (edition, summary) – checks that what is written comes from the lesson:
   1. the judge splits the output into atomic claims (always the same judge model, so that all
@@ -720,7 +740,16 @@ starts a FastAPI server and opens a Vue.js page:
   the rendering of both forms through the glossary. The initial column only grays the words
   changed by the gold; doubt tags of the gold are outlined (counted as questionable gold
   entries). Hebrew passages are isolated (`<bdi dir="rtl">`, punctuation outside) so punctuation
-  stays on the French side. Otherwise (transliterated Hebrew): red = still counted by wer_fold,
+  stays on the French side. When the step has `correction_judge`, a toggle **before / after
+  judge** (after by default once judged) recolors by impact: each red / purple difference takes
+  the level of its verdict, critical (red, severity 3), significant (orange, 2), minor (yellow, 1),
+  none (gray: severity 0, or the output is right / both acceptable); orange differences become
+  yellow and harmless variants gray (never judged). The tooltip adds the verdict (severity,
+  recoverable, who is right, explanation); gold suspects are outlined in blue; a red / purple
+  difference without verdict (not judged yet, or the gold changed since: verdicts are matched on
+  the segment and the texts of the discrepancy) keeps its color with a "?". The counters after
+  the judge (critical, significant, gold suspects...) equal the correction_judge details.
+  Otherwise (transliterated Hebrew): red = still counted by wer_fold,
   orange = transliteration variant counted by wer_norm only, yellow = case, accents, apostrophes or
   hyphens; punctuation and spacing are
   ignored, case counts unless `report.correction_errors.case_sensitive: false`; edition / summary: gold and outputs side by side (rendered or raw
