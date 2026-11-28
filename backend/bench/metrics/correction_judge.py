@@ -356,3 +356,13 @@ def score(judgment: dict, output: str, *, input_text: str, item=None, options: O
         "verdicts": sorted(judged, key=lambda e: (-e["severity"] * e["model_error"], e["id"])),
     }
     return MetricResult(weighted * per_1000, details)
+
+
+# Report (review app): unit of the value and definition of each detail column.
+UNIT = 'severity points per 1,000 words of the gold (sum of the severities 0-3 of the model errors)'
+DETAIL_DOCS = {
+    'critical_errors': 'Model errors judged critical (severity 3: meaning altered, other concept, source or person, made-up content). Unit: per 1,000 words of the gold.',
+    'significant_errors': 'Model errors judged significant (severity 2: information lost or unclear, recoverable from context). Unit: per 1,000 words of the gold.',
+    'unrecoverable_rate': 'Share of the model errors the edition cannot recover from context (recoverable_from_context = false). Unit: % of the model errors.',
+    'gold_suspects': 'Discrepancies where the judge says the output is right and the gold is wrong: to review in corrected.md. Unit: number of discrepancies.',
+}

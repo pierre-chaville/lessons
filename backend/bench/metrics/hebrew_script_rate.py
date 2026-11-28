@@ -38,3 +38,7 @@ def compute(output: str, *, input_text: str = "", reference: str, options: Optio
         "top_latin": [f"{e} (×{n})" if n > 1 else e for e, n in latin.most_common(TOP_LATIN)],
     }
     return MetricResult(hebrew / len(present) if present else None, details)
+
+
+# Report (review app): unit of the value and definition of each detail column.
+UNIT = '% of the Hebrew words of the gold written in Hebrew script in the output'

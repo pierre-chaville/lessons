@@ -118,3 +118,7 @@ def compute(output: str, *, input_text: str, reference: Optional[str] = None,
         "threshold": threshold,
     }
     return MetricResult(found / expected if expected else None, details)
+
+
+# Report (review app): unit of the value and definition of each detail column.
+UNIT = '% of the Hebrew items of the input (spans and known terms) found in the output'

@@ -301,3 +301,10 @@ def score(judgment: dict, output: str, *, input_text: str, item=None, options: O
         "rubric_version": rubric.get("version"),
     })
     return MetricResult(weighted / total_weight if total_weight else None, details)
+
+
+# Report (review app): unit of the value and definition of each detail column.
+UNIT = 'grade on the rubric scale (e.g. 1 to 5), weighted mean of the criteria'
+DETAIL_DOCS = {
+    'length_ratio': 'Words of the output / words of the input: to check that the grades do not simply follow the length. Unit: ratio.',
+}

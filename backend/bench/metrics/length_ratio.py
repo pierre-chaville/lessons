@@ -42,3 +42,10 @@ def compute(output: str, *, input_text: str, reference: Optional[str] = None,
     if low is not None or high is not None:
         details["in_range"] = float((low is None or ratio >= low) and (high is None or ratio <= high))
     return MetricResult(ratio, details)
+
+
+# Report (review app): unit of the value and definition of each detail column.
+UNIT = 'ratio (words of the output / words of the input; 1.0 = same length)'
+DETAIL_DOCS = {
+    'in_range': '1 when the ratio is within the [min, max] range of the options, else 0; averaged over lessons: share of the outputs in range. Unit: share of the outputs (0 to 1).',
+}

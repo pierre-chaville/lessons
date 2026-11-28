@@ -284,3 +284,14 @@ def _foreign_runs(text: str, min_words: int) -> list[list[re.Match]]:
     if current:
         runs.append(current)
     return [r for r in runs if len(r) >= min_words]
+
+
+# Report (review app): unit of the value and definition of each detail column.
+UNIT = '% of the Hebrew expressions of the output'
+DETAIL_DOCS = {
+    'expressions': 'Number of distinct Hebrew expressions found in the output (the denominator). Unit: number of expressions.',
+    'first_occurrence_rate': 'Share of the expressions written in full form (Hebrew + transliteration + translation) at their first occurrence. Unit: % of the expressions.',
+    'no_translation_rate': 'Share of the expressions never given with their translation. Unit: % of the expressions.',
+    'no_hebrew_rate': 'Share of the expressions never written in Hebrew script. Unit: % of the expressions.',
+    'no_transliteration_rate': 'Share of the expressions never given with a transliteration. Unit: % of the expressions.',
+}

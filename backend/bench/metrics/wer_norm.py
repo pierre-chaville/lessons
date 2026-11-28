@@ -18,3 +18,7 @@ REPORT_DETAILS: dict[str, bool] = {}
 
 def compute(output: str, *, input_text: str = "", reference: str, options: Optional[dict] = None) -> MetricResult:
     return error_rate(output, reference, chars=False, options=options, level="norm")
+
+
+# Report (review app): unit of the value and definition of each detail column.
+UNIT = '% of the words of the gold (errors / gold words)'

@@ -80,8 +80,48 @@ function storeSelection(stem, step, keys) {
 // Components
 // --------------------------------------------------------------------------- //
 
+/** Short definition of a report column (metric or detail), for its tooltip. */
+const metricTooltip = (c) => [c.summary, c.unit ? "Unit: " + c.unit : null, title(c) + (c.judge ? " – LLM judge" : ""),
+  "Click for how it is measured."].filter(Boolean).join("\n");
+
+/** Modal with the definition of a report column: summary, unit, direction, options, how it is measured (metric docstring). */
+const MetricInfo = {
+  props: ["column"],
+  emits: ["close"],
+  setup(props, { emit }) {
+    const box = ref(null);
+    onMounted(() => box.value?.focus());
+    const options = computed(() => {
+      const parsed = JSON.parse(props.column.options || "{}");
+      return Object.keys(parsed).length ? JSON.stringify(parsed) : null;
+    });
+    return { box, options, title, close: () => emit("close") };
+  },
+  template: `
+  <div class="modal-backdrop" @mousedown.self="close" @keydown.esc="close">
+    <div class="modal metric-info" role="dialog" aria-modal="true" tabindex="-1" ref="box">
+      <header>
+        <span class="name">{{ column.detail ? column.metric + ' › ' + column.label : column.metric }}</span>
+        <span v-if="column.judge" class="muted small"> · LLM judge</span>
+      </header>
+      <p v-if="column.summary">{{ column.summary }}</p>
+      <dl>
+        <dt>Unit</dt><dd>{{ column.unit || (column.percent ? '%' : 'number') }}</dd>
+        <dt>Direction</dt><dd>{{ title(column) }}</dd>
+        <dt v-if="options">Options</dt><dd v-if="options"><code>{{ options }}</code></dd>
+        <dt v-if="column.detail">Detail of</dt><dd v-if="column.detail"><code>{{ column.metric }}</code> (described below)</dd>
+      </dl>
+      <h4>How it is measured</h4>
+      <pre class="metric-doc">{{ column.doc || 'No description.' }}</pre>
+      <p class="small muted">Scores are averaged over the lessons (each lesson: mean over its repeats). From <code>bench/metrics/{{ column.metric }}.py</code>.</p>
+      <div style="text-align:right"><button @click="close">Close</button></div>
+    </div>
+  </div>`,
+};
+
 /** Metrics as rows, models (candidates) as columns: there are many more metrics than models. */
 const SummaryTable = {
+  components: { MetricInfo },
   props: ["step", "selectable", "selected"],
   emits: ["toggle"],
   setup(props) {
@@ -95,7 +135,8 @@ const SummaryTable = {
       { label: "total USD", value: (r) => usd(r.cost) },
       { label: "judge USD", value: (r) => (r.judge_cost ? usd(r.judge_cost) : "–") },
     ];
-    return { best, severalPrompts, costRows, fmt, usd, arrow, title };
+    const info = ref(null);  // column whose definition is shown
+    return { best, severalPrompts, costRows, fmt, usd, arrow, title, info, metricTooltip };
   },
   template: `
   <div class="scroll"><table class="summary">
@@ -110,7 +151,7 @@ const SummaryTable = {
     </tr></thead>
     <tbody>
       <tr v-for="(c, i) in step.columns" :class="{ detail: c.detail, 'metric-start': !c.detail && i > 0 }">
-        <td class="l" :title="title(c) + (c.judge ? ' – LLM judge' : '')">
+        <td class="l metric-name" :title="metricTooltip(c)" @click="info = c">
           <template v-if="c.detail">› {{ c.label }}</template><b v-else>{{ c.metric }}</b>{{ c.percent ? ' %' : '' }}{{ arrow(c) }}</td>
         <td v-for="row in step.rows" :key="row.key" :class="{ best: row.cells[i].value !== null && row.cells[i].value === best[i] }">
           {{ fmt(row.cells[i].value, c) }}<span v-if="row.cells[i].spread !== null" class="spread">± {{ fmt(row.cells[i].spread, c) }}</span>
@@ -124,6 +165,7 @@ const SummaryTable = {
       </tr>
     </tbody>
   </table></div>
+  <MetricInfo v-if="info" :column="info" @close="info = null" />
   <p v-for="w in step.warnings || []" class="warning small">⚠ {{ w }}</p>
   <details v-if="step.failures.length" class="small" style="margin-top:.5rem">
     <summary>{{ step.failures.length }} call(s) without output</summary>

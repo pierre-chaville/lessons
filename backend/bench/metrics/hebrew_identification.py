@@ -58,3 +58,12 @@ def compute(output: str, *, input_text: str = "", reference: str, options: Optio
         "top_differences": [f"{e} (×{n})" if n > 1 else e for e, n in errors.most_common(TOP_ERRORS)],
     }
     return MetricResult(identified / len(terms) if terms else None, details)
+
+
+# Report (review app): unit of the value and definition of each detail column.
+UNIT = '% of the Hebrew words of the gold identified (exact, spelling / prefix variant, right Latin transliteration)'
+DETAIL_DOCS = {
+    'wrong_word': 'Hebrew words of the gold replaced by another word (red). Unit: number of words.',
+    'missing': 'Hebrew words of the gold with no counterpart in the output (red). Unit: number of words.',
+    'latin_uncorrected': 'Hebrew words of the gold left in Latin script as in the raw transcription, not corrected (red). Unit: number of words.',
+}

@@ -46,3 +46,11 @@ def compute(output: str, *, input_text: Optional[str] = None, reference: Optiona
         "abs_deviation": abs(deviation),
         "in_range": float(abs(deviation) <= tolerance + 1e-12),
     })
+
+
+# Report (review app): unit of the value and definition of each detail column.
+UNIT = 'words (number of words of the output)'
+DETAIL_DOCS = {
+    'in_range': '1 when the number of words is within target ± tolerance, else 0; averaged over lessons: share of the outputs in range. Unit: share of the outputs (0 to 1).',
+    'abs_deviation': 'Distance to the target: |words - target| / target. Unit: share of the target.',
+}

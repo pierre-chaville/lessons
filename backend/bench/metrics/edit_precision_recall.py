@@ -62,3 +62,11 @@ def compute(output: str, *, input_text: str, reference: str, options: Optional[d
     }
     f1 = 2 * n_correct / (n_model + n_gold) if (n_model + n_gold) else None
     return MetricResult(f1, details)
+
+
+# Report (review app): unit of the value and definition of each detail column.
+UNIT = '% (F1 of the model edits vs the expected edits)'
+DETAIL_DOCS = {
+    'precision': 'Share of the edits made by the model that are exactly the expected edit (same span, same words). Unit: % of the model edits.',
+    'recall': 'Share of the expected edits (initial -> gold) that the model made exactly. Unit: % of the expected edits.',
+}

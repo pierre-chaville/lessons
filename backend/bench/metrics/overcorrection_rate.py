@@ -42,3 +42,7 @@ def compute(output: str, *, input_text: str, reference: str, options: Optional[d
         "examples": modified[:MAX_EXAMPLES],
     }
     return MetricResult(len(modified) / n_correct if n_correct else None, details)
+
+
+# Report (review app): unit of the value and definition of each detail column.
+UNIT = '% of the initial words that were already correct'

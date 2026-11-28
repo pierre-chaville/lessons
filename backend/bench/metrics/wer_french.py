@@ -76,3 +76,11 @@ def compute(output: str, *, input_text: str = "", reference: str, options: Optio
         "top_errors": [f"{e} (×{n})" if n > 1 else e for e, n in errors.most_common(TOP_ERRORS)],
     }
     return MetricResult(total.rate(), details)
+
+
+# Report (review app): unit of the value and definition of each detail column.
+UNIT = '% of the words of the gold, Hebrew passages counted as one ⟨HE⟩ token (errors / gold words)'
+DETAIL_DOCS = {
+    'french_errors': 'French differences of 3 words or less (agreements, wording): red `French error` in the segment view. Unit: number of differences.',
+    'large_edits': 'Insertions / replacements of more than 3 words (rewritten passages): purple `content drift`. Unit: number of edits.',
+}

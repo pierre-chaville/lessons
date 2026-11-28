@@ -197,3 +197,13 @@ def score(judgment: dict, output: str, *, input_text: str, item=None, options: O
         "verdicts": verdicts,
     }
     return MetricResult(weighted / total_weight if total_weight else None, details)
+
+
+# Report (review app): unit of the value and definition of each detail column.
+UNIT = '% (weighted score of the ideas: present = 1, partial = 0.5, absent = 0; weights by importance)'
+DETAIL_DOCS = {
+    'present_rate': 'Share of the ideas of edited_ideas.yaml fully present (all essential elements explicitly stated). Unit: % of the ideas (unweighted).',
+    'partial_rate': 'Share of the ideas partially present (an essential element missing, implied or distorted). Unit: % of the ideas.',
+    'absent_rate': 'Share of the ideas no longer recognizable in the output. Unit: % of the ideas.',
+    'missed_high': 'High-importance ideas absent from the output. Unit: number of ideas.',
+}

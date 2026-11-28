@@ -7,6 +7,7 @@ when its config file or the database changes.
 
 from __future__ import annotations
 
+import inspect
 import json
 import os
 import threading
@@ -153,6 +154,20 @@ def _candidates(jobs: list[Any]) -> list[dict]:
     return list(seen.values())
 
 
+def metric_doc(module, label: str) -> dict:
+    """Definition of a report column (metric value or detail), from the metric module: `summary`
+    (first paragraph of the docstring, or DETAIL_DOCS of a detail), `unit` (UNIT, or the unit
+    stated in the detail definition) and `doc` (the whole docstring: how it is measured)."""
+    doc = inspect.cleandoc(module.__doc__ or "")
+    paragraphs = [p for p in doc.split("\n\n") if p.strip()]
+    if label == module.__name__.rsplit(".", 1)[-1]:
+        return {"summary": " ".join(paragraphs[0].split()) if paragraphs else "", "unit": getattr(module, "UNIT", None),
+                "doc": doc}
+    detail = getattr(module, "DETAIL_DOCS", {}).get(label, "")
+    definition, _, unit = detail.partition(" Unit: ")
+    return {"summary": definition, "unit": unit.rstrip(".") or None, "doc": doc}
+
+
 def _column_meta(step: dict) -> list[dict]:
     meta = []
     for metric, options, column in metric_columns(step):
@@ -161,6 +176,7 @@ def _column_meta(step: dict) -> list[dict]:
             "metric": metric, "options": options_json(options), "label": column.label,
             "detail": column.label != metric, "higher_is_better": column.higher_is_better,
             "percent": column.percent, "digits": column.digits, "judge": bool(getattr(module, "JUDGE", False)),
+            **metric_doc(module, column.label),
         })
     return meta
 

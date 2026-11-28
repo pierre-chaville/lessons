@@ -38,3 +38,7 @@ def compute(output: str, *, input_text: str = "", reference: str, options: Optio
         "top_unvocalized": [f"{e} (×{n})" if n > 1 else e for e, n in bare.most_common(TOP_UNVOCALIZED)],
     }
     return MetricResult(vocalized / len(counted) if counted else None, details)
+
+
+# Report (review app): unit of the value and definition of each detail column.
+UNIT = '% of the Hebrew-script words of the output (that need them) written with vowel points'

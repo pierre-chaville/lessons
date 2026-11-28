@@ -94,3 +94,7 @@ def compute(output: str, *, input_text: str = "", reference: str, options: Optio
         ],
     }
     return MetricResult(total.rate(), details)
+
+
+# Report (review app): unit of the value and definition of each detail column.
+UNIT = '% of the words of the gold as displayed to the reader (both texts rendered through the glossary)'

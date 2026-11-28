@@ -104,3 +104,7 @@ def compute(output: str, *, input_text: str = "", reference: str,
         "top_errors": [f"{e} (×{n})" if n > 1 else e for e, n in errors.most_common(TOP_ERRORS)],
     }
     return MetricResult(n_right / len(terms) if terms else None, details)
+
+
+# Report (review app): unit of the value and definition of each detail column.
+UNIT = '% of the occurrences of Hebrew terms of the gold'

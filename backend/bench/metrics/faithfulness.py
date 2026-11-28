@@ -361,3 +361,14 @@ def score(judgment: dict, output: str, *, input_text: str, item=None, options: O
         "policy": {"penalize": sorted(penalize)},
     }
     return MetricResult(1 - penalized / len(claims), details)
+
+
+# Report (review app): unit of the value and definition of each detail column.
+UNIT = '% of the claims of the output not penalized by the policy'
+DETAIL_DOCS = {
+    'claims': 'Atomic claims the judge split the output into (the denominator). Unit: number of claims.',
+    'penalized': 'Number of claims in a penalized category (content added, model error, wrong reference, contradicted, extrapolation... per the campaign policy). Unit: number of claims.',
+    'reported': 'Number of claims in a category reported but not penalized (e.g. a correct reference added). Unit: number of claims.',
+    'major': 'Penalized claims of major severity. Unit: number of claims.',
+    'wrong_reference': 'Number of references or quotes added by the output that do not exist on Sefaria or do not say what the output says. Unit: number of references.',
+}
